@@ -137,15 +137,39 @@ def polish(phrase, text):
     return out if isinstance(out, str) and out.strip() else text
 
 
+def behavior_decision(behavior, weak):
+    """(action, repairability, reason) from the behavior detector's measured conditions
+    (herd.trajectory): switch_strategy when (a) same behavior cluster, (b) same failure sets and
+    (c) stalled all hold; repair when stalled but (a) or (b) fails; continue when improving."""
+    cond = behavior["conditions"]
+    if all(cond.values()):
+        return ("switch_strategy", "low" if weak else "medium",
+                "behavior loop: the recent attempts make the same decisions on the probes, fail on the same "
+                "dev cases and have stopped improving: switch strategy")
+    if cond["c"]:
+        failed = [name for key, name in (("a", "they do not share one behavior cluster"),
+                                         ("b", "their failure sets differ")) if not cond[key]]
+        return ("repair", "medium" if weak else "high",
+                f"stalled, but no behavior loop ({join(failed)}): fix the current strategy")
+    return ("continue", "high",
+            f"dev improvement {behavior['improvement_last3']:+.1%} over the last 3 attempts "
+            f"(> {behavior['epsilon']:.0%}): keep going")
+
+
 def diagnose(task, trajectory, overlook=None, phrase=None):
-    """continue if the best attempt is >= 2% better than the first; else switch_strategy if the
-    trajectory is a loop (one strategy repeated, stalled); else repair."""
+    """With the behavior detector (trajectory["detector"] == "behavior"), behavior_decision on its
+    measured conditions. Otherwise: continue if the best attempt is >= 2% better than the first;
+    else switch_strategy if the trajectory is a loop (one strategy repeated, stalled); else repair."""
     n, shared = attempt_count(trajectory), trajectory.get("shared") or {}
     progress = trajectory.get("progress") or {}
     gain = progress.get("relative_improvement")
     weak = [text_of(w) for w in shared.get("weak_regimes") or []]
     reasons = list(trajectory.get("reasons") or [])
-    if gain is not None and gain >= IMPROVING:
+    behavior = trajectory.get("behavior") if trajectory.get("detector") == "behavior" else None
+    if behavior:
+        action, repairability, line = behavior_decision(behavior, weak)
+        reasons.append(line)
+    elif gain is not None and gain >= IMPROVING:
         action, repairability = "continue", "high"
         reasons.append(f"the best attempt is {gain:.1%} better than the first (>= {IMPROVING:.0%}): keep going")
     elif trajectory.get("loop_detected"):
@@ -157,6 +181,8 @@ def diagnose(task, trajectory, overlook=None, phrase=None):
         reasons.append("stalled, but the attempts do not repeat one strategy: fix the current one")
     if weak:
         failure = f"all {n} attempts are weak on: {'; '.join(weak)}"
+    elif behavior and action == "continue":
+        failure = f"none yet: {behavior['improvement_last3']:+.1%} dev improvement over the last 3 attempts"
     elif action == "continue":
         failure = f"none yet: the best attempt is {gain:.1%} better than the first"
     else:
@@ -164,7 +190,7 @@ def diagnose(task, trajectory, overlook=None, phrase=None):
     cause = shared_cause(trajectory)
     prevalence, prevalence_evidence = herd_prevalence(trajectory, overlook)
     evidence = {k: trajectory.get(k) for k in ("n", "loop_score", "loop_detected", "strategy_similarity",
-                                               "code_similarity", "progress")}
+                                               "code_similarity", "progress", "detector", "behavior")}
     evidence.update(shared=shared, herd_prevalence=prevalence_evidence, task=getattr(task, "name", task))
     return {"action": action, "repairability": repairability,
             "failure": polish(phrase, failure), "shared_cause": polish(phrase, cause),
