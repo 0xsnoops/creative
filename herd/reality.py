@@ -99,12 +99,23 @@ def slug(name):
     return f"{base}-{hashlib.sha256(name.encode()).hexdigest()[:6]}"
 
 
-def reality_check(task, family, evaluator, llm, cfg, out_dir, k, progress=print):
-    """Return {family, k, n_valid, n_invalid, best_score, median_score, best_code_path, implementations}."""
+def implementation_prompt(task, family, extra=""):
+    """The shared template; extra (a contrast list or feedback note) goes right before the final
+    instruction, so with no extra the prompt is exactly the shared one."""
     prompt = IMPLEMENT_TEMPLATE.format(task=task.prompt, family=family["family"],
                                        mechanism=family["one_line_mechanism"],
                                        source_summary=family["source_summary"])
-    code_dir = out_dir / "reality" / evaluator.id
+    if extra:
+        marker = "Implement this approach faithfully"
+        head, tail = prompt.rsplit(marker, 1)
+        prompt = f"{head}{extra.strip()}\n\n{marker}{tail}"
+    return prompt
+
+
+def reality_check(task, family, evaluator, llm, cfg, out_dir, k, progress=print, extra=""):
+    """Return {family, k, n_valid, n_invalid, best_score, median_score, best_code_path, implementations}."""
+    prompt = implementation_prompt(task, family, extra)
+    code_dir = out_dir / "reality" / evaluator.id / ("contrast" if extra else "plain")
     code_dir.mkdir(parents=True, exist_ok=True)
 
     def one(i):

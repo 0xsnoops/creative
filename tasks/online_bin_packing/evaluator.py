@@ -24,6 +24,10 @@ N_ITEMS = 5000
 # "dev" instances are used for all scoring and selection. "heldout" instances are only used
 # to report final numbers for candidates already selected on dev. Both fixed before any results.
 SPLITS = {"dev": [0, 1, 2, 3, 4], "heldout": [1000, 1001, 1002, 1003, 1004]}
+# Behavioral fingerprints use their own seeds (never dev or held-out): probe states are taken
+# from best-fit packing trajectories on these sequences.
+PROBE_SEEDS = [5000, 5001, 5002, 5003]
+PROBES_PER_SEED = 50
 TIMEOUT_S = 60
 ENTRYPOINT = "priority"  # what candidate code must define
 HERE = Path(__file__).resolve().parent
@@ -58,6 +62,42 @@ def pack(priority, items):
     return n_bins
 
 
+def make_probes():
+    """~200 decision states (item, feasible capacities + new bin) from best-fit trajectories,
+    sampled evenly so early (few bins) and late (many open, near-full bins) states both appear."""
+    probes = []
+    for seed in PROBE_SEEDS:
+        items = make_items(seed)
+        remaining, n_bins = np.zeros(len(items), dtype=int), 0
+        every = len(items) // PROBES_PER_SEED
+        for step, item in enumerate(items):
+            item = int(item)
+            fits = np.flatnonzero(remaining[:n_bins] >= item)
+            if step % every == every // 2:
+                probes.append((item, remaining[fits].tolist() + [CAPACITY]))
+            if len(fits):
+                best = fits[np.argmin(remaining[fits] - item)]
+                remaining[best] -= item
+            else:
+                remaining[n_bins] = CAPACITY - item
+                n_bins += 1
+    return probes
+
+
+def fingerprint_candidate(path):
+    """The remaining capacity of the bin chosen on each probe (100 = a new bin). Using the
+    capacity, not the bin's position, makes ties between equal bins invisible: those choices
+    lead to the same future state."""
+    priority = load_function(path, ENTRYPOINT)
+    choices = []
+    for item, capacities in make_probes():
+        scores = np.asarray(priority(item, list(capacities)), dtype=float)
+        if len(scores) != len(capacities) or not np.all(np.isfinite(scores)):
+            raise ValueError("priority returned invalid scores on a probe")
+        choices.append(capacities[int(np.argmax(scores))])
+    return choices
+
+
 def score_candidate(path, split="dev"):
     per_instance = []
     for seed in SPLITS[split]:
@@ -85,6 +125,16 @@ def _inner(path, split):
     emit(nonce, {"valid": True, "score": score, "detail": detail})
 
 
+def _inner_fingerprint(path):
+    nonce = read_nonce()  # before any candidate code runs
+    emit(nonce, {"valid": True, "score": None, "detail": {"choices": fingerprint_candidate(path)}})
+
+
+def fingerprint(path, timeout=TIMEOUT_S):
+    """Behavioral fingerprint of a candidate, computed in the same sandbox as evaluation."""
+    return evaluate_isolated(Path(__file__).resolve(), path, timeout, ["--fingerprint"])
+
+
 def evaluate(path, timeout=TIMEOUT_S, split="dev"):
     """Run the candidate in an isolated subprocess (see tasks/_sandbox.py). Crashes and
     timeouts are invalid."""
@@ -97,7 +147,9 @@ def baselines(split="dev"):
 
 if __name__ == "__main__":
     split = sys.argv[sys.argv.index("--split") + 1] if "--split" in sys.argv else "dev"
-    if sys.argv[1] == "--inner":
+    if sys.argv[1] == "--inner" and "--fingerprint" in sys.argv:
+        _inner_fingerprint(sys.argv[2])
+    elif sys.argv[1] == "--inner":
         _inner(sys.argv[2], split)
     elif sys.argv[1] == "--baselines":
         for name, result in baselines(split).items():

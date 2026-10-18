@@ -106,11 +106,11 @@ def test_I7_herd_check_returns_partial_results(fake_world, monkeypatch):
     study = pipeline.ensure_map(herd(), task)
     real = pipeline.ensure_family_scores
     seen = []
-    def limited(h, t, s, families, ev, k):
+    def limited(h, t, s, families, ev, k, *rest):
         seen.extend(f["family"] for f in families)
         if len(seen) > 1:
             raise BudgetExceeded("run budget reached")
-        return real(h, t, s, families, ev, k)
+        return real(h, t, s, families, ev, k, *rest)
     monkeypatch.setattr(pipeline, "ensure_family_scores", limited)
     result = pipeline.check_approach(herd(), task, study, "first fit", Evaluator(task), k=1)
     assert result["complete"] is False and result["stopped_at"] == seen[1]

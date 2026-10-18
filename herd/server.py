@@ -87,10 +87,11 @@ async def blind_spots(task_description: str, ctx: Context, budget_usd: float = 5
 @mcp.tool()
 async def reality_check(task_description: str, family: str, ctx: Context, evaluator_cmd: str = "",
                         k: int = 3, lower_is_better: bool = True, baseline_files: list[str] | None = None,
-                        budget_usd: float = 3.0) -> str:
+                        contrast: bool = False, budget_usd: float = 3.0) -> str:
     """Implement one solution family k times and score each with the evaluator. The best
     implementation is picked on dev data; final_score is its score on held-out data (built-in
-    tasks) and is what baselines and the top herd family are compared against."""
+    tasks) and is what baselines and the top herd family are compared against. contrast=True
+    implements a blind-spot family with the herd-contrast section (experimental; see README)."""
     def work(herd):
         task = Task.resolve(task_description)
         study = ensure_map(herd, task)
@@ -98,7 +99,7 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
         if family not in by_name:
             return {"error": "unknown_family", "families": sorted(by_name)}
         evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
-        scores = ensure_family_scores(herd, task, study, [by_name[family]], evaluator, k)
+        scores = ensure_family_scores(herd, task, study, [by_name[family]], evaluator, k, contrast)
         s, out = scores[family], herd.out_dir(task)
         # Only herd families that were already scored under this evaluator; none are tested here.
         herd_scores = {f: v["final_score"] for f, v in scores.items()
@@ -128,18 +129,20 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
 
 @mcp.tool()
 async def herd_check(task_description: str, my_approach: str, ctx: Context, evaluator_cmd: str = "",
-                     k: int = 3, lower_is_better: bool = True, budget_usd: float = 5.0) -> str:
+                     k: int = 3, lower_is_better: bool = True, contrast: bool = False,
+                     budget_usd: float = 5.0) -> str:
     """Which family does my_approach belong to and how common is it? With an evaluator (or a
     registered task), also tests generated implementations of that family against the blind
     spots and top herd families (held-out scores for built-in tasks), picks the best family,
     and returns verdict "keep", "try_blind_spot" or "try_other_family" (plus a
-    diverse_alternative when a blind spot also beat yours)."""
+    diverse_alternative when a blind spot also beat yours). contrast=True implements blind spots
+    with the herd-contrast section (experimental; see README)."""
     def work(herd):
         task = Task.resolve(task_description)
         study = ensure_map(herd, task)
         evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better) \
             if evaluator_cmd or task.evaluator else None
-        return check_approach(herd, task, study, my_approach, evaluator, k)
+        return check_approach(herd, task, study, my_approach, evaluator, k, contrast)
     return await run_tool(ctx, budget_usd, work)
 
 

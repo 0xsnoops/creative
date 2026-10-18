@@ -47,6 +47,36 @@ def run(task_name, n, reality):
           f"of ${herd.ledger.global_cap:.2f}")
 
 
+def fingerprints_cmd(task_name):
+    """Fingerprint the herd map's valid samples and compare behavior clusters with labels."""
+    from . import fingerprint
+    from .pipeline import read_json, write_json
+    herd = Herd()
+    task = Task.resolve(task_name)
+    if not fingerprint.supported(task):
+        raise SystemExit(f"{task.name} has no fingerprint support")
+    gate = fingerprint.validation_gate(task)
+    print(f"validation gate: {gate}")
+    if not gate["passed"]:
+        raise SystemExit("validation gate failed; not fingerprinting")
+    out = herd.out_dir(task)
+    records = [json.loads(l) for l in (out / "samples.jsonl").read_text().splitlines()]
+    labels = {r["sample_id"]: r["family"] for r in map(json.loads, (out / "labels.jsonl").read_text().splitlines())}
+    paths = {r["sample_id"]: out / r["code_path"] for r in records if r["status"] == "valid"}
+    fps = fingerprint.fingerprints(task, paths)
+    groups = fingerprint.clusters(fps)
+    summary = {"gate": gate, "n_valid_samples": len(paths), **fingerprint.label_agreement(
+        groups, {k: labels[k] for k in fps if k in labels and fps[k] is not None}),
+        "clusters": [{"size": len(g), "labels": sorted({labels.get(k) for k in g}), "members": g} for g in groups]}
+    write_json(out / "fingerprints.json", summary)
+    print(f"{summary['n_valid_samples']} valid samples -> {summary['behavior_clusters']} behavior clusters vs "
+          f"{summary['labeled_families']} labeled families; labels split across clusters: "
+          f"{summary['labels_split_across_clusters']}; clusters with several labels: "
+          f"{summary['clusters_with_several_labels']}")
+    for c in summary["clusters"][:12]:
+        print(f"  {c['size']:3d}  {c['labels']}")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="herd")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -59,6 +89,8 @@ def main():
     b.add_argument("--budget", type=float, help="USD per operator per repeat (overrides config)")
     b.add_argument("--repeats", type=int, help="repeats on different seeds (overrides config)")
     b.add_argument("--operators", help="comma-separated subset, e.g. plain,verbalized")
+    f = sub.add_parser("fingerprints", help="behavioral fingerprints of a task's map samples (bin packing)")
+    f.add_argument("task")
     sub.add_parser("spend", help="show estimated spend so far")
     sub.add_parser("serve", help="run the MCP server on stdio")
     args = parser.parse_args()
@@ -70,6 +102,8 @@ def main():
         _, verdict, bench_dir = run_bench(args.task, args.budget, args.repeats,
                                           args.operators.split(",") if args.operators else None)
         print((bench_dir / "bench.md").read_text())
+    elif args.command == "fingerprints":
+        fingerprints_cmd(args.task)
     elif args.command == "spend":
         ledger = Herd().ledger
         print(f"estimated spend: ${ledger.total_spent:.4f} of ${ledger.global_cap:.2f}")

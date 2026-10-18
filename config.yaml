@@ -1,7 +1,7 @@
 # HERD blind-spot experiment configuration.
 # Model slugs were chosen from OpenRouter's /models endpoint (fetched 2026-10-18).
 
-budget_usd: 15.0            # hard cap on estimated total spend (all cached responses count)
+budget_usd: 25.0            # hard cap on estimated total spend (all cached responses count)
 
 models:
   samplers:                 # one current model per lab
@@ -36,7 +36,8 @@ bench:
   budget_usd_per_operator: 0.5  # every operator gets the same budget per repeat
   repeats: 3                    # each repeat uses a different seed (separate cache keys)
   max_candidates: 30            # per operator per repeat
-  operators: [plain, hot, verbalized, blind_spot, literature_all, transplant]
+  operators: [plain, verbalized, adhd_frames, blind_spot, blind_spot_contrast, blind_spot_contrast_random,
+              blind_spot_feedback, blind_spot_feedback_sham, literature_all, literature_random]
   hot_temperatures: [2.0, 1.6, 1.3]  # tried highest first; falls back to 1.0
   hot_calibration_samples: 2         # a temperature passes if at least half are valid code
   transplant_fields: [biology, logistics, markets, physics, networking]

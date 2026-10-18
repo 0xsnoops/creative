@@ -18,6 +18,7 @@ from .herdmap import build_herd_map, find_blind_spots
 from .label import EMERGENT, UNLABELED, classify, label_samples, write_audit
 from .literature import build_taxonomy, search_literature
 from .llm import LLM, BudgetExceeded, Ledger, load_model_catalog
+from .contrast import herd_section
 from .reality import reality_check
 from .reality import sandbox as _sandbox
 
@@ -193,8 +194,12 @@ def family_hash(family):
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
-def load_scores(herd, task, evaluator):
-    return read_json(herd.out_dir(task) / "family_scores.json", {}).get(evaluator.key, {})
+def scores_key(evaluator, contrast=False):
+    return evaluator.key + ("|contrast" if contrast else "")
+
+
+def load_scores(herd, task, evaluator, contrast=False):
+    return read_json(herd.out_dir(task) / "family_scores.json", {}).get(scores_key(evaluator, contrast), {})
 
 
 def record_heldout_use(herd, task, evaluator):
@@ -211,22 +216,25 @@ def record_heldout_use(herd, task, evaluator):
     return prior
 
 
-def ensure_family_scores(herd, task, study, families, evaluator, k):
+def ensure_family_scores(herd, task, study, families, evaluator, k, contrast=False):
     """Reality-check each family (a dict from families.json) unless already done with >= k
-    implementations under this evaluator and the same family text. Returns all saved scores
-    for this evaluator."""
+    implementations under this evaluator and the same family text. With contrast, blind-spot
+    families are implemented with the herd-contrast section and scored separately. Returns all
+    saved scores for this evaluator (and contrast setting)."""
+    blind = {b["family"] for b in study["blind_spots"]}
     out = herd.out_dir(task)
     share = {r["family"]: r["share"] for r in study["herd_map"]["families"]}
     with _task_locks[task.name]:
         saved = read_json(out / "family_scores.json", {})
-        scores = saved.setdefault(evaluator.key, {})
+        scores = saved.setdefault(scores_key(evaluator, contrast), {})
         for family in families:
             name, fhash = family["family"], family_hash(family)
             prev = scores.get(name)
             if prev and prev["k"] >= k and "final_score" in prev and prev.get("family_hash") == fhash:
                 continue
-            scores[name] = {**reality_check(task, family, evaluator, herd.llm, herd.cfg, out, k, herd.progress),
-                            "family_hash": fhash}
+            extra = herd_section(study, family) if contrast and name in blind else ""
+            scores[name] = {**reality_check(task, family, evaluator, herd.llm, herd.cfg, out, k, herd.progress,
+                                            extra), "family_hash": fhash, "contrast": bool(extra)}
             refresh_kinds(scores, study, share)
             write_json(out / "family_scores.json", saved)  # save after each family
         refresh_kinds(scores, study, share)  # the map may have been rebuilt since scoring
@@ -246,7 +254,7 @@ def baseline_scores(task, evaluator, baseline_files=()):
     return {Path(p).stem: evaluator(Path(p))["score"] for p in baseline_files}
 
 
-def check_approach(herd, task, study, approach, evaluator, k):
+def check_approach(herd, task, study, approach, evaluator, k, contrast=False):
     """Place an approach in the herd map; with an evaluator, test its family against the
     blind spots and the top herd families and say which is best."""
     families = study["families"]
@@ -276,11 +284,12 @@ def check_approach(herd, task, study, approach, evaluator, k):
     stopped_at = None
     for family in to_test:
         try:
-            ensure_family_scores(herd, task, study, [family], evaluator, k)
+            ensure_family_scores(herd, task, study, [family], evaluator, k, contrast)
         except BudgetExceeded:
             stopped_at = family["family"]
             break
-    scores = load_scores(herd, task, evaluator)
+    scores = load_scores(herd, task, evaluator, contrast)
+    result["contrast"] = contrast
     # Each family is represented by its implementation selected on dev, and families are compared
     # on that implementation's held-out score (dev score only for external evaluators).
     tested = {f["family"]: scores[f["family"]]["final_score"] for f in to_test

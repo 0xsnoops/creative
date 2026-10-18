@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ..llm import BudgetExceeded, message_text
 from ..pipeline import Herd, ensure_map
-from ..reality import IMPLEMENT_TEMPLATE, Evaluator, dev_detail
+from ..reality import Evaluator, dev_detail, implementation_prompt
 from ..sample import extract_code
 
 
@@ -65,14 +65,7 @@ class OperatorContext:
     def family_prompt(self, family, extra=""):
         """The shared reality-check template; extra (a contrast list or feedback note) goes right
         before the final instruction, so with no extra the prompt is exactly the shared one."""
-        prompt = IMPLEMENT_TEMPLATE.format(task=self.task.prompt, family=family["family"],
-                                           mechanism=family["one_line_mechanism"],
-                                           source_summary=family["source_summary"])
-        if extra:
-            marker = "Implement this approach faithfully"
-            head, tail = prompt.rsplit(marker, 1)
-            prompt = f"{head}{extra.strip()}\n\n{marker}{tail}"
-        return prompt
+        return implementation_prompt(self.task, family, extra)
 
     def family_job(self, family, extra="", meta=None, on_done=None):
         """Implement a named family with the shared template (the reality-check prompt)."""
@@ -135,10 +128,16 @@ def run_jobs(ctx, jobs):
 
 
 def registry():
-    from . import blind_spot, hot, literature_all, literature_random, plain, transplant, verbalized
+    from . import (adhd_frames, blind_spot, blind_spot_contrast, blind_spot_feedback, hot, literature_all,
+                   literature_random, plain, transplant, verbalized)
     return {"plain": plain.jobs, "hot": hot.jobs, "verbalized": verbalized.jobs,
             "blind_spot": blind_spot.jobs, "literature_all": literature_all.jobs,
-            "literature_random": literature_random.jobs, "transplant": transplant.jobs}
+            "literature_random": literature_random.jobs, "transplant": transplant.jobs,
+            "blind_spot_contrast": blind_spot_contrast.jobs,
+            "blind_spot_contrast_random": blind_spot_contrast.random_jobs,
+            "blind_spot_feedback": blind_spot_feedback.jobs,
+            "blind_spot_feedback_sham": blind_spot_feedback.sham_jobs,
+            "adhd_frames": adhd_frames.jobs}
 
 
 def run_operator(name, task, budget_usd, seed=0, study=None, progress=print):

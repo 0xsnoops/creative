@@ -14,6 +14,7 @@ import json
 import statistics
 from concurrent.futures import ThreadPoolExecutor
 
+from . import fingerprint
 from .label import UNLABELED, label_samples
 from .operators import run_operator
 from .llm import BudgetExceeded
@@ -111,7 +112,7 @@ def run_metrics(run, labels, evaluator, out, best_baseline, setup, taxonomy_name
 
 METRICS = ("valid_rate", "distinct_valid_families", "useful_discoveries", "useful_discovery_rate",
            "useful_discovery_rate_cold", "best_score", "dev_best_score", "spent_usd", "spent_cold_usd",
-           "n_candidates", "purity", "pure_best_score")
+           "n_candidates", "purity", "pure_best_score", "behavior_clusters")
 
 
 def aggregate(per_run, operators):
@@ -293,6 +294,25 @@ def labeling_estimate(herd, operators, repeats):
     return n_batches * per_batch
 
 
+def add_behavior_clusters(task, runs, per_run, labels, out):
+    """Behavioral fingerprints of every valid candidate (bin packing only): distinct behaviors per
+    run, and how behavior clusters line up with labeled families across all candidates."""
+    if not fingerprint.supported(task):
+        return {"supported": False}
+    gate = fingerprint.validation_gate(task)
+    if not gate["passed"]:
+        return {"supported": True, "gate": gate, "note": "validation gate failed; fingerprints not used"}
+    paths = {candidate_id(c): out / c["code_path"] for run in runs for c in run["candidates"] if c["valid"]}
+    fps = fingerprint.fingerprints(task, paths)
+    for run, metrics in zip(runs, per_run):
+        ids = {candidate_id(c) for c in run["candidates"] if c["valid"]}
+        metrics["behavior_clusters"] = len(fingerprint.clusters({k: fps[k] for k in ids})) if ids else None
+    groups = fingerprint.clusters(fps)
+    labeled = {k: v["family"] for k, v in labels.items() if k in fps and v["family"] != UNLABELED}
+    return {"supported": True, "gate": gate, "overall": fingerprint.label_agreement(groups, labeled),
+            "clusters": groups}
+
+
 def candidate_records(runs, per_run, labels, out):
     """One trace row per generated candidate: prompt, code, scores, labeled family, selection."""
     rows = []
@@ -363,6 +383,7 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
     taxonomy_names = {f["family"] for f in study["families"]}
     per_run = [run_metrics(run, labels, evaluator, out, baselines[baseline_name],
                            setup_cost(run["operator"], build_cost), taxonomy_names) for run in runs]
+    behavior = add_behavior_clusters(task, runs, per_run, labels, out)
     table = aggregate(per_run, operators)
     verdict_text = verdict(table, baseline_name, baselines[baseline_name])
 
@@ -377,7 +398,7 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
                 f.write(json.dumps({"task": task.name, **row}) + "\n")
     write_json(bench_dir / "bench.json", {"config": bench_cfg, "heldout_baselines": baselines,
                                           "herd_map_build_cost_usd": build_cost, "labeling": labeling_status,
-                                          "map_effective_n": effective_n(study),
+                                          "map_effective_n": effective_n(study), "behavior": behavior,
                                           "per_run": [{k: v for k, v in r.items() if k != "heldout_by_candidate"}
                                                       for r in per_run],
                                           "table": table, "verdict": verdict_text})

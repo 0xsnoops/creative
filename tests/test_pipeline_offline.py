@@ -58,6 +58,8 @@ def reply_to(prompt, temperature=1.0):
                                          "merged_from": ["emergent:odd"]}]})
     if prompt.startswith("Which family"):
         return json.dumps({"family": "First Fit", "justification": "takes the first bin that fits"})
+    if prompt.startswith("You are in DIVERGENT mode"):  # ADHD's divergent system prompt
+        return json.dumps([{"text": f"idea {i}", "rationale": "r"} for i in range(6)])
     if "Generate 5 responses" in prompt:
         return "".join(f"<response><name>Idea {i}</name><text>Approach {i}.</text>"
                        f"<probability>0.0{i + 1}</probability></response>" for i in range(5))
