@@ -3,6 +3,7 @@
     python evaluator.py CANDIDATE.py [--split heldout]  -> prints {"valid", "score", "detail"} as JSON
     python evaluator.py --baselines [--split heldout]   -> scores the reference first_fit and best_fit
     probe(path, cases)                                   -> per-case choices on tiny item sequences
+    fingerprint_perturbed(path, input_name)              -> probe choices before/after perturbing one input
 
 Score = mean over 5 fixed instances of the % excess bins over the lower bound
 ceil(sum(items) / CAPACITY). The candidate runs isolated (tasks/_sandbox.py) with a
@@ -98,6 +99,85 @@ def fingerprint_candidate(path):
         choices.append(capacities[int(np.argmax(scores))])
     return choices
 
+# Admission perturbations (herd/admission.py): each rewrites the probe states for one input of
+# priority(), and the child runs the candidate on the original and the perturbed states, each
+# with a fresh module. Chosen options are compared by the ORIGINAL capacity they stand for.
+PERTURB_SEED = 7000
+WARMUP_ITEMS = 50
+WARMUP_SEED = 6000  # warm-up sequences for "history"; not a dev, held-out or probe seed
+PERTURBABLE = ("item", "capacity_values", "bin_order", "n_open_bins", "history")
+
+
+def perturb_probe(name, item, capacities, rng):
+    """(item', capacities', back) for one probe, or None when the perturbation does not apply.
+    back[i] is the original capacity offered at perturbed position i. The new bin stays last."""
+    bins, new = list(capacities[:-1]), capacities[-1]
+    if name == "item":  # +-1, only where every offered bin still fits it
+        steps = [s for s in (1, -1) if 1 <= item + s <= min(capacities)]
+        if not steps:
+            return None
+        return item + steps[int(rng.integers(len(steps)))], list(capacities), list(capacities)
+    if name == "capacity_values":  # +-1 on each open bin, kept in item..CAPACITY-1
+        noisy = []
+        for c in bins:
+            d = 1 if rng.random() < 0.5 else -1
+            noisy.append(next((c + s for s in (d, -d) if item <= c + s <= CAPACITY - 1), c))
+        if noisy == bins:
+            return None
+        return item, noisy + [new], bins + [new]
+    if name == "bin_order":  # reverse the open bins
+        if bins[::-1] == bins:  # includes fewer than two distinct capacities
+            return None
+        caps = bins[::-1] + [new]
+        return item, caps, caps
+    if name == "n_open_bins":  # one extra copy of an open bin: same options, longer list
+        if not bins:
+            return None
+        caps = bins + [bins[int(rng.integers(len(bins)))], new]
+        return item, caps, caps
+    raise ValueError(f"no perturbation for {name!r}")
+
+
+def warmup_items(block):
+    rng = np.random.default_rng(WARMUP_SEED + block)
+    return np.clip(np.round(rng.weibull(3.0, WARMUP_ITEMS) * 45), 1, CAPACITY).astype(int)
+
+
+def _choose(priority, item, capacities):
+    scores = np.asarray(priority(item, list(capacities)), dtype=float)
+    if len(scores) != len(capacities) or not np.all(np.isfinite(scores)):
+        raise ValueError("priority returned invalid scores on a probe")
+    return int(np.argmax(scores))
+
+
+def perturbed_fingerprint_candidate(path, name):
+    """Fingerprints on the original probes ("base", and again as "repeat" to expose
+    nondeterminism) and on probes with one input perturbed ("perturbed"). "applicable" marks
+    the probes the perturbation actually changed. For "history" the states are unchanged and
+    the candidate instead packs WARMUP_ITEMS items before each probe seed's block."""
+    if name not in PERTURBABLE:
+        raise ValueError(f"no perturbation for {name!r}")
+    probes = make_probes()
+    original = [(item, caps, caps) for item, caps in probes]
+    if name == "history":
+        perturbed, applicable = original, [True] * len(probes)
+    else:
+        rng, perturbed, applicable = np.random.default_rng(PERTURB_SEED), [], []
+        for item, caps in probes:
+            p = perturb_probe(name, item, caps, rng)
+            applicable.append(p is not None)
+            perturbed.append(p or (item, caps, caps))
+
+    def run(states, warmup=False):
+        priority, out = load_function(path, ENTRYPOINT), []  # fresh module state per run
+        for k, (item, caps, back) in enumerate(states):
+            if warmup and k % PROBES_PER_SEED == 0:
+                pack(priority, warmup_items(k // PROBES_PER_SEED))
+            out.append(int(back[_choose(priority, item, caps)]))
+        return out
+    return {"input": name, "base": run(original), "perturbed": run(perturbed, warmup=name == "history"),
+            "repeat": run(original), "applicable": applicable}
+
 
 def probe_candidate(path, cases):
     """For each case {"items": [sizes]}: run pack() itself with a fresh module and record each
@@ -160,6 +240,11 @@ def _inner_fingerprint(path):
     emit(nonce, {"valid": True, "score": None, "detail": {"choices": fingerprint_candidate(path)}})
 
 
+def _inner_perturbed(path):
+    nonce, payload = read_nonce_and_payload()  # before any candidate code runs
+    emit(nonce, {"valid": True, "score": None, "detail": perturbed_fingerprint_candidate(path, payload["input"])})
+
+
 def _inner_probe(path):
     nonce, cases = read_nonce_and_payload()  # before any candidate code runs
     emit(nonce, {"valid": True, "score": None, "detail": {"outputs": probe_candidate(path, cases)}})
@@ -176,6 +261,14 @@ def fingerprint(path, timeout=TIMEOUT_S):
     return evaluate_isolated(Path(__file__).resolve(), path, timeout, ["--fingerprint"])
 
 
+def fingerprint_perturbed(path, input_name, timeout=TIMEOUT_S):
+    """Fingerprints before and after perturbing one priority() input (see
+    perturbed_fingerprint_candidate), in the same sandbox as evaluation. The input name reaches
+    the child on stdin after the nonce, so it is not visible in the child's argv."""
+    return evaluate_isolated(Path(__file__).resolve(), path, timeout, ["--fingerprint", "--perturb"],
+                             payload={"input": input_name})
+
+
 def evaluate(path, timeout=TIMEOUT_S, split="dev"):
     """Run the candidate in an isolated subprocess (see tasks/_sandbox.py). Crashes and
     timeouts are invalid."""
@@ -188,7 +281,9 @@ def baselines(split="dev"):
 
 if __name__ == "__main__":
     split = sys.argv[sys.argv.index("--split") + 1] if "--split" in sys.argv else "dev"
-    if sys.argv[1] == "--inner" and "--probe" in sys.argv:
+    if sys.argv[1] == "--inner" and "--perturb" in sys.argv:
+        _inner_perturbed(sys.argv[2])
+    elif sys.argv[1] == "--inner" and "--probe" in sys.argv:
         _inner_probe(sys.argv[2])
     elif sys.argv[1] == "--inner" and "--fingerprint" in sys.argv:
         _inner_fingerprint(sys.argv[2])
