@@ -9,7 +9,7 @@ import pytest
 import herd
 import herd.pipeline as pipeline
 from herd import counterexample as ce
-from herd.escape import (IMPLEMENT_MARKER, JUDGE_MARKER, NO_FUTURE, SKETCH_MARKER, describe_counterexample,
+from herd.escape import (IMPLEMENT_MARKER, JUDGE_MARKER, USES_MARKER, NO_FUTURE, SKETCH_MARKER, describe_counterexample,
                          escape_v2, mentions_lever)
 from herd.llm import LLM
 from herd.reality import Evaluator
@@ -74,6 +74,8 @@ def world(fake_world, monkeypatch):
         state["prompts"].append(prompt)
         if SKETCH_MARKER in prompt:
             text = json.dumps({"sketches": state["sketches"]})
+        elif prompt.startswith(USES_MARKER):  # semantic fallback: only explicit paraphrases count
+            text = json.dumps({"uses_lever": "PARAPHRASED_LEVER" in prompt, "reason": "r"})
         elif prompt.startswith(JUDGE_MARKER):
             text = json.dumps({"same_mechanism": "Rescaled" in prompt, "reason": "r"})
         elif IMPLEMENT_MARKER in prompt:
@@ -120,7 +122,8 @@ def test_escape_v2_end_to_end(world):
     dropped = {r["sketch"]: r["reasons"][0] for r in result["rejections"] if r["stage"] == "sketch_filter"}
     assert "does not use history" in dropped["Plain worst fit"]  # no lever in the decision rule
     assert "same mechanism" in dropped["Rescaled tight fit"]  # extractor judged it the same
-    assert result["calls"] == {"implementer": 2, "extractor": 2}
+    # extractor: one "uses the lever?" fallback for the sketch without the lever name, two "same mechanism?" judgments
+    assert result["calls"] == {"implementer": 2, "extractor": 3}
 
     ev = result["evaluation"]
     assert "max_bin_cap" in result["candidate"] and ev["split"] == "dev"
@@ -130,8 +133,8 @@ def test_escape_v2_end_to_end(world):
     assert state["admit"][0]["lever"] == "history" and set(state["admit"][0]["stuck"]) == {RESCALED, BEST_FIT, PLUS_ZERO}
 
     # No attempt (or herd sample) code in any sketch / implementation / judge prompt.
-    v2_prompts = [p for p in state["prompts"] if SKETCH_MARKER in p or IMPLEMENT_MARKER in p or p.startswith(JUDGE_MARKER)]
-    assert len(v2_prompts) == 4
+    v2_prompts = [p for p in state["prompts"] if SKETCH_MARKER in p or IMPLEMENT_MARKER in p or p.startswith(JUDGE_MARKER) or p.startswith(USES_MARKER)]
+    assert len(v2_prompts) == 5  # sketch, uses-lever fallback, 2 judgments, implementation
     for p in v2_prompts:
         assert not [line for line in code_lines() if line in p]
         assert "held-out" not in p.lower() and "heldout" not in p.lower()
@@ -195,3 +198,15 @@ def test_sketch_filter_requires_the_lever():
     assert mentions_lever({"decision_rule": "when n open bins is large, prefer..."}, lever)
     assert mentions_lever({"decision_rule": "if len(capacities) > 3 then ..."}, lever)
     assert not mentions_lever({"decision_rule": "tightest fit", "uses_lever": "n_open_bins"}, lever)
+
+
+def test_sketch_filter_fallback_prompt_for_paraphrased_or_family_levers():
+    """The literal lever-name check is a pre-filter: a paraphrase ("a fresh bin") or a family lever
+    never matches it, so those go to the extractor with this prompt instead of being dropped."""
+    import herd.escape as esc
+    lever = {"name": "new_bin_slot", "detail": {"description": "special-casing the new bin"}}
+    para = {"name": "a", "decision_rule": "opens a fresh bin when the tightest fit wastes too much"}
+    assert not esc.mentions_lever(para, lever)
+    prompt = esc.USES_TEMPLATE.format(lever="new_bin_slot", description=" (special-casing the new bin)", name="a",
+                                      state="none", decision_rule=para["decision_rule"], uses_lever="")
+    assert prompt.startswith(esc.USES_MARKER) and para["decision_rule"] in prompt and '"uses_lever"' in prompt
