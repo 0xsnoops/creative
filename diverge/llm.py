@@ -237,7 +237,9 @@ def _anthropic_post(self, body, attempts=4):
         raise RuntimeError(f"{body['model']}: DIVERGE_PROVIDER=anthropic only serves anthropic/* models "
                            "(OpenRouter is disabled); configure a Claude model instead")
     system = "\n\n".join(m["content"] for m in body["messages"] if m["role"] == "system")
-    request = {"model": model, "max_tokens": body["max_tokens"], "temperature": min(body.get("temperature", 1.0), 1.0),
+    # Current Claude models reject a non-default temperature ("deprecated for this model"), so it is
+    # not sent; the request (and its cache key) still records the temperature DIVERGE asked for.
+    request = {"model": model, "max_tokens": body["max_tokens"],
                "messages": [m for m in body["messages"] if m["role"] != "system"]}
     if system:
         request["system"] = system
