@@ -150,6 +150,25 @@ LRU scores 0.6752 and FIFO 0.7097. With one repeat of 4–8 candidates each, thi
 the operators. Resume with `scripts/run_benches.py`, which replays completed calls from the
 cache at no cost.
 
+### Three-operator run to held-out (1 repeat, preliminary)
+
+This is the core comparison: plain sampling, random literature, and literature chosen because the
+herd overlooked it. Each operator got $0.30 and 1 repeat (seed 0). Candidates were selected on dev,
+and each family's pick was then scored once on held-out. The dev calls were replayed from the
+cache, so the new spend was about $0.
+
+| operator | candidates | valid | useful families (beat LRU on held-out) | best held-out miss ratio |
+|---|---|---|---|---|
+| plain | 5 | 80% | 2 | **0.5667** |
+| literature_random | 7 | 100% | 4 | 0.5842 |
+| blind_spot | 6 | 83% | 3 | 0.5829 |
+
+Held-out baselines: LRU 0.6747, FIFO 0.7088. Lower is better.
+
+On held-out, **plain had the best score**. blind_spot did not beat random literature or plain on
+best score. Random literature produced the most distinct families that beat LRU. This is one
+repeat, so it is no verdict either way.
+
 ## Live strategy-loop runs (preliminary, 1 run each)
 
 Scores are % excess bins, as dev / held-out; lower is better.
