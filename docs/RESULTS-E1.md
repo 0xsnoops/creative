@@ -1,4 +1,28 @@
-# E1 results: detector validity (bin packing, offline, $0)
+# E1 results: detector validity (bin packing)
+
+## E1b (supersedes the $0 verdict below): full LLM coverage, three small extractor models
+
+**Verdict: behavior beats the LLM signal.** The $0 run had cached LLM fields for only 11
+programs, so it was inconclusive. I reran it with paid extractor calls for all 140 programs, using
+each of three small models, for $0.31 in total. The command is
+`scripts/e1_detector_validity.py --paid 1.0 --extractor <model>`.
+
+Primary target, all 9,730 pairs (2,074 positive):
+
+| extractor | covered | cost | behavior AUC | LLM strategy AUC | code AUC | behavior − LLM [95% CI] |
+|---|---|---|---|---|---|---|
+| anthropic/claude-haiku-5.5 | 140/140 | $0.088 | 0.661 | 0.503 | 0.527 | **+0.158 [+0.099, +0.222]** |
+| deepseek/deepseek-v4-pro-0813 | 140/140 | $0.110 | 0.661 | 0.526 | 0.527 | **+0.135 [+0.072, +0.204]** |
+| meta-llama/llama-4-maverick | 138/140 | $0.108 | 0.653 | 0.502 | 0.526 | **+0.152 [+0.084, +0.239]** |
+
+With every extractor model, the LLM-description strategy similarity is at chance (0.50–0.53) for
+predicting the same failure set. Behavior is about 0.15 higher, and every CI excludes 0.
+
+On the secondary target (failure sets relative to best fit), no signal beats chance with any
+extractor. Behavior − LLM is −0.012, −0.001 and −0.007, and every CI includes 0. All caveats below
+still apply. Raw data: `results/e1/results-<model>.json`.
+
+## Original E1 ($0, cache-only)
 
 **Verdict: behavior does not beat the LLM signal.** On the 55 pairs where both programs have
 cached LLM-extracted fields (11 programs), AUC(behavior) − AUC(LLM strategy similarity) = +0.07,

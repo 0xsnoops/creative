@@ -123,6 +123,9 @@ def analyse(mats, target, members, reps, seed, diff=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reps", type=int, default=300)
+    ap.add_argument("--paid", type=float, default=0.0,
+                    help="USD cap for uncached extractor calls (default 0: cache-only, as in the original E1)")
+    ap.add_argument("--extractor", default=None, help="extractor model slug (default: config's extractor)")
     args = ap.parse_args()
     started = time.time()
     task = Task.registered("online_bin_packing")
@@ -166,12 +169,14 @@ def main():
                    "kept": len(kept)})
     print(json.dumps(counts), flush=True)
 
-    # ---- LLM extractor, cache-only
-    herd = Herd(budget_usd=0.0, progress=lambda *a, **k: None)
-
-    def no_network(*a, **k):
-        raise BudgetExceeded("E1 is cache-only: an uncached model call was attempted")
-    herd.llm._post = no_network
+    # ---- LLM extractor: cache-only unless --paid gives a cap
+    herd = Herd(budget_usd=args.paid, progress=lambda *a, **k: None)
+    if args.extractor:
+        herd.cfg["models"]["extractor"] = args.extractor
+    if not args.paid:
+        def no_network(*a, **k):
+            raise BudgetExceeded("E1 is cache-only: an uncached model call was attempted")
+        herd.llm._post = no_network
     E = strategy.llm_extractor(herd, task)
     blocked = 0
 
@@ -182,11 +187,13 @@ def main():
         except BudgetExceeded:
             blocked += 1
             return {}
+    with ThreadPoolExecutor(8) as pool:  # warm the cache in parallel; the loop below then replays it
+        list(pool.map(lambda p: extract(p["code"]), kept))
     for p in kept:
         p["sfp_llm"] = strategy.fingerprint(task, p["code"], extract=extract)
         p["has_llm"] = bool(p["sfp_llm"]["mechanism_family"] or p["sfp_llm"]["decision_rule"]["primary_signal"])
         p["sfp_ast"] = strategy.fingerprint(task, p["code"], extract=None)
-    assert herd.ledger.new_spend == 0, herd.ledger.new_spend
+    assert args.paid or herd.ledger.new_spend == 0, herd.ledger.new_spend
     llm_ids = [i for i, p in enumerate(kept) if p["has_llm"]]
     print(f"LLM fields for {len(llm_ids)}/{len(kept)} programs (uncached extracts blocked: {blocked}); "
           f"new spend ${herd.ledger.new_spend}", flush=True)
@@ -224,6 +231,7 @@ def main():
         "settings": {"k": K, "same_threshold": SAME, "reps": args.reps, "probe_states": len(kept[0]["fp"]) if kept else 0,
                      "dev_seeds": [r["seed"] for r in best_fit["detail"]["instances"]],
                      "llm_strategy_behavior_part": "off (strategy.fingerprint behavior=False)"},
+        "extractor": herd.cfg["models"].get("extractor"), "paid_cap_usd": args.paid,
         "counts": {**counts, "llm_covered": len(llm_ids), "uncached_extracts_blocked": blocked,
                    "new_spend_usd": herd.ledger.new_spend},
         "failure_set_distribution": {",".join(sorted(s)): fs.count(s) for s in sorted(set(fs), key=sorted)},
@@ -240,7 +248,8 @@ def main():
         "runtime_s": round(time.time() - started, 1),
     }
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "results.json").write_text(json.dumps(summary, indent=2, default=str))
+    name = "results.json" if not args.extractor else f"results-{args.extractor.replace('/', '_')}.json"
+    (OUT / name).write_text(json.dumps(summary, indent=2, default=str))
     print(json.dumps({k: summary[k] for k in ("counts", "results", "runtime_s")}, indent=1, default=str))
 
 
