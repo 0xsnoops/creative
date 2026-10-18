@@ -4,6 +4,10 @@ Help AI agents find the answers they keep missing.
 
 Different code isn't always different thinking.
 
+AI agents often stall because they keep rewriting the same idea instead of finding a new one.
+DIVERGE is built to catch that loop, surface creative alternatives most models overlook, test them,
+and recommend what to try next.
+
 **What it is.** DIVERGE is creative-search infrastructure for AI agents. Agents, and the models
 behind them, converge: retries give different code with the same idea, and models from different
 companies land on the same few families of solutions. When an agent keeps landing on the same
