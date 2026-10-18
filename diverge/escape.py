@@ -233,6 +233,7 @@ def escape(herd, task, current_solution, previous_attempts, evaluator, overlook=
             "code_similarity": report.get("code_similarity"), "shared_strategy": diagnosis["shared_cause"],
             "shared_assumptions": (report.get("shared") or {}).get("assumptions", []),
             "herd_prevalence": diagnosis["herd_prevalence"],
+            "consensus_prevalence": diagnosis["herd_prevalence"],  # same value; current name
             "overlooked_levers": lever + choice["alternatives"],
             "recommended_switch": {"mechanism": choice["mechanism"], "why": choice["why"]},
             "candidate": best["code"] if best else None, "candidate_path": best["path"] if best else None,
@@ -1139,3 +1140,485 @@ def run_escape(mode=DEFAULT_MODE, *args, **kwargs):
     fn = MODES[mode]
     params = inspect.signature(fn).parameters
     return fn(*args, **{k: v for k, v in kwargs.items() if k in params})
+
+
+# ---------------------------------------------------------------------------------------------
+# Escape v4: v3 with (1) an implementation prompt that keeps the lever's mechanism load-bearing
+# but allows complementary sibling mechanisms, (2) a critic rubric applied as hard filters,
+# (3) a compile + entrypoint check with exactly one minimal repair per candidate, and (4) one
+# evolve step: the top two dev-scored candidates each get one mutated child. Dev split only.
+CRITIC4_MARKER = "Review candidate mechanisms against a rubric"
+CRITIC4_TEMPLATE = CRITIC4_MARKER + """ for the task below. You review them; you did not write them.
+
+Task statement:
+<<<
+{task}
+>>>
+
+The strategy a previous line of work got stuck on: {stuck}
+
+Candidate mechanisms (each was asked to build on a named target lever):
+{sketches}
+
+For every candidate fill in this rubric:
+- "uses_target_mechanism": true only if its decisions really depend on its target lever (changing the
+  lever would change which option it picks); false if the lever is decoration or it falls back to the
+  stuck strategy.
+- "strategy_distinctness" 0-10: how different its decision signal and rule are from the stuck strategy.
+- "feasibility" 0-10: how likely a careful programmer implements it correctly within the task's
+  interface, rules and time limits.
+- "constraint_fit" 0-10: how well it respects the task's hard requirements.
+- "trap": the most likely concrete way it fails or quietly degrades, or null if you see none.
+- "fatal_trap": true if that trap would make it invalid or no better than the stuck strategy.
+- "strength": one concrete reason it could beat the stuck strategy.
+Reply with only a JSON object:
+{{"scores": [{{"index": 0, "uses_target_mechanism": true, "strategy_distinctness": 0, "feasibility": 0,
+"constraint_fit": 0, "trap": null, "fatal_trap": false, "strength": "..."}}]}}"""
+
+RUBRIC_AXES = ("strategy_distinctness", "feasibility", "constraint_fit")
+MIN_FEASIBILITY, MIN_CONSTRAINT_FIT = 4, 5
+
+IMPLEMENT4_MARKER = "Implement a solution whose core is this mechanism"
+IMPLEMENT4_TEMPLATE = """{task}
+
+---
+""" + IMPLEMENT4_MARKER + """ (a fresh design; no earlier code is shown on purpose):
+Name: {name}
+State kept across calls: {state}
+Mechanism: {mechanism}
+Main risk to avoid: {main_risk}
+First step: {first_step}
+Known risks from review: {risks}
+
+This mechanism is load-bearing: the solution's decisions must be driven by it and must materially
+depend on {lever} ({description}), so that changing {lever} changes which option is chosen.
+You may combine it with complementary mechanisms when that helps correctness or performance, for
+example ideas from these sibling designs:
+{siblings}
+Helpers like these may support, refine or break ties for the core mechanism, but must not replace
+it. Do not fall back to the conventional strategy the previous work got stuck on: {stuck}.
+
+Hard requirements of the task (quoted from it):
+{constraints}
+
+Write a complete solution, keeping the task's interface and rules. Reply with your complete
+solution in a single Python code block."""
+
+REPAIR_MARKER = "Fix this code with the smallest possible change"
+REPAIR_TEMPLATE = REPAIR_MARKER + """ so that it compiles and defines `{entrypoint}` at the top
+level of the module.
+
+Problem found:
+{error}
+
+Code:
+```python
+{code}
+```
+
+Rules: change only what is needed to fix the problem above. Do not redesign it, do not change its
+strategy or its decision rule, do not rename things that already work. Reply with the complete fixed
+code in a single Python code block."""
+
+EVOLVE_MARKER = "Improve this candidate once"
+EVOLVE_TEMPLATE = """{task}
+
+---
+""" + EVOLVE_MARKER + """. It was built on the target lever {lever} ({description}) and scored on the
+dev split ({direction} is better).
+
+Its dev score: {score}
+Its per-case dev results (worst first):
+{cases}
+Its worst dev cases: {worst}
+
+Its code:
+```python
+{code}
+```
+
+Write one improved version. Rules:
+- keep the mechanism built on {lever} central: decisions must still materially depend on it;
+- you may fix defects, combine it with compatible mechanisms, change how state is represented, or
+  change how the signal from {lever} is used;
+- you may not revert to the conventional strategy the previous work got stuck on: {stuck}.
+Hard requirements of the task (quoted from it):
+{constraints}
+
+Reply with your complete solution in a single Python code block."""
+
+
+def syntax_check(code, entrypoint):
+    """None if `code` compiles and defines `entrypoint` (def, class or assignment) at the top
+    level; otherwise a short description of the problem."""
+    import ast
+    try:
+        compile(code, "<candidate>", "exec")
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return f"SyntaxError: {e.msg} (line {e.lineno})"
+    except Exception as e:  # e.g. ValueError for null bytes
+        return f"{type(e).__name__}: {e}"
+    if not entrypoint:
+        return None
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == entrypoint:
+            return None
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id == entrypoint for t in targets):
+                return None
+    return f"`{entrypoint}` is not defined at the top level of the module"
+
+
+def _code_from(entry, entrypoint):
+    text = message_text(entry)
+    return extract_code(text, entrypoint) or extract_code(text, None)
+
+
+def critic_prompt_v4(task, stuck, sketches):
+    lines = "\n".join(f"[{i}] {s.get('name', '')}\n    target lever: {s['lever']}\n    state: {s.get('state', '')}"
+                      f"\n    decision rule: {s.get('decision_rule', '')}\n    uses {s['lever']}: {s.get('uses_lever', '')}"
+                      for i, s in enumerate(sketches))
+    return CRITIC4_TEMPLATE.format(task=task.prompt, stuck=stuck, sketches=lines)
+
+
+def rubric_row(r):
+    """Normalised rubric row and the reason it fails the hard filters (None if it passes)."""
+    trap = r.get("trap")
+    trap = str(trap).strip() if trap not in (None, "", False) and str(trap).strip().lower() not in ("null", "none") else None
+    row = {"uses_target_mechanism": r.get("uses_target_mechanism") is True,
+           **{k: _score(r.get(k)) for k in RUBRIC_AXES},
+           "trap": trap, "fatal_trap": bool(trap) and r.get("fatal_trap") is True,
+           "strength": str(r.get("strength") or "")}
+    row["total"] = sum(row[k] for k in RUBRIC_AXES)
+    if not row["uses_target_mechanism"]:
+        why = "does not use the target mechanism"
+    elif row["feasibility"] < MIN_FEASIBILITY:
+        why = f"feasibility {row['feasibility']:g} < {MIN_FEASIBILITY}"
+    elif row["constraint_fit"] < MIN_CONSTRAINT_FIT:
+        why = f"constraint_fit {row['constraint_fit']:g} < {MIN_CONSTRAINT_FIT}"
+    elif row["fatal_trap"]:
+        why = f"fatal trap: {trap}"
+    else:
+        why = None
+    return row, why
+
+
+def _sibling_lines(kept, s, limit=4):
+    sibs = [k for k in kept if k["index"] != s["index"]][:limit]
+    return "\n".join(f"- {k['name']}: {k['decision_rule']}" for k in sibs) or "- (none available)"
+
+
+def _case_lines(detail, limit=12):
+    from .failures import _cases
+    cases = sorted(_cases(detail), key=lambda c: (-c[1], c[0]))
+    if not cases:
+        return "- (no per-case detail available)"
+    return "\n".join(f"- {case}: {value:.4g}" for case, value in cases[:limit])
+
+
+def escape_v4(herd, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
+              n_sketches=5, n_deepen=2, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=True,
+              n_parents=2):
+    """Escape v4: v3's anchor strip and isolated sketches -> rubric critic with hard filters ->
+    deepen the top n_deepen (non-fatal traps passed on as risks) -> implement with the lever's
+    mechanism load-bearing and sibling mechanisms allowed -> compile/entrypoint check with at
+    most one minimal repair -> admit (up to max_resample resamples) -> dev score -> one evolve
+    step (one child each for the top n_parents) -> best on dev among parents and children.
+    Per-branch failures are logged and skipped."""
+    from .failures import _cases, failure_set
+    from .llm import ask_json
+    events = []
+    calls = {"implementer": 0, "extractor": 0, "critic": 0, "repair": 0}
+
+    def note(event):
+        events.append(event)
+        if log:
+            log(event)
+
+    def reject(stage, sketch, reason, **extra):
+        out["rejections"].append({"stage": stage, "sketch": sketch, "reasons": [sandbox.redact(str(reason))[:300]],
+                                  **extra})
+        note(out["rejections"][-1])
+
+    attempts = [_attempt(a, i) for i, a in enumerate([*previous_attempts, current_solution])]
+    score_dir = herd.out_dir(task) / "escape_v4" / "attempts"
+    for a in attempts:
+        if a.get("code") and (a.get("score") is None or not a.get("dev_detail")):
+            score_dir.mkdir(parents=True, exist_ok=True)
+            path = score_dir / f"{hashlib.sha256(a['code'].encode()).hexdigest()[:12]}.py"
+            path.write_text(a["code"])
+            result = evaluator(path)
+            a.update(score=result["score"] if result["valid"] else None, valid=result["valid"],
+                     dev_detail=dev_detail(result))
+    current = attempts[-1]
+    report = _analyze(task, attempts, evaluator, extract)
+    diagnosis = diagnose(task, report, overlook)
+    stuck = diagnosis["shared_cause"]
+    pool = [_lever_v2(lever, overlook)] if lever is not None else lever_pool(diagnosis, report, overlook, families)
+    before = current.get("score")
+    models = herd.cfg["models"]
+    implementer = models["implementer"]
+    extractor = models.get("extractor") or models.get("labeler") or implementer
+    critic = _critic_model(models)
+    out = {"version": 4, "lever": pool[0] if pool else None, "levers": pool, "failure_summary": None,
+           "anchor_strip": {"constraints": [], "dropped": [], "fallback": False, "model": extractor},
+           "sketches": [], "critic": {"model": critic, "scores": [], "rubric": []}, "kept_sketches": [],
+           "deepened": [], "rejections": [], "admitted": [], "repairs": [],
+           "evolve": {"parents": [], "children": []}, "candidate": None, "candidate_path": None,
+           "evaluation": {"before": before, "after": None, "improved": False, "split": "dev"},
+           "calls": calls, "diagnosis": diagnosis, "analysis": report, "action": diagnosis["action"], "log": events}
+    out["critic.rubric"] = out["critic"]["rubric"]
+    if not pool:
+        out["failure_summary"] = failure_summary(attempts, diagnosis, evaluator)
+        note({"stage": "lever", "event": "no lever available"})
+        out["spent_usd"] = herd.ledger.spent_this_run
+        return out
+
+    impl_llm = _Counted(herd.llm, calls, "implementer")
+    ext_llm, critic_llm = _Counted(herd.llm, calls, "extractor"), _Counted(herd.llm, calls, "critic")
+    repair_llm = _Counted(herd.llm, calls, "repair")
+    max_tokens = herd.cfg["reality_check"]["max_tokens"]
+
+    # a. anchor strip (as v3)
+    summary_v2 = failure_summary(attempts, diagnosis, evaluator)
+    try:
+        summary, kept_c, dropped_c = anchor_strip(ext_llm, extractor, task, summary_v2, seed=seed)
+        out["anchor_strip"].update(constraints=kept_c, dropped=dropped_c, original=summary_v2)
+        note({"stage": "anchor_strip", "kept": len(kept_c), "dropped": len(dropped_c)})
+    except BudgetExceeded:
+        raise
+    except Exception as e:
+        summary, kept_c = summary_v2, []
+        out["anchor_strip"].update(fallback=True, error=sandbox.redact(str(e))[:300])
+        note({"stage": "anchor_strip", "event": "fallback to v2 summary", "error": out["anchor_strip"]["error"]})
+    out["failure_summary"] = summary
+    constraints = _constraint_lines(kept_c, overlook)
+
+    # b. isolated sketches, one lever each (as v3)
+    prompts = []
+    for i in range(n_sketches):
+        lv = pool[i % len(pool)]
+        prompt = sketch_prompt_v3(task, summary, constraints, lv)
+        prompts.append(prompt)
+        try:
+            s = ask_json(impl_llm, implementer, prompt, max_tokens=max_tokens, key=f"escape_v4:sketch:{seed}:{i}",
+                         temperature=1.0, required=("name", "decision_rule"))
+        except BudgetExceeded:
+            raise
+        except Exception as e:
+            reject("sketch", None, e, index=i, lever=lv["name"])
+            continue
+        out["sketches"].append({k: str(s.get(k) or "") for k in ("name", "state", "decision_rule", "uses_lever")}
+                               | {"index": i, "lever": lv["name"]})
+    out["sketch_prompts"] = prompts
+
+    # c. rubric critic, hard filters, rank by distinctness + feasibility + constraint_fit
+    sketches = out["sketches"]
+    ranked = []
+    if sketches:
+        try:
+            reply = ask_json(critic_llm, critic, critic_prompt_v4(task, stuck, sketches), max_tokens=max_tokens,
+                             key=f"escape_v4:critic:{seed}", required=("scores",))
+            by_pos = {}
+            for r in reply.get("scores") or []:
+                if isinstance(r, dict) and isinstance(r.get("index"), int) and 0 <= r["index"] < len(sketches):
+                    by_pos[r["index"]] = r
+            for pos, s in enumerate(sketches):
+                r = by_pos.get(pos)
+                if r is None:
+                    reject("critic", s["name"], "critic gave no score", index=s["index"])
+                    continue
+                row, why = rubric_row(r)
+                row = {"index": s["index"], "sketch": s["name"], **row, "kept": why is None}
+                out["critic"]["rubric"].append(row)
+                if why:
+                    reject("critic", s["name"], why, index=s["index"])
+                    continue
+                ranked.append((row["total"], -pos, {**s, "critic": row}))
+        except BudgetExceeded:
+            raise
+        except Exception as e:
+            out["critic"]["error"] = sandbox.redact(str(e))[:300]
+            note({"stage": "critic", "event": "critic failed; sketches kept unranked", "error": out["critic"]["error"]})
+            ranked = [(0.0, -pos, {**s, "critic": None}) for pos, s in enumerate(sketches)]
+    out["critic"]["scores"] = out["critic"]["rubric"]
+    kept = [s for _, _, s in sorted(ranked, key=lambda t: (t[0], t[1]), reverse=True)]
+    out["kept_sketches"] = kept
+
+    levers_by_name = {str(lv["name"]): lv for lv in pool}
+    code_dir = herd.out_dir(task) / "escape_v4"
+    code_dir.mkdir(parents=True, exist_ok=True)
+    stuck_codes = [a["code"] for a in attempts if a.get("code")]
+
+    def checked(code, label, key):
+        """(code, repaired) after the syntax check and at most one repair; code is None if still invalid."""
+        problem = syntax_check(code, task.entrypoint) if code is not None else "no code in reply"
+        if problem is None:
+            return code, False
+        rec = {"candidate": label, "error": sandbox.redact(problem)[:300], "fixed": False}
+        out["repairs"].append(rec)
+        if code is None:
+            return None, False
+        try:
+            entry = repair_llm.chat(implementer, [{"role": "user", "content": REPAIR_TEMPLATE.format(
+                entrypoint=task.entrypoint, error=problem, code=code)}], temperature=0.0, max_tokens=max_tokens,
+                sample_idx=f"escape_v4:repair:{seed}:{key}")
+            fixed = _code_from(entry, task.entrypoint)
+        except BudgetExceeded:
+            raise
+        except Exception as e:
+            rec["repair_error"] = sandbox.redact(str(e))[:300]
+            return None, False
+        again = syntax_check(fixed, task.entrypoint) if fixed is not None else "no code in repair reply"
+        if again is not None:
+            rec["after_repair"] = sandbox.redact(again)[:300]
+            return None, False
+        rec["fixed"] = True
+        note({"stage": "repair", "candidate": label, "fixed": True})
+        return fixed, True
+
+    def admit_and_score(code, lv, base, file_stem):
+        """Admission then dev score; returns the admitted record (with code) or None, and the verdict."""
+        verdict = _admit(task, code, stuck_codes, lv["name"])
+        if not verdict.get("admitted"):
+            out["rejections"].append({"stage": "admission", **base, "reasons": list(verdict.get("reasons") or []),
+                                      "disagreement": verdict.get("disagreement"),
+                                      "sensitivity": verdict.get("sensitivity"),
+                                      "perturbation": verdict.get("perturbation")})
+            note(out["rejections"][-1])
+            return None, verdict
+        path = code_dir / f"{file_stem}.py"
+        path.write_text(code)
+        result = evaluator(path)  # dev split only
+        error = (result.get("detail") or {}).get("error")
+        rec = {**base, "lever": lv["name"], "path": str(path), "valid": result["valid"],
+               "score": result["score"] if result["valid"] else None,
+               "disagreement": verdict.get("disagreement"), "sensitivity": verdict.get("sensitivity"),
+               "error": sandbox.redact(str(error))[:500] if error else None, "code": code,
+               "dev_detail": dev_detail(result) if result["valid"] else None}
+        note({"stage": "admitted", **{k: v for k, v in rec.items() if k not in ("code", "dev_detail")}})
+        return rec, verdict
+
+    # d. deepen top n_deepen, implement (hybrid allowed), syntax check + one repair, admit, dev score
+    impl_prompts = []
+    for s in kept[:n_deepen]:
+        try:
+            lv = levers_by_name[s["lever"]]
+            description, _ = _lever_text(lv)
+            row = s.get("critic") or {}
+            risks = row.get("trap") or "none given"
+            d = ask_json(impl_llm, implementer, DEEPEN_TEMPLATE.format(
+                task=task.prompt, name=s["name"], state=s["state"] or "none", decision_rule=s["decision_rule"],
+                lever=lv["name"], uses_lever=s["uses_lever"], trap=risks, constraints=constraints),
+                max_tokens=max_tokens, key=f"escape_v4:deepen:{seed}:{s['index']}",
+                required=("mechanism", "main_risk", "first_step"))
+        except BudgetExceeded:
+            raise
+        except Exception as e:
+            reject("deepen", s["name"], e, index=s["index"])
+            continue
+        deep = {"sketch": s["name"], "index": s["index"], "lever": lv["name"],
+                **{k: str(d.get(k) or "") for k in ("mechanism", "main_risk", "first_step")}}
+        out["deepened"].append(deep)
+        note({"stage": "deepened", "sketch": s["name"], "lever": lv["name"]})
+        impl_prompt = IMPLEMENT4_TEMPLATE.format(
+            task=task.prompt, name=s["name"], state=s["state"] or "none", mechanism=deep["mechanism"],
+            main_risk=deep["main_risk"], first_step=deep["first_step"], risks=risks, lever=lv["name"],
+            description=description, siblings=_sibling_lines(kept, s), stuck=stuck, constraints=constraints)
+        impl_prompts.append(impl_prompt)
+        feedback = ""
+        for attempt in range(max_resample + 1):
+            base = {"sketch": s["name"], "index": s["index"], "attempt": attempt}
+            prompt = impl_prompt + feedback
+            if feedback:
+                impl_prompts.append(prompt)
+            try:
+                entry = impl_llm.chat(implementer, [{"role": "user", "content": prompt}], temperature=1.0,
+                                      max_tokens=max_tokens, sample_idx=f"escape_v4:impl:{seed}:{s['index']}:{attempt}")
+                code = _code_from(entry, task.entrypoint)
+                if code is None:
+                    raise ValueError("no code in reply")
+                code, repaired = checked(code, s["name"], f"{s['index']}:{attempt}")
+                if code is None:
+                    reject("syntax", s["name"], out["repairs"][-1].get("after_repair") or out["repairs"][-1]["error"],
+                           index=s["index"], attempt=attempt)
+                    continue
+                rec, verdict = admit_and_score(code, lv, {**base, "repaired": repaired},
+                                               f"{slug(str(lv['name']))}-{seed}-{s['index']}-{attempt}")
+            except BudgetExceeded:
+                raise
+            except Exception as e:
+                reject("implement", s["name"], e, index=s["index"], attempt=attempt)
+                continue
+            if rec is None:
+                if feedback_on_reject:
+                    feedback = ADMISSION_FEEDBACK.format(reasons="\n".join(
+                        f"- {r}" for r in (verdict.get("reasons") or ["not admitted"])), lever=lv["name"])
+                continue
+            out["admitted"].append(rec)
+            break
+    out["implementation_prompts"] = impl_prompts
+
+    # e. evolve once: one child per top-n_parents valid candidate (dev only, one generation)
+    def valid_of(rows):
+        return [c for c in rows if c["valid"] and c["score"] is not None]
+
+    parents = valid_of(out["admitted"])
+    lower = getattr(evaluator, "lower_is_better", True)
+    parents = sorted(parents, key=lambda c: c["score"] if lower else -c["score"])[:n_parents]
+    evolve_prompts = []
+    for pi, p in enumerate(parents):
+        out["evolve"]["parents"].append({"sketch": p["sketch"], "index": p["index"], "score": p["score"],
+                                         "path": p["path"]})
+        try:
+            lv = levers_by_name[p["lever"]]
+            description, _ = _lever_text(lv)
+            values = dict(_cases(p.get("dev_detail")))
+            worst = sorted(failure_set(p.get("dev_detail"), 3), key=lambda c: (-values.get(c, 0.0), c))
+            prompt = EVOLVE_TEMPLATE.format(
+                task=task.prompt, lever=lv["name"], description=description,
+                direction="lower" if lower else "higher", score=f"{p['score']:.6g}",
+                cases=_case_lines(p.get("dev_detail")), worst=", ".join(worst) or "(unknown)", code=p["code"],
+                stuck=stuck, constraints=constraints)
+            evolve_prompts.append(prompt)
+            entry = impl_llm.chat(implementer, [{"role": "user", "content": prompt}], temperature=1.0,
+                                  max_tokens=max_tokens, sample_idx=f"escape_v4:evolve:{seed}:{p['index']}")
+            code = _code_from(entry, task.entrypoint)
+            if code is None:
+                raise ValueError("no code in reply")
+            label = f"{p['sketch']}/child"
+            code, repaired = checked(code, label, f"evolve:{p['index']}")
+            if code is None:
+                reject("syntax", label, out["repairs"][-1].get("after_repair") or out["repairs"][-1]["error"],
+                       index=p["index"], evolve=True)
+                continue
+            base = {"sketch": label, "index": p["index"], "attempt": "evolve", "parent": p["path"],
+                    "repaired": repaired}
+            rec, _ = admit_and_score(code, lv, base, f"{slug(str(lv['name']))}-{seed}-{p['index']}-child")
+        except BudgetExceeded:
+            raise
+        except Exception as e:
+            reject("evolve", p["sketch"], e, index=p["index"])
+            continue
+        if rec is not None:
+            out["evolve"]["children"].append(rec)
+    out["evolve_prompts"] = evolve_prompts
+
+    pool_final = valid_of(out["admitted"]) + valid_of(out["evolve"]["children"])
+    if pool_final:
+        top = evaluator.best([c["score"] for c in pool_final])
+        best = next(c for c in pool_final if c["score"] == top)
+        out.update(candidate=best["code"], candidate_path=best["path"], lever=levers_by_name[best["lever"]])
+        out["evaluation"] = {"before": before, "after": best["score"], "from": "child" if best["attempt"] == "evolve"
+                             else "parent", "improved": before is None or evaluator.beats(best["score"], before),
+                             "split": "dev"}
+    strip = lambda rows: [{k: v for k, v in c.items() if k not in ("code", "dev_detail")} for c in rows]
+    out["admitted"] = strip(out["admitted"])
+    out["evolve"]["children"] = strip(out["evolve"]["children"])
+    out["spent_usd"] = herd.ledger.spent_this_run
+    return out
+
+
+MODES["v4"] = escape_v4

@@ -178,7 +178,7 @@ def test_end_to_end_candidate_and_modes(world):
     assert "max_bin_cap" in result["candidate"] and ev["after"] < ev["before"] and ev["improved"]
     assert result["candidate_path"] and all("code" not in a for a in result["admitted"])
     assert any(e["stage"] == "admitted" for e in events) and result["spent_usd"] >= 0
-    assert MODES == {"v1": escape, "v2": escape_v2, "v3": escape_v3}
+    assert {k: MODES[k] for k in ("v1", "v2", "v3")} == {"v1": escape, "v2": escape_v2, "v3": escape_v3}
 
 
 def test_resample_prompt_carries_the_admission_reasons():
