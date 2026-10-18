@@ -118,6 +118,8 @@ def next_steps(uv, actions, repo=REPO):
         "Try the offline demo (no API calls, $0): " + f"{run} demo strategy_loop",
         "A first consensus map can take several minutes; start Claude Code with MCP_TOOL_TIMEOUT=1800000 so the "
         "client does not give up.",
+        "Then the agent can use it on its own: diverge_check before committing to a strategy (is it the default "
+        "answer most models give?), diverge_escape when its attempts keep landing on the same answer.",
     ]
     return steps
 

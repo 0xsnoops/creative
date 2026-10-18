@@ -218,9 +218,11 @@ def _live_model_ids(timeout=10):
 OFFLINE_DEMO = "strategy_loop"
 OFFLINE_DEMO_COMMAND = f"python -m diverge demo {OFFLINE_DEMO}"
 PRIMARY_TOOL = "diverge_escape"
-WHEN_TO_CALL = ("diverge_escape when several scored attempts have stalled, the same failure keeps coming back, code "
-                "changes a lot but the score barely moves, or you are about to retry another variation or escalate; "
-                "diverge_check before committing to a strategy. Not for generic debugging.")
+WHEN_TO_CALL = ("diverge_escape when you keep getting the same answer: several scored attempts have stalled, the same "
+                "failure keeps coming back, code changes a lot but the score barely moves, or you are about to retry "
+                "another variation or escalate; diverge_check before committing to a strategy, to see whether it is "
+                "the default answer most models give and get alternatives (free-text mode needs no evaluator). Not for "
+                "generic debugging.")
 KEYS = (("openrouter", "OPENROUTER_API_KEY", True, "every model call (fingerprinting, implementing, map builds)"),
         ("exa", "EXA_API_KEY", False, "literature search, only when a consensus map is built for a new task"))
 
@@ -283,7 +285,7 @@ def readiness(herd=None, env=None, live=False, root=REPO):
                       if catalog_path.exists() else {"error": f"{cfg['paths']['cache']}/openrouter_models.json not found"})
     if live_ok:
         action = (f"DIVERGE is configured. Call {PRIMARY_TOOL} yourself when attempts stall (see when_to_call); "
-                  f"diverge_check before choosing a strategy.")
+                  f"diverge_check before committing to a strategy, to get alternatives to the default answer.")
     elif any(k in missing for k in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")):
         needed = "ANTHROPIC_API_KEY" if "ANTHROPIC_API_KEY" in missing else "OPENROUTER_API_KEY"
         action = (f"Live DIVERGE calls need {needed}, which only the user can provide (in .env); ask them, and "

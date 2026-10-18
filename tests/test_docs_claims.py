@@ -95,7 +95,7 @@ def _plain(line):
 
 def test_readme_keeps_top_lines():
     lines = [_plain(l) for l in (ROOT / "README.md").read_text().splitlines() if l.strip()]
-    assert lines[:3] == ["# DIVERGE", "Escape strategy loops in AI agents.",
+    assert lines[:3] == ["# DIVERGE", "Help AI agents find the answers they keep missing.",
                          "Different code isn't always different thinking."]
 
 

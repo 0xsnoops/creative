@@ -20,15 +20,20 @@ from .pipeline import (Herd, baseline_scores, check_approach, effective_n, ensur
 from .reality import Evaluator
 from .task import Task
 
-INSTRUCTIONS = """DIVERGE: different code isn't always different thinking. It tells a coding agent when its attempts \
-are one strategy in different code, and names one evidence-backed alternative it has scored.
-Use it for strategy stagnation on a task with a score (evaluator_cmd, or a built-in task: online_bin_packing, \
-cache_eviction). Not for generic debugging, build errors or a first attempt.
+INSTRUCTIONS = """DIVERGE helps AI agents find, test and pick alternatives when they keep landing on the same answer. \
+Built for agents: it shows what you (and most models) converge on, proposes genuinely different, unconventional \
+alternatives, and returns a VERDICT and next_action you can act on without a human. Different code isn't always \
+different thinking.
+Use it on strategy decisions and strategy stagnation, ideally on a task with a score (evaluator_cmd, or a built-in \
+task: online_bin_packing, cache_eviction). Not for generic debugging or build errors.
 - Unsure whether DIVERGE is configured here: diverge_status (free, no network).
-- Choosing a strategy before coding: diverge_check.
-- Several scored attempts have stalled, the same failure keeps coming back, lots of code change but little \
-score change, or you are about to retry another variation or escalate to a human: call diverge_escape yourself; \
-do not wait for the user to ask. Follow its VERDICT and next_action.
+- Before committing to a strategy: diverge_check. Is your plan just the default answer most models give? It \
+returns alternatives with strengths and traps; free-text mode needs no evaluator.
+- You keep getting the same answer: several scored attempts have stalled, the same failure keeps coming back, lots \
+of code change but little score change, or you are about to retry another variation or escalate to a human. Call \
+diverge_escape yourself; do not wait for the user to ask. It tells you whether your attempts are one strategy in \
+different code, and proposes and tests an unconventional alternative on your evaluator. Not for a first attempt. \
+Follow its VERDICT and next_action.
 - Evidence is labeled MEASURED, SOURCE_BACKED or HYPOTHESIZED. Never treat HYPOTHESIZED evidence as measured.
 - diverge_map (the consensus map: what most models converge on), blind_spots and reality_check are lower-level \
 research primitives.
@@ -278,9 +283,10 @@ def free_text_check(herd, task, my_approach):
 async def diverge_check(task_description: str, my_approach: str, ctx: Context, evaluator_cmd: str = "",
                      k: int = 3, lower_is_better: bool = True, contrast: bool = False,
                      budget_usd: float = 5.0) -> CallToolResult:
-    """Call before committing to a strategy: which family does my_approach (a plain-language
-    description) belong to, how common is it among AI models, and does a tested family beat it?
-    Not for debugging a failing solution; once scored attempts have stalled, use diverge_escape. Needs
+    """Call before committing to a strategy: is my_approach (a plain-language description) just the
+    default answer most AI models give? Get alternatives with strengths and traps (free-text mode needs
+    no evaluator), or, with an evaluator, which family your plan belongs to, how common it is, and
+    whether a tested family beats it. Not for debugging a failing solution; once scored attempts have stalled, use diverge_escape. Needs
     OPENROUTER_API_KEY (and EXA_API_KEY when the map is not cached yet). With an evaluator
     (evaluator_cmd, or a built-in task) it implements your family, the blind spots and the top consensus
     families k times each (default 3) and scores them (held-out on built-in tasks). Default budget_usd 5.0. Cold start: the first call on a task without a cached consensus map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
@@ -351,13 +357,14 @@ def escape_for_agent(herd, task, current_solution, previous_attempts, evaluator,
 async def diverge_escape(task_description: str, current_solution: str, ctx: Context,
                       previous_attempts: list[str] | None = None, evaluator_cmd: str = "",
                       lower_is_better: bool = True, k: int = 1, budget_usd: float = 2.0) -> CallToolResult:
-    """Primary tool. Call it yourself, without waiting to be asked, when several scored attempts
-    have stalled, the same failure keeps coming back, code changes a lot but the score barely moves,
-    or you are about to retry another variation or hand the problem to a human. Not for a first
-    attempt, syntax errors or generic debugging. Pass current_solution and previous_attempts as code
-    (oldest first). DIVERGE scores them on the dev split, fingerprints their strategies, says whether
-    they are one strategy in different code and, when they loop, implements one evidence-backed lever
-    and scores it before/after (with counterexamples on tasks that support probes).
+    """Primary tool for when you keep getting the same answer: tells you whether your attempts are
+    one strategy in different code and proposes and tests an unconventional alternative. Call it
+    yourself, without waiting to be asked, when several scored attempts have stalled, the same failure
+    keeps coming back, code changes a lot but the score barely moves, or you are about to retry another
+    variation or hand the problem to a human. Not for a first attempt, syntax errors or generic
+    debugging. Pass current_solution and previous_attempts as code (oldest first). DIVERGE scores them
+    on the dev split, fingerprints their strategies by behavior and, when they loop, implements one
+    evidence-backed lever and scores it before/after (with counterexamples on tasks that support probes).
     task_description: a built-in task's exact name (online_bin_packing, cache_eviction; then omit
     evaluator_cmd) or free text with evaluator_cmd. evaluator_cmd runs sandboxed (no network, no writes
     outside scratch, no .env, no nested sandbox), so make it self-contained with absolute paths.

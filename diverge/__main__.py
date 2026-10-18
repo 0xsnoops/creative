@@ -116,9 +116,11 @@ def fingerprints_cmd(task_name):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="diverge")
+    parser = argparse.ArgumentParser(prog="diverge", description=(
+        "DIVERGE: help AI agents find the answers they keep missing. Different code isn't always different "
+        "thinking. Built for agents (MCP: diverge serve); the CLI and offline demo are for humans too."))
     sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("run", help="run the blind-spot experiment on a task")
+    p = sub.add_parser("run", help="map the consensus and blind spots for a task, then score them (the blind-spot experiment)")
     p.add_argument("task")
     p.add_argument("--n", type=int, help="samples per model (overrides config)")
     p.add_argument("--no-reality", action="store_true", help="stop after the consensus map and blind spots")
@@ -136,7 +138,7 @@ def main():
     pp.add_argument("task")
     ov = sub.add_parser("overlook", help="Step 1: overlooked inputs, assumptions, grid gaps, minority and latent ideas")
     ov.add_argument("task")
-    es = sub.add_parser("escape", help="are my attempts one strategy? if so, try one evidence-backed alternative")
+    es = sub.add_parser("escape", help="are my attempts one strategy in different code? if so, propose and test one evidence-backed alternative")
     es.add_argument("--task", required=True, help="registered task name, or a path to a task description file")
     es.add_argument("--candidate", required=True, help="current solution file")
     es.add_argument("--history", help="directory of earlier attempt files (sorted by name = chronological)")
@@ -150,7 +152,7 @@ def main():
     pf.add_argument("--json", action="store_true", help="print the readiness dict (as diverge_status returns it)")
     pf.add_argument("--offline", action="store_true", help="skip the live model catalog check (no network)")
     sub.add_parser("spend", help="show estimated spend so far")
-    sub.add_parser("serve", help="run the MCP server on stdio")
+    sub.add_parser("serve", help="run the MCP server for coding agents on stdio")
     ob = sub.add_parser("onboard", help="install the DIVERGE skill, /diverge command and MCP config into a project")
     ob.add_argument("--client", default="claude", help="coding agent client (only 'claude' is supported)")
     ob.add_argument("--target", default=".", help="project directory to onboard (default: current directory)")

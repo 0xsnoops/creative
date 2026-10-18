@@ -1,20 +1,31 @@
 # DIVERGE
 
-Escape strategy loops in AI agents.
+Help AI agents find the answers they keep missing.
 
 Different code isn't always different thinking.
 
+**What it is.** DIVERGE is creative-search infrastructure for AI agents. Agents, and the models
+behind them, converge: retries give different code with the same idea, and models from different
+companies land on the same few families of solutions. When an agent keeps landing on the same
+answer, DIVERGE shows it what it (and most models) converge on, and helps it find, test and pick
+genuinely different, unconventional alternatives. It is built for agents first (MCP tools,
+self-onboarding, structured verdicts and a `next_action` an agent can act on without a human);
+humans can use it too, through the CLI and an offline demo.
+
 ## For coding agents
 
-Call `diverge_escape` yourself, without waiting to be asked, when:
+Use DIVERGE yourself, without waiting to be asked, when you need alternatives:
 
-- you have two or more scored attempts on a task with an evaluator;
-- progress stopped improving (flat scores, the same failure coming back, lots of code change for
-  little score change);
-- you are about to retry another variation of the same idea;
-- you are considering escalating to a human.
+- you are stuck: two or more scored attempts on a task with an evaluator stopped improving (flat
+  scores, the same failure coming back, lots of code change for little score change). Call
+  `diverge_escape`;
+- you keep landing on the same answer, or other models you tried gave the same one;
+- you are about to retry another variation of the same idea, or to escalate to a human;
+- you are choosing a strategy before coding, or were asked for "a few ways to..." something: call
+  `diverge_check` to ask whether your plan is just the default answer (it works on free text,
+  without an evaluator).
 
-Not for a first attempt, build errors or generic debugging.
+Not for build errors, a bug with a known cause or generic debugging.
 
 DIVERGE returns `VERDICT: keep|repair|escape|escalate|inconclusive`, then JSON with `next_action`
 (what to do now), `lever`, `next_experiment` (success and failure thresholds) and `evidence`, each
@@ -50,9 +61,33 @@ mentions DIVERGE: `scripts/autonomous_demo.py`, results in `docs/AUTONOMOUS_AGEN
 
 ## What DIVERGE is for
 
-Agents can make different edits while repeating the same idea. DIVERGE measures what models
-converge on, detects the assumptions your agent keeps repeating, and finds a different
-strategy worth testing.
+**The problem.** Agents converge. Retrying gives different code with the same idea; models from
+different companies produce the same few families of solutions (an "artificial hivemind"); an
+experimenting agent loops on one strategy, gets stuck, and escalates to a human.
+
+**The loop.**
+
+1. **Spot sameness:** compare attempts by behavior (what they decide), not by how the code reads
+   (behavior fingerprints where the evaluator supports them, currently online_bin_packing;
+   strategy descriptions elsewhere).
+2. **Map the consensus:** what most models converge on for this task, and what they overlook
+   (unused signals, rare families, untested assumptions).
+3. **Generate alternatives:** unconventional mechanism sketches in isolated calls, a separate critic
+   that names strengths and traps, and a behavioral admission check that rejects anything that is
+   just the old strategy again (escape v2 is the default; v3/v4 are opt-in).
+4. **Test and decide:** score alternatives on the agent's own evaluator and return a verdict
+   (`keep` / `repair` / `escape` / `escalate` / `inconclusive`), a `next_action` and evidence
+   tagged `MEASURED` / `SOURCE_BACKED` / `HYPOTHESIZED`.
+
+Before coding, `diverge_check` asks "is my plan just the default answer?" and returns alternatives
+with their strengths and traps; it works on free text, without an evaluator.
+
+**Use cases.**
+
+- Experimenting or optimizing agents stuck on a score.
+- Agents asked for "a few ways to..." do something, where every draft comes out alike.
+- Design and strategy decisions where the first answer is the obvious one.
+- Agents about to retry the same idea or escalate to a human.
 
 Program-search systems ask a different core question from DIVERGE. This is not a ranking, and
 DIVERGE has not been compared against them:
@@ -64,6 +99,9 @@ DIVERGE has not been compared against them:
 | **DIVERGE** | **Am I actually exploring new strategies, and what should I try when I'm not?** |
 
 ## Measured so far
+
+The question these numbers address: does DIVERGE help agents find alternatives, and does that
+lead anywhere? All of it is preliminary.
 
 The only measured numbers are in `docs/RESULTS.md` and `docs/RESULTS-E1.md` (protocols:
 `docs/PREREGISTRATION.md`, `docs/PREREGISTRATION-overlook.md`). Any other number in this README
@@ -127,6 +165,8 @@ behavior signal; elsewhere it still uses strategy similarity. The live runs abov
   - Rescued counts: random_lever 3/4, fresh_start 2/4, try_different 2/4, escape v3 2/4, escape v4
     2/4, escape v2 1/4.
 - **Default:** by the pre-registered rule, v2 stays the default and v3/v4 are opt-in.
+- **Model change between rounds:** round 1 used Llama and round 2 used Haiku, so compare arms
+  within round 2, not across rounds.
 - **What this does and does not show:** the pipeline helps, but **DIVERGE's choice of the
   overlooked lever has not been shown to beat a random lever**. Escape has not been shown to beat
   simple baselines at scale.
@@ -138,8 +178,8 @@ behavior signal; elsewhere it still uses strategy similarity. The live runs abov
   docs/BENCH_FORENSICS.md show the overlooked families were weak for this workload.
 
 **Autonomous tool selection.** In both completed headless `claude -p` runs, the agent chose
-DIVERGE on its own; the prompt never mentioned it. In run 3 it got `keep`, followed it, and kept
-improving (docs/AUTONOMOUS_AGENT_DEMO.md).
+DIVERGE on its own; the prompt never mentioned it. In run 3 it got `keep` (do not switch); the agent
+had already reached its best score itself, kept its strategy and finished (docs/AUTONOMOUS_AGENT_DEMO.md).
 
 ## How it works
 

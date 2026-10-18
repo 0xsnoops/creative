@@ -4,7 +4,10 @@ Only measured numbers are recorded here. The raw data (`results/`, `cache/`, tra
 gitignored and kept locally. Protocols: `docs/PREREGISTRATION.md` (operator benchmark) and
 `docs/PREREGISTRATION-overlook.md` (paraphrase test and overlook).
 
-Total spent through DIVERGE so far: **$11.84** (cap $28):
+Total spent through DIVERGE: **$22.16** of the $28 cap, as of the final run on 2026-10-18
+(`python -m diverge spend`). The itemized list below covers the first $11.84; later spend went to
+E1b ($0.31), the bench-doctor panel ($4.21), the rescue tests and both Anthropic benchmarks.
+Earlier breakdown:
 - $0.50 smoke test
 - $6.16 for the two N=20 consensus maps
 - $0.44 lost to a benchmark bug, since fixed
@@ -268,6 +271,11 @@ v3 stays opt-in**. v4 was added after the pre-registration and is exploratory. I
 - **v4's quality:** when v4 produced a candidate, it was the best of any arm (1.66 and 1.11).
   But it produced no admitted candidate on 2 of 4 states.
 - **Sample size:** n = 4. One state changes any count.
+- **Round 1 vs round 2 is not a clean comparison.** Round 1 used Llama 4 Maverick as the
+  implementer and round 2 used Claude Haiku 5.5 (amendment in docs/PREREGISTRATION-final.md). Part
+  of "plateaus were broken in round 2" may come from the stronger model, not the pipeline. The
+  within-round comparison, all arms on Haiku, is the fair one.
+- **State 0 is easy to rescue.** Its stuck best is 148.12, so every arm beat it.
 
 ## Three-operator benchmark on the Anthropic API (budget fix applied; preliminary, 2 repeats)
 
