@@ -19,8 +19,17 @@ sampling:
   max_tokens: 32000         # clipped to each model's own completion limit
   concurrency: 8
 
+literature:
+  n_queries: 8              # labeler-written Exa queries
+  n_pre_2022: 3             # the first few are re-run limited to work published before 2022
+  results_per_query: 8
+
+labeling:
+  batch_size: 8             # samples per labeler call
+
 reality_check:
   k: 3                      # implementations per family
+  max_tokens: 16000
 
 blind_spot_max_share: 0.02
 

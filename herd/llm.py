@@ -1,15 +1,22 @@
 """OpenRouter chat client with a disk cache and a hard budget cap."""
 import json
 import os
+import re
 import threading
 import time
 from pathlib import Path
 
 import httpx
 
-from .cache import JsonlCache, request_key
+from .cache import request_key
 
 OPENROUTER = "https://openrouter.ai/api/v1"
+
+
+def require_env(name):
+    if not os.environ.get(name):
+        raise RuntimeError(f"{name} is not set; add it to .env")
+    return os.environ[name]
 
 
 class BudgetExceeded(RuntimeError):
@@ -51,10 +58,8 @@ def load_model_catalog(cache_dir):
 
 
 class LLM:
-    def __init__(self, cache_dir, ledger):
-        self.cache = JsonlCache(Path(cache_dir) / "llm.jsonl")
-        self.catalog = load_model_catalog(cache_dir)
-        self.ledger = ledger
+    def __init__(self, cache, catalog, ledger):
+        self.cache, self.catalog, self.ledger = cache, catalog, ledger
 
     def check_models(self, models):
         missing = [m for m in models if m not in self.catalog]
@@ -92,7 +97,7 @@ class LLM:
         return {**entry, "cached": False}
 
     def _post(self, body, attempts=4):
-        headers = {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}
+        headers = {"Authorization": f"Bearer {require_env('OPENROUTER_API_KEY')}"}
         error = None
         for attempt in range(attempts):
             try:
@@ -116,3 +121,22 @@ def message_text(entry):
 
 def finish_reason(entry):
     return entry["response"]["choices"][0].get("finish_reason")
+
+
+def parse_json(text):
+    """The JSON object in a model reply, with or without a ```json fence."""
+    fenced = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.S)
+    candidate = fenced.group(1) if fenced else text[text.find("{"):text.rfind("}") + 1]
+    return json.loads(candidate)
+
+
+def ask_json(llm, model, prompt, max_tokens=16000, attempts=3):
+    """Ask for a JSON object; a reply that does not parse is re-asked under a new cache key."""
+    for attempt in range(attempts):
+        entry = llm.chat(model, [{"role": "user", "content": prompt}], temperature=0.0,
+                         max_tokens=max_tokens, sample_idx=attempt)
+        try:
+            return parse_json(message_text(entry))
+        except ValueError:
+            continue
+    raise ValueError(f"{model} did not return valid JSON after {attempts} attempts")

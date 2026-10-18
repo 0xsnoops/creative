@@ -1,4 +1,4 @@
-"""SAMPLE: send each model the task prompt verbatim, extract the code, score it."""
+"""SAMPLE: send each model the task prompt verbatim, extract the code, score it if we can."""
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -8,23 +8,27 @@ from .llm import BudgetExceeded, finish_reason, message_text
 FENCE = re.compile(r"```[ \t]*(?:python|py|python3)?[ \t]*\n(.*?)```", re.S | re.I)
 
 
-def extract_code(text, entrypoint):
-    """Longest fenced block that defines the entrypoint, else None."""
-    defines = re.compile(rf"^\s*(def|class)\s+{re.escape(entrypoint)}\b", re.M)
-    blocks = [b for b in FENCE.findall(text) if defines.search(b)]
+def extract_code(text, entrypoint=None):
+    """Longest fenced block that defines the entrypoint (any block if entrypoint is None), else None."""
+    blocks = FENCE.findall(text)
+    if entrypoint:
+        defines = re.compile(rf"^\s*(def|class)\s+{re.escape(entrypoint)}\b", re.M)
+        blocks = [b for b in blocks if defines.search(b)]
     return max(blocks, key=len) if blocks else None
 
 
 def sample_id(model, idx):
-    return f"{model.split('/')[-1]}-{idx:03d}"
+    return f"{model.replace('/', '_')}-{idx:03d}"
 
 
-def run_sampling(task, llm, cfg, out_dir, n_per_model):
+def run_sampling(task, llm, cfg, out_dir, n_per_model, progress=print):
     models, s = cfg["models"]["samplers"], cfg["sampling"]
     llm.check_models(models)
-    code_dir = out_dir / "samples"
-    code_dir.mkdir(parents=True, exist_ok=True)
+    sample_dir = out_dir / "samples"
+    sample_dir.mkdir(parents=True, exist_ok=True)
     messages = [{"role": "user", "content": task.prompt}]
+    jobs = [(m, i) for m in models for i in range(n_per_model)]
+    done = []
 
     def one(job):
         model, idx = job
@@ -36,21 +40,27 @@ def run_sampling(task, llm, cfg, out_dir, n_per_model):
             return {**record, "status": "budget_exceeded", "error": str(e)}
         except Exception as e:
             return {**record, "status": "api_error", "error": str(e)}
+        finally:
+            done.append(job)
+            progress(f"sample {len(done)}/{len(jobs)}")
+        text = message_text(entry)
         usage = entry["response"].get("usage") or {}
         record.update(cost_usd=entry["cost_usd"], cached=entry["cached"],
                       finish_reason=finish_reason(entry),
-                      completion_tokens=usage.get("completion_tokens"))
-        code = extract_code(message_text(entry), task.entrypoint)
+                      completion_tokens=usage.get("completion_tokens"),
+                      text_path=f"samples/{record['sample_id']}.md")
+        (out_dir / record["text_path"]).write_text(text)
+        code = extract_code(text, task.entrypoint)
         if code is None:
             return {**record, "status": "no_code"}
-        path = code_dir / f"{record['sample_id']}.py"
-        path.write_text(code)
-        result = task.evaluate(path)
+        record["code_path"] = f"samples/{record['sample_id']}.py"
+        (out_dir / record["code_path"]).write_text(code)
+        if not task.evaluator:
+            return {**record, "status": "unscored"}
+        result = task.evaluate(out_dir / record["code_path"])
         return {**record, "status": "valid" if result["valid"] else "invalid",
-                "code_path": str(path.relative_to(out_dir)), "score": result["score"],
-                "eval_error": result["detail"].get("error")}
+                "score": result["score"], "eval_error": result["detail"].get("error")}
 
-    jobs = [(m, i) for m in models for i in range(n_per_model)]
     with ThreadPoolExecutor(s["concurrency"]) as pool:
         records = list(pool.map(one, jobs))
     with (out_dir / "samples.jsonl").open("w") as f:
