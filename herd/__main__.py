@@ -1,6 +1,7 @@
 """python -m herd run <task> [--n N] [--no-reality]
 python -m herd bench <task> [--budget USD] [--repeats R] [--operators a,b]
-python -m herd spend  |  python -m herd serve"""
+python -m herd spend  |  python -m herd serve
+python -m herd demo <fixture>  |  python -m herd preflight"""
 import argparse
 import json
 
@@ -76,6 +77,12 @@ def escape_cmd(args):
     for ce in r.get("counterexamples", [])[:2]:
         print(f"Counterexample: {ce['case']} -> {ce['explanation']}")
     print(f"spent ${herd.ledger.new_spend:.4f}")
+    from . import contract
+    from .pipeline import read_json
+    out = herd.out_dir(task)
+    print()
+    print(contract.render(r, read_json(out / "overlook.json"), read_json(out / "paraphrase.json"),
+                          read_json(out / "blind_spots.json")))
 
 
 def fingerprints_cmd(task_name):
@@ -136,6 +143,9 @@ def main():
     es.add_argument("--evaluator", default="", help="evaluator command (default: the task's built-in evaluator)")
     es.add_argument("--higher-is-better", action="store_true")
     es.add_argument("--budget", type=float, default=2.0, help="USD this run may spend")
+    dm = sub.add_parser("demo", help="replay a recorded escape run offline (no API calls)")
+    dm.add_argument("fixture", help="name under fixtures/trajectories and fixtures/runs, e.g. strategy_loop")
+    sub.add_parser("preflight", help="check budget, API keys and model slugs before a live run")
     sub.add_parser("spend", help="show estimated spend so far")
     sub.add_parser("serve", help="run the MCP server on stdio")
     args = parser.parse_args()
@@ -163,6 +173,12 @@ def main():
         print(json.dumps({k: v for k, v in result.items() if not k.endswith("distributions")}, indent=2))
     elif args.command == "fingerprints":
         fingerprints_cmd(args.task)
+    elif args.command == "demo":
+        from . import demo
+        raise SystemExit(demo.run(args.fixture))
+    elif args.command == "preflight":
+        from . import demo
+        raise SystemExit(demo.preflight())
     elif args.command == "spend":
         ledger = Herd().ledger
         print(f"estimated spend: ${ledger.total_spent:.4f} of ${ledger.global_cap:.2f}")
