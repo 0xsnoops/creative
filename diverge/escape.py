@@ -193,7 +193,7 @@ def baseline_detail(task, evaluator, attempts):
 
 
 def _analyze(task, attempts, evaluator, extract):
-    """herd.trajectory.analyze, called with whichever of these arguments it takes by name."""
+    """diverge.trajectory.analyze, called with whichever of these arguments it takes by name."""
     from . import trajectory  # imported late: written in parallel with this module
     params = inspect.signature(trajectory.analyze).parameters
     if "attempts" not in params:
@@ -330,7 +330,7 @@ interface and rules. Reply with your complete solution in a single Python code b
 
 
 class _Counted:
-    """herd.llm with a per-role call counter (ask_json may retry, so count at chat level)."""
+    """diverge.llm with a per-role call counter (ask_json may retry, so count at chat level)."""
 
     def __init__(self, llm, calls, role):
         self.llm, self.calls, self.role = llm, calls, role

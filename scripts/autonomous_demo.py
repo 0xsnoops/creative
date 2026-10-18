@@ -2,8 +2,8 @@
 
     uv run python scripts/autonomous_demo.py --run 1 [--max-budget 5]
 
-1. Creates a fresh temp project and runs `python -m herd onboard --client claude --target <it>`
-   into it, so the project holds only the installed skill, the /herd command and .mcp.json.
+1. Creates a fresh temp project and runs `python -m diverge onboard --client claude --target <it>`
+   into it, so the project holds only the installed skill, the /diverge command and .mcp.json.
 2. Copies in the stalled bin-packing trajectory (fixtures/trajectories/strategy_loop.json) as
    attempts/ with their dev scores, the task statement and a small evaluator wrapper.
 3. Runs a separate headless agent, `claude -p` with stream-json output, in that project. The
@@ -55,7 +55,7 @@ print(json.dumps({{"valid": result.get("valid"), "score": result.get("score"),
 
 
 def build_project(target):
-    onboard = subprocess.run([UV, "--directory", str(ROOT), "run", "python", "-m", "herd", "onboard", "--client",
+    onboard = subprocess.run([UV, "--directory", str(ROOT), "run", "python", "-m", "diverge", "onboard", "--client",
                               "claude", "--target", str(target), "--json"], capture_output=True, text=True)
     if onboard.returncode != 0:
         sys.exit(f"onboard failed: {onboard.stderr[-2000:]}")
@@ -89,7 +89,7 @@ def herd_moment(lines):
                 last_text = block["text"]
             elif block.get("type") == "tool_use":
                 tools.append(block["name"])
-                if block["name"].startswith("mcp__herd__"):
+                if block["name"].startswith("mcp__diverge__"):
                     return {"line": i, "tool": block["name"], "input": block.get("input"),
                             "text_before": last_text, "tools_before": tools[:-1]}
     return {"line": None, "tool": None, "tools_before": tools}

@@ -12,12 +12,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from herd import contract, trajectory  # noqa: E402
-from herd.diagnose import diagnose  # noqa: E402
-from herd.escape import choose  # noqa: E402
-from herd.pipeline import read_json  # noqa: E402
-from herd.reality import Evaluator  # noqa: E402
-from herd.task import Task  # noqa: E402
+from diverge import contract, trajectory  # noqa: E402
+from diverge.diagnose import diagnose  # noqa: E402
+from diverge.escape import choose  # noqa: E402
+from diverge.pipeline import read_json  # noqa: E402
+from diverge.reality import Evaluator  # noqa: E402
+from diverge.task import Task  # noqa: E402
 
 LABEL = "detector fix found from run 3, validated by E1"
 NAMES = ["strategy_loop", "strategy_loop_tune", "strategy_loop_unconstrained"]

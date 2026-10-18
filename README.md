@@ -1,12 +1,14 @@
-# HERD
+# DIVERGE
 
 Escape strategy loops in AI agents.
 
 Different code isn't always different thinking.
 
+*DIVERGE was called HERD. The old package name, `python -m herd` and the `herd_escape`, `herd_check` and `herd_status` tool names still work as deprecated aliases. "Herd" still names the concept: what many models converge on, and the herd map.*
+
 ## For coding agents
 
-Call `herd_escape` yourself, without waiting to be asked, when:
+Call `diverge_escape` yourself, without waiting to be asked, when:
 
 - you have two or more scored attempts on a task with an evaluator;
 - progress stopped improving (flat scores, the same failure coming back, lots of code change for
@@ -16,52 +18,52 @@ Call `herd_escape` yourself, without waiting to be asked, when:
 
 Not for a first attempt, build errors or generic debugging.
 
-HERD returns `VERDICT: keep|repair|escape|escalate|inconclusive`, then JSON with `next_action`
+DIVERGE returns `VERDICT: keep|repair|escape|escalate|inconclusive`, then JSON with `next_action`
 (what to do now), `lever`, `next_experiment` (success and failure thresholds) and `evidence`, each
 claim labeled `MEASURED` (evaluator runs, sample counts), `SOURCE_BACKED` (cited literature) or
-`HYPOTHESIZED` (HERD's untested reasoning; never treat it as measured).
+`HYPOTHESIZED` (DIVERGE's untested reasoning; never treat it as measured).
 
 | VERDICT | `next_action` (from `herd/contract.py`) |
 |---|---|
-| `keep` | Continue the existing strategy; do not switch yet. Score each change with the evaluator and call herd_escape again if scores stall. |
+| `keep` | Continue the existing strategy; do not switch yet. Score each change with the evaluator and call diverge_escape again if scores stall. |
 | `repair` | Fix the existing strategy and preserve its mechanism (do not switch approach); re-score it with the evaluator. |
 | `escape` | Implement the named lever (start from candidate_path when one exists), run the evaluator, and compare against the before score and next_experiment's success and failure thresholds. |
-| `escalate` | Stop autonomous retries and ask a human: HERD has no safe next move to name, or the evaluator looks contradictory (identical scores for different strategies, or nothing is valid). |
-| `inconclusive` | Get at least 2 valid, scored attempts (earlier ones as previous_attempts, the latest as current_solution), then call herd_escape again. |
+| `escalate` | Stop autonomous retries and ask a human: DIVERGE has no safe next move to name, or the evaluator looks contradictory (identical scores for different strategies, or nothing is valid). |
+| `inconclusive` | Get at least 2 valid, scored attempts (earlier ones as previous_attempts, the latest as current_solution), then call diverge_escape again. |
 
 Agent quickstart:
 
 ```sh
-uv --directory <herd repo> run python -m herd onboard --client claude --target <project> --json  # skill, /herd, .mcp.json
-herd_status                     # MCP tool, free: are keys, budget and cached tasks ready?
-herd_escape(task_description, current_solution, previous_attempts, evaluator_cmd)  # after 2+ scored attempts stall
+uv --directory <herd repo> run python -m diverge onboard --client claude --target <project> --json  # skill, /diverge, .mcp.json
+diverge_status                     # MCP tool, free: are keys, budget and cached tasks ready?
+diverge_escape(task_description, current_solution, previous_attempts, evaluator_cmd)  # after 2+ scored attempts stall
 ```
 
-Tool roles: `herd_status` is the free readiness check (no model or network call); `herd_check`
+Tool roles: `diverge_status` is the free readiness check (no model or network call); `diverge_check`
 asks, before you implement, whether your planned strategy is the default most models pick;
-`herd_escape` is the primary tool once attempts stall. `herd_map`, `blind_spots` and
-`reality_check` are lower-level research primitives. No API key? `python -m herd demo
+`diverge_escape` is the primary tool once attempts stall. `herd_map`, `blind_spots` and
+`reality_check` are lower-level research primitives. No API key? `python -m diverge demo
 strategy_loop` replays a recorded run offline at $0.
 
 Results are preliminary: `escape` has not been shown to beat a fresh start (see
 [Measured so far](#measured-so-far)). Treat a verdict as one well-founded experiment, not a fix.
 Hackathon track mapping: `docs/TRACKS.md`. Headless agent run in a project whose prompt never
-mentions HERD: `scripts/autonomous_demo.py`, results in `docs/AUTONOMOUS_AGENT_DEMO.md`.
+mentions DIVERGE: `scripts/autonomous_demo.py`, results in `docs/AUTONOMOUS_AGENT_DEMO.md`.
 
-## What HERD is for
+## What DIVERGE is for
 
-Agents can make different edits while repeating the same idea. HERD measures what models
+Agents can make different edits while repeating the same idea. DIVERGE measures what models
 converge on, detects the assumptions your agent keeps repeating, and finds a different
 strategy worth testing.
 
-Program-search systems ask a different core question from HERD. This is not a ranking, and
-HERD has not been compared against them:
+Program-search systems ask a different core question from DIVERGE. This is not a ranking, and
+DIVERGE has not been compared against them:
 
 | | Core question |
 |---|---|
 | AlphaEvolve | Can I iteratively evolve this program to score better? |
 | ShinkaEvolve | Can I explore and evolve programs more efficiently? |
-| **HERD** | **Am I actually exploring new strategies, and what should I try when I'm not?** |
+| **DIVERGE** | **Am I actually exploring new strategies, and what should I try when I'm not?** |
 
 ## Measured so far
 
@@ -88,7 +90,7 @@ this wording". Details: `herd paraphrase <task>`.
 in total. Each is a real trajectory from the implementer (Gemini 4 Argon) with dev-score feedback.
 Scores are % excess bins, as dev / held-out; lower is better.
 
-| trajectory | HERD verdict | strategy vs code similarity | best attempt | fresh_start |
+| trajectory | DIVERGE verdict | strategy vs code similarity | best attempt | fresh_start |
 |---|---|---|---|---|
 | open revisions, 3.66 → 0.30 | keep | 0.30 vs 0.21 | 0.299 / 0.258 | 0.279 / 0.248 |
 | "keep the approach, tune it", 3.66 → 0.36 | keep | 0.29 vs 0.42 | 0.359 / 0.537 | 1.376 / 1.409 |
@@ -96,9 +98,9 @@ Scores are % excess bins, as dev / held-out; lower is better.
 
 Baselines: best fit 4.15 / 3.98, first fit 4.54 / 4.31.
 
-HERD never returned `escape` in these runs, so no escape candidate was generated.
+DIVERGE never returned `escape` in these runs, so no escape candidate was generated.
 
-On the stalled window, the lever HERD would have tried was `n_open_bins`. It is used by 5 of 95
+On the stalled window, the lever DIVERGE would have tried was `n_open_bins`. It is used by 5 of 95
 herd samples: 2 from DeepSeek and 1 each from Gemini, Llama and GPT-6.1. I implemented it anyway as
 an ablation, at the same budget as fresh_start. It scored 1.096 / 0.973 and lost to fresh_start.
 
@@ -120,7 +122,7 @@ evaluator can fingerprint candidates (currently online_bin_packing) the loop dec
 behavior signal; elsewhere it still uses strategy similarity. The live runs above used strategy similarity.
 
 **Escape has not been shown to beat fresh_start.** In a small rescue test (preliminary, n = 4 stuck
-Llama trajectories), herd_escape v2 rescued 1 of 4, the same as "try a fundamentally different
+Llama trajectories), diverge_escape v2 rescued 1 of 4, the same as "try a fundamentally different
 approach" and a random-lever control; fresh_start rescued 0. No arm beat a best-fit plateau.
 See docs/RESULTS.md.
 
@@ -166,20 +168,20 @@ cache, and an uncached call is refused if its worst-case cost could cross the ca
 Before any run that may spend money:
 
 ```sh
-uv run python -m herd preflight
+uv run python -m diverge preflight
 ```
 
 It prints the budget remaining under the cap, whether the API keys are present and whether
 the configured models are available, and exits 1 if less than $1 remains or a key is missing.
-`preflight --json` prints the same readiness object the `herd_status` tool returns (key status,
+`preflight --json` prints the same readiness object the `diverge_status` tool returns (key status,
 never key values); add `--offline` to skip the model-catalog check (no network).
 
 ## Escaping a strategy loop
 
 ```sh
-uv run python -m herd demo strategy_loop     # replay a recorded run offline: no API calls, $0
-uv run python -m herd demo strategy_loop_unconstrained   # the same, for the run without the same-approach instruction
-uv run python -m herd escape --task cache_eviction --candidate current.py --history attempts/ \
+uv run python -m diverge demo strategy_loop     # replay a recorded run offline: no API calls, $0
+uv run python -m diverge demo strategy_loop_unconstrained   # the same, for the run without the same-approach instruction
+uv run python -m diverge escape --task cache_eviction --candidate current.py --history attempts/ \
     [--evaluator "python /abs/path/eval.py"] [--higher-is-better] [--budget 2]
 ```
 
@@ -191,7 +193,7 @@ produces no candidate, so its row in the results table shows `-`.
 
 `escape` takes the current solution and a directory of earlier attempts (sorted by name, oldest
 first), and an evaluator (a registered task's built-in one, or `--evaluator`). The MCP tool
-`herd_escape` takes the same inputs as code. Output starts with one line,
+`diverge_escape` takes the same inputs as code. Output starts with one line,
 `VERDICT: keep|repair|escape|escalate|inconclusive`, followed by JSON (the MCP tool also returns
 it as structuredContent, plus `verdict`):
 
@@ -207,27 +209,27 @@ What each verdict asks the agent to do is in the table under
 [For coding agents](#for-coding-agents). Errors are structured too: `{"error", "detail",
 "missing", "next_action", ...}`, never containing key values.
 
-### Claude Code skill and `/herd` command
+### Claude Code skill and `/diverge` command
 
-- `skills/herd/SKILL.md` is a Claude Code skill that runs this workflow: preflight, then
-  `herd_escape` (with a trajectory and an evaluator) or `herd_check` (with only a planned
+- `skills/diverge/SKILL.md` is a Claude Code skill that runs this workflow: preflight, then
+  `diverge_escape` (with a trajectory and an evaluator) or `diverge_check` (with only a planned
   approach), then acts on the verdict and reports evidence by class. Its description tells the
   agent to use it on its own initiative when scored attempts stall. To install it,
-  `uv run python -m herd onboard --client claude --target <project> [--json]` copies the skill
-  and the `/herd` command into `<project>/.claude/` and registers the MCP server in
+  `uv run python -m diverge onboard --client claude --target <project> [--json]` copies the skill
+  and the `/diverge` command into `<project>/.claude/` and registers the MCP server in
   `<project>/.mcp.json` (idempotent; never overwrites different content without `--force`; no
-  secrets in the config). You can also copy or symlink `skills/herd` into `~/.claude/skills/`.
+  secrets in the config). You can also copy or symlink `skills/diverge` into `~/.claude/skills/`.
   It uses the MCP server below; without it, only the escape path works (through the CLI).
-- `.claude/commands/herd.md` adds `/herd <your situation>` when Claude Code runs in this repo;
+- `.claude/commands/diverge.md` adds `/diverge <your situation>` when Claude Code runs in this repo;
   it tells the agent to follow the skill. To use it in another repo, copy it into that repo's
   `.claude/commands/` and point it at the skill's path.
 
 ## The experiment (CLI)
 
 ```sh
-uv run python -m herd run online_bin_packing          # or: cache_eviction
-uv run python -m herd run online_bin_packing --n 20   # samples per model
-uv run python -m herd spend
+uv run python -m diverge run online_bin_packing          # or: cache_eviction
+uv run python -m diverge run online_bin_packing --n 20   # samples per model
+uv run python -m diverge spend
 ```
 
 Stages: sample each model on `tasks/<task>/prompt.md`, search the literature (Exa),
@@ -263,7 +265,7 @@ isolated with a 60s timeout (see [Running model-written code](#running-model-wri
 ## Generation operators and the benchmark
 
 ```sh
-uv run python -m herd bench online_bin_packing --budget 0.5   # USD per operator per repeat
+uv run python -m diverge bench online_bin_packing --budget 0.5   # USD per operator per repeat
 ```
 
 Operators (`herd/operators/`) each turn a task and a budget into candidate solutions. All of
@@ -306,7 +308,7 @@ don't count), and two candidates are the same behavior when they differ on at mo
 probes. The threshold was fixed on hand-written heuristics before any real candidate was
 fingerprinted; a validation gate (rescaled and tie-change copies must merge, first/best/worst/
 next fit and the FunSearch heuristic must stay apart) runs before every use.
-`uv run python -m herd fingerprints online_bin_packing` compares behavior clusters with the
+`uv run python -m diverge fingerprints online_bin_packing` compares behavior clusters with the
 labeled families of the herd-map samples.
 
 Cost is reported two ways. **Cached** counts only an operator's own calls. **Cold-start**
@@ -327,13 +329,13 @@ benchmark run, so reruns reproduce the table.
 ## MCP server for coding agents
 
 ```sh
-uv run python -m herd onboard --client claude --target /path/to/project   # writes .mcp.json, skill, /herd
+uv run python -m diverge onboard --client claude --target /path/to/project   # writes .mcp.json, skill, /diverge
 # or by hand:
-claude mcp add herd -- uv run --directory /absolute/path/to/herd python -m herd serve
+claude mcp add herd -- uv run --directory /absolute/path/to/herd python -m diverge serve
 MCP_TOOL_TIMEOUT=1800000 claude   # or set it under "env" in ~/.claude/settings.json
 ```
 
-For a hosted (streamable HTTP) deployment such as Manufact Cloud, `herd_mcp_http.py` serves the
+For a hosted (streamable HTTP) deployment such as Manufact Cloud, `diverge_mcp_http.py` serves the
 same tools at `/mcp` behind a bearer token (`HERD_HTTP_TOKEN`). It has been verified locally
 only; nothing is deployed. See `docs/MANUFACT.md`.
 
@@ -344,12 +346,12 @@ that, calls are served from `results/` and return immediately.
 
 | tool | arguments | returns (compact JSON) |
 |---|---|---|
-| `herd_status` | `check_model_catalog=false` | free readiness: `ready`, key status (never values), `remaining_budget_usd`, `missing`, `cached_tasks`, the offline demo command, `recommended_primary_tool`, `next_action` |
+| `diverge_status` | `check_model_catalog=false` | free readiness: `ready`, key status (never values), `remaining_budget_usd`, `missing`, `cached_tasks`, the offline demo command, `recommended_primary_tool`, `next_action` |
 | `herd_map` | `task_description`, `budget_usd=5` | family shares overall and per model, `concentration_top3`, `top3` |
 | `blind_spots` | `task_description`, `budget_usd=5` | sourced families rarely or never observed: count of n samples, per-model counts, 95% upper bound on share, mechanism, source URLs |
 | `reality_check` | `task_description`, `family`, `evaluator_cmd`, `k=3`, `lower_is_better`, `baseline_files`, `contrast=false`, `budget_usd=3` | best code, dev best and median, `final_score` (held-out), invalid count and errors, baseline comparison, the herd families it was compared against |
-| `herd_check` | `task_description`, `my_approach`, `evaluator_cmd`, `k=3`, `lower_is_better`, `contrast=false`, `budget_usd=5` | the family of `my_approach`, its share and rank, and a `verdict` |
-| `herd_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=1`, `budget_usd=2` | a `VERDICT:` line, then JSON with `next_action`, `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
+| `diverge_check` | `task_description`, `my_approach`, `evaluator_cmd`, `k=3`, `lower_is_better`, `contrast=false`, `budget_usd=5` | the family of `my_approach`, its share and rank, and a `verdict` |
+| `diverge_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=1`, `budget_usd=2` | a `VERDICT:` line, then JSON with `next_action`, `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
 
 - `task_description` is the task as you would give it to an agent; it is sent to the
   sampler models verbatim. A registered task name (`online_bin_packing`, `cache_eviction`)
@@ -361,13 +363,13 @@ that, calls are served from `results/` and return immediately.
   fewer than 20 labeled samples.
 - `budget_usd` caps what one call may spend. The global cap in `config.yaml` still applies.
   Every response includes `spent_usd`; any failure comes back as `{"error": ..., "detail": ...}`.
-  `herd_check` tests one family at a time (yours, then blind spots by rank, then the herd) and,
+  `diverge_check` tests one family at a time (yours, then blind spots by rank, then the herd) and,
   if the budget runs out, returns what it has with `"complete": false` and `stopped_at`.
 - Held-out scores used in a comparison are counted per task and evaluator. From the second use
   on, responses say `"exploratory": true`: you may already have adapted to those numbers.
 - `contrast=true` implements blind-spot families with the herd-contrast section (see
   `blind_spot_contrast`). It is off by default; see the measured results before relying on it.
-- `herd_check` picks the best tested family first, then says whether it is common or rare.
+- `diverge_check` picks the best tested family first, then says whether it is common or rare.
   Families are compared on held-out scores for built-in tasks (`scored_on`). It tests
   generated implementations of your approach's family, not your own code. Verdicts:
   - `keep`: your family scored best of all tested families ("common and best, keep it").
@@ -377,17 +379,17 @@ that, calls are served from `results/` and return immediately.
   - `inconclusive`: no valid implementation of your family, or the budget ran out before it.
   - `untested`: there was no evaluator, so only the map lookup ran.
 
-### Example: Claude Code calls `herd_check` mid-task
+### Example: Claude Code calls `diverge_check` mid-task
 
 *Illustrative transcript, not a recorded session. The calls and response fields are the real
 interface; values in `<angle brackets>` are placeholders and the progress counts are made up.
 None of it is an experimental result.*
 
-To make Claude Code consult HERD by itself, add a line like this to your project's `CLAUDE.md`:
+To make Claude Code consult DIVERGE by itself, add a line like this to your project's `CLAUDE.md`:
 
 ```md
-When choosing an algorithm for a task that has an objective evaluator, call the HERD
-`herd_check` tool with your planned approach before implementing it.
+When choosing an algorithm for a task that has an objective evaluator, call the DIVERGE
+`diverge_check` tool with your planned approach before implementing it.
 ```
 
 A session in a repo that is tuning a cache:
@@ -399,7 +401,7 @@ A session in a repo that is tuning a cache:
 ● I'll start with an LRU policy backed by an OrderedDict. First, checking whether that's
   the approach every model reaches for.
 
-● herd - herd_check (MCP)(task_description: "Write a Python cache eviction policy ...",
+● herd - diverge_check (MCP)(task_description: "Write a Python cache eviction policy ...",
                          my_approach: "LRU: OrderedDict, move to end on hit, evict oldest",
                          evaluator_cmd: "python /home/me/edge-cache/bench/eval.py",
                          budget_usd: 5)
@@ -416,7 +418,7 @@ A session in a repo that is tuning a cache:
      "spent_usd":<cost of this call>}
 
 ● Most model samples land on the same family as my plan. A blind-spot family that almost no
-  sample used scored better on your evaluator, so I'll start from HERD's best implementation
+  sample used scored better on your evaluator, so I'll start from DIVERGE's best implementation
   of it and check it with bench/eval.py.
 ````
 
@@ -431,7 +433,7 @@ built-in evaluators and any `evaluator_cmd`) goes through `tasks/_sandbox.py`:
   directory except Python, the venv, `tasks/` and the candidate file, so a candidate cannot
   read the repo's `.env`, `~/.ssh`, `~/.config` or `~/.aws`. External `evaluator_cmd` runs may
   need your own files, so they block `.env` files and credential directories instead.
-  **On Linux there is no OS sandbox yet**; run HERD in a container or VM there.
+  **On Linux there is no OS sandbox yet**; run DIVERGE in a container or VM there.
 - Error text that leaves the sandbox is redacted (known secret values and key-shaped
   strings), so a candidate that finds a secret cannot report it back through results or MCP.
 - A result only counts if its line carries a one-time nonce that the evaluator reads from

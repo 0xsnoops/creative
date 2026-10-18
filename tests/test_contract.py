@@ -1,8 +1,8 @@
-"""herd.contract offline: verdict branches, render's first line, evidence classes, scope note."""
+"""diverge.contract offline: verdict branches, render's first line, evidence classes, scope note."""
 import json
 from pathlib import Path
 
-from herd.contract import parse, render, verdict
+from diverge.contract import parse, render, verdict
 
 RESULTS = Path(__file__).resolve().parents[1] / "results" / "online_bin_packing"
 URL = "https://doi.org/10.1145/3828.3833"

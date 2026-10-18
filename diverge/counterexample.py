@@ -14,7 +14,7 @@ import random
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
-from herd.task import Task
+from diverge.task import Task
 
 BIN, CACHE = "online_bin_packing", "cache_eviction"
 CAPACITY = 100

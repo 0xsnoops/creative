@@ -6,14 +6,14 @@ import types
 
 import pytest
 
-import herd
-import herd.pipeline as pipeline
-from herd import counterexample as ce
-from herd.escape import (IMPLEMENT_MARKER, JUDGE_MARKER, USES_MARKER, NO_FUTURE, SKETCH_MARKER, describe_counterexample,
+import diverge as herd
+import diverge.pipeline as pipeline
+from diverge import counterexample as ce
+from diverge.escape import (IMPLEMENT_MARKER, JUDGE_MARKER, USES_MARKER, NO_FUTURE, SKETCH_MARKER, describe_counterexample,
                          escape_v2, mentions_lever)
-from herd.llm import LLM
-from herd.reality import Evaluator
-from herd.task import Task
+from diverge.llm import LLM
+from diverge.reality import Evaluator
+from diverge.task import Task
 from tests.test_escape import report
 from tests.test_pipeline_offline import BEST_FIT, FUNSEARCH, fake_world, reply_to  # noqa: F401
 
@@ -51,9 +51,9 @@ def overlook(sample_ids):
 def world(fake_world, monkeypatch):
     """Herd with two herd samples (FunSearch valid, one invalid), stubbed analysis and admission,
     and a fake model that records every prompt."""
-    stub = types.ModuleType("herd.trajectory")
+    stub = types.ModuleType("diverge.trajectory")
     stub.analyze = lambda task, attempts: report()
-    monkeypatch.setitem(sys.modules, "herd.trajectory", stub)
+    monkeypatch.setitem(sys.modules, "diverge.trajectory", stub)
     monkeypatch.setattr(herd, "trajectory", stub, raising=False)
 
     state = {"prompts": [], "admit": [], "reject": 0, "sketches": SKETCHES}
@@ -64,9 +64,9 @@ def world(fake_world, monkeypatch):
         return {"admitted": ok, "disagreement": 0.4 if ok else 0.01, "sensitivity": 0.2 if ok else 0.0,
                 "perturbation": "history shuffled", "reasons": [] if ok else ["agrees with the stuck attempts"],
                 "valid": True}
-    adm = types.ModuleType("herd.admission")
+    adm = types.ModuleType("diverge.admission")
     adm.admit = admit
-    monkeypatch.setitem(sys.modules, "herd.admission", adm)
+    monkeypatch.setitem(sys.modules, "diverge.admission", adm)
     monkeypatch.setattr(herd, "admission", adm, raising=False)
 
     def post(self, body, attempts=4):
@@ -203,7 +203,7 @@ def test_sketch_filter_requires_the_lever():
 def test_sketch_filter_fallback_prompt_for_paraphrased_or_family_levers():
     """The literal lever-name check is a pre-filter: a paraphrase ("a fresh bin") or a family lever
     never matches it, so those go to the extractor with this prompt instead of being dropped."""
-    import herd.escape as esc
+    import diverge.escape as esc
     lever = {"name": "new_bin_slot", "detail": {"description": "special-casing the new bin"}}
     para = {"name": "a", "decision_rule": "opens a fresh bin when the tightest fit wastes too much"}
     assert not esc.mentions_lever(para, lever)

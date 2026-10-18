@@ -5,12 +5,12 @@ import types
 
 import pytest
 
-import herd.pipeline as pipeline
-from herd.diagnose import anchors, diagnose
-from herd.escape import ESCAPE_MARKER, choose, escape, escape_prompt
-from herd.llm import LLM
-from herd.reality import Evaluator
-from herd.task import Task
+import diverge.pipeline as pipeline
+from diverge.diagnose import anchors, diagnose
+from diverge.escape import ESCAPE_MARKER, choose, escape, escape_prompt
+from diverge.llm import LLM
+from diverge.reality import Evaluator
+from diverge.task import Task
 from tests.test_pipeline_offline import BEST_FIT, FIRST_FIT, FUNSEARCH, fake_world, reply_to  # noqa: F401
 
 INPUTS = ["item", "capacity_values", "bin_order", "new_slot", "history"]
@@ -135,10 +135,10 @@ def test_escape_end_to_end(fake_world, monkeypatch):
     def analyze(task, attempts):
         seen["attempts"] = attempts
         return report()
-    stub = types.ModuleType("herd.trajectory")
+    stub = types.ModuleType("diverge.trajectory")
     stub.analyze = analyze
-    monkeypatch.setitem(sys.modules, "herd.trajectory", stub)
-    import herd
+    monkeypatch.setitem(sys.modules, "diverge.trajectory", stub)
+    import diverge as herd
     monkeypatch.setattr(herd, "trajectory", stub, raising=False)
 
     h = pipeline.Herd(progress=lambda m: None)
@@ -163,7 +163,7 @@ def test_escape_end_to_end(fake_world, monkeypatch):
 
 
 def test_escape_with_the_real_trajectory_module(fake_world, monkeypatch):
-    pytest.importorskip("herd.trajectory")
+    pytest.importorskip("diverge.trajectory")
 
     def fake_post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]

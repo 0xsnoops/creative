@@ -4,7 +4,7 @@ signal and fail on the same cases; that is the "same strategy" this module measu
 
 The static parts (inputs, state) come from overlook's AST audit; the decision rule, assumptions
 and mechanism family come from an optional extractor (an LLM reading the code); behavior comes
-from herd.fingerprint, run in the sandbox; weak regimes come from dev results against the
+from diverge.fingerprint, run in the sandbox; weak regimes come from dev results against the
 best baseline."""
 import ast
 import difflib

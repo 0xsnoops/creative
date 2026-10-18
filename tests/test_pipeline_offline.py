@@ -8,11 +8,11 @@ import pytest
 import yaml
 from mcp import Client
 
-import herd.pipeline as pipeline
-from herd.exa import Exa
-from herd.llm import LLM
-from herd.reality import Evaluator
-from herd.task import Task
+import diverge.pipeline as pipeline
+from diverge.exa import Exa
+from diverge.llm import LLM
+from diverge.reality import Evaluator
+from diverge.task import Task
 
 FIRST_FIT = "def priority(item, capacities):\n    return [-i for i in range(len(capacities))]\n"
 BEST_FIT = "def priority(item, capacities):\n    return [-(c - item) for c in capacities]\n"
@@ -159,7 +159,7 @@ def test_free_text_task_without_evaluator(fake_world):
 
 
 def call_tool(name, args):
-    from herd.server import mcp
+    from diverge.server import mcp
     progress = []
 
     async def go():
@@ -185,7 +185,7 @@ def test_mcp_tools(fake_world):
     assert rc["n_valid"] == 2 and "def priority" in rc["best_code"]
     assert rc["beats_baselines"] == ["first_fit"]  # ties best_fit exactly, so does not beat it
 
-    check, _ = call_tool("herd_check", {"task_description": "online_bin_packing", "my_approach": "first fit", "k": 2})
+    check, _ = call_tool("diverge_check", {"task_description": "online_bin_packing", "my_approach": "first fit", "k": 2})
     assert check["verdict"] == "try_blind_spot" and check["blind_spot"]["family"] == "Best Fit"
 
 
@@ -195,7 +195,7 @@ def test_mcp_budget_cap(fake_world):
 
 
 def test_bench_operators_at_equal_budget(fake_world):
-    from herd.bench import run_bench
+    from diverge.bench import run_bench
     # Explicit operators: this test checks these operators' behavior, independent of config.yaml.
     operators = ["plain", "hot", "verbalized", "blind_spot", "literature_all", "transplant"]
     table, verdict, bench_dir = run_bench("online_bin_packing", budget_usd=0.25, repeats=2, operators=operators,
@@ -234,7 +234,7 @@ def test_bench_operators_at_equal_budget(fake_world):
 
 
 def test_map_is_rebuilt_when_a_prompt_changes(fake_world, monkeypatch):
-    import herd.literature as literature
+    import diverge.literature as literature
     herd = pipeline.Herd(progress=lambda m: None)
     task = Task.resolve("online_bin_packing")
     pipeline.ensure_map(herd, task)
@@ -260,7 +260,7 @@ def test_scores_take_kind_and_share_from_the_current_map(fake_world):
 
 
 def test_bench_survives_an_operator_planning_failure(fake_world, monkeypatch):
-    from herd.bench import run_bench
+    from diverge.bench import run_bench
     pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), Task.resolve("online_bin_packing"))
 
     def broken_search(self, request, attempts=3):
@@ -275,7 +275,7 @@ def test_bench_survives_an_operator_planning_failure(fake_world, monkeypatch):
 
 
 def test_bench_refuses_to_start_if_the_global_cap_cannot_fund_every_operator(fake_world):
-    from herd.bench import run_bench
+    from diverge.bench import run_bench
     with pytest.raises(SystemExit, match="only"):
         run_bench("online_bin_packing", budget_usd=10.0, repeats=3, progress=lambda m: None, allow_small_map=True)
 
@@ -337,7 +337,7 @@ def test_herd_check_recommends_the_best_family_not_the_first_rare_one(fake_world
 
 
 def test_verdict_with_a_single_operator():
-    from herd.bench import verdict
+    from diverge.bench import verdict
     one = {"mean": 1.0, "min": 1.0, "max": 1.0, "sd": 0.0, "n": 1}
     table = {"plain": {"useful_discoveries": one, "useful_discovery_rate": one, "best_score": one}}
     assert "plain" in verdict(table, "best_fit", 4.0)  # used to raise IndexError on ranked[1]

@@ -1,7 +1,7 @@
 """Offline tests for the paraphrase (herd-robustness) test."""
 import pytest
 
-from herd.paraphrase import analyze, check, distribution, tvd
+from diverge.paraphrase import analyze, check, distribution, tvd
 
 PROMPT = "Write X.\n```python\ndef f(a: int) -> int: ...\n```\nItems are 1 to 100, 5,000 per instance.\n"
 

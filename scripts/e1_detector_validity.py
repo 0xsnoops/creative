@@ -21,12 +21,12 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from herd import fingerprint as behavioral  # noqa: E402
-from herd import strategy  # noqa: E402
-from herd.failures import auc, failure_set, jaccard, relative_detail  # noqa: E402
-from herd.llm import BudgetExceeded  # noqa: E402
-from herd.pipeline import Herd  # noqa: E402
-from herd.task import Task  # noqa: E402
+from diverge import fingerprint as behavioral  # noqa: E402
+from diverge import strategy  # noqa: E402
+from diverge.failures import auc, failure_set, jaccard, relative_detail  # noqa: E402
+from diverge.llm import BudgetExceeded  # noqa: E402
+from diverge.pipeline import Herd  # noqa: E402
+from diverge.task import Task  # noqa: E402
 
 TASK_DIR = ROOT / "results" / "online_bin_packing"
 OUT = ROOT / "results" / "e1"

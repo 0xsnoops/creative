@@ -28,7 +28,7 @@ import httpx
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from herd.cache import JsonlCache, request_key  # noqa: E402
+from diverge.cache import JsonlCache, request_key  # noqa: E402
 
 OPENROUTER = "https://openrouter.ai/api/v1"
 EXA = "https://api.exa.ai/search"

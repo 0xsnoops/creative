@@ -1,25 +1,25 @@
-"""The herd_escape MCP tool end to end, offline: fake models, real sandboxed evaluator and probes."""
+"""The diverge_escape MCP tool end to end, offline: fake models, real sandboxed evaluator and probes."""
 from pathlib import Path
 
 import anyio
 from mcp import Client
 
-import herd.pipeline as pipeline
-from herd.contract import parse
-from herd.llm import LLM
-from herd.task import Task
+import diverge.pipeline as pipeline
+from diverge.contract import parse
+from diverge.llm import LLM
+from diverge.task import Task
 from tests.test_pipeline_offline import FUNSEARCH, fake_world, reply_to  # noqa: F401
 
 BIN = "online_bin_packing"
 
 
 def call_escape(args):
-    """herd_escape over MCP: (verdict, contract body) parsed from its text output."""
-    from herd.server import mcp
+    """diverge_escape over MCP: (verdict, contract body) parsed from its text output."""
+    from diverge.server import mcp
 
     async def go():
         async with Client(mcp) as client:
-            return (await client.call_tool("herd_escape", args)).content[0].text
+            return (await client.call_tool("diverge_escape", args)).content[0].text
     text = anyio.run(go)
     assert text.startswith("VERDICT: ")
     return parse(text)

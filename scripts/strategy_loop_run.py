@@ -19,12 +19,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from herd.llm import message_text  # noqa: E402
-from herd.pipeline import Herd, read_json  # noqa: E402
-from herd.reality import Evaluator  # noqa: E402
-from herd.sample import extract_code  # noqa: E402
-from herd.server import escape_for_agent  # noqa: E402
-from herd.task import Task  # noqa: E402
+from diverge.llm import message_text  # noqa: E402
+from diverge.pipeline import Herd, read_json  # noqa: E402
+from diverge.reality import Evaluator  # noqa: E402
+from diverge.sample import extract_code  # noqa: E402
+from diverge.server import escape_for_agent  # noqa: E402
+from diverge.task import Task  # noqa: E402
 
 TASK, REVISIONS, K, BUDGET_EACH = "online_bin_packing", 3, 2, 1.50
 # --mode tune (default, fixture "strategy_loop_tune"): each revision is told to keep its approach and tune it,
@@ -171,7 +171,7 @@ def main():
     valid_fresh = [f for f in fresh if f["valid"]]
     best_fresh = min(valid_fresh, key=lambda f: f["dev_score"]) if valid_fresh else None
     try:
-        from herd import contract
+        from diverge import contract
         contract_text = contract.render(esc, read_json(ROOT / "results" / TASK / "overlook.json"),
                                         read_json(ROOT / "results" / TASK / "paraphrase.json"),
                                         read_json(ROOT / "results" / TASK / "blind_spots.json"))

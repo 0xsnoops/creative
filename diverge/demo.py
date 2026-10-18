@@ -1,12 +1,12 @@
 """Deterministic demo and preflight check.
 
-`python -m herd demo <name>` replays a recorded run: fixtures/trajectories/<name>.json (the agent's
+`python -m diverge demo <name>` replays a recorded run: fixtures/trajectories/<name>.json (the agent's
 attempts) and fixtures/runs/<name>.json (what escape and a fresh-start baseline produced on them,
 recorded once with real API calls). The demo itself makes no API or network calls, never builds a
 Herd or a client, adds no timestamps and uses no randomness, so the same files print the same text.
 
-`python -m herd preflight` checks budget, API keys and model slugs before a live run (`--json`
-prints readiness(), the same dict the herd_status MCP tool returns)."""
+`python -m diverge preflight` checks budget, API keys and model slugs before a live run (`--json`
+prints readiness(), the same dict the diverge_status MCP tool returns)."""
 import os
 from pathlib import Path
 
@@ -63,7 +63,7 @@ def _missing_run_help(name, root):
            "run the escape tool and the fresh-start baseline on the fixture once (this is the only "
            "step that calls the API) and save the result there")
     return (f"no recorded run for {name!r}: fixtures/runs/{name}.json is missing.\n"
-            f"To create it, {how}. Needs OPENROUTER_API_KEY and budget; check with `python -m herd preflight`.")
+            f"To create it, {how}. Needs OPENROUTER_API_KEY and budget; check with `python -m diverge preflight`.")
 
 
 def run(name, root=REPO, out=print):
@@ -80,7 +80,7 @@ def run(name, root=REPO, out=print):
     esc, fresh = rec.get("escape") or {}, rec.get("fresh_start") or {}
     result = esc.get("result") or {}
 
-    out(f"HERD demo: {name}  (task: {rec.get('task') or traj.get('task')})")
+    out(f"DIVERGE demo: {name}  (task: {rec.get('task') or traj.get('task')})")
     out(f"recorded run: commit {rec.get('commit')}, {rec.get('n_runs')} run(s), "
         f"budget ${rec.get('budget_usd_each', 0):.2f} each; replayed offline, no API calls")
     if traj.get("how_generated"):
@@ -169,7 +169,7 @@ def run(name, root=REPO, out=print):
 
     out(f"\nPRELIMINARY: {rec.get('n_runs', 1)} run")
     if verdict is not None and verdict != "escape":
-        out(f"no escape candidate: verdict {verdict}, so HERD did not switch strategy and there is nothing to "
+        out(f"no escape candidate: verdict {verdict}, so DIVERGE did not switch strategy and there is nothing to "
             f"compare with fresh_start")
     else:
         out(comparison(esc.get("heldout_score"), fresh.get("heldout_score")))
@@ -200,11 +200,11 @@ def _live_model_ids(timeout=10):
 
 
 OFFLINE_DEMO = "strategy_loop"
-OFFLINE_DEMO_COMMAND = f"python -m herd demo {OFFLINE_DEMO}"
-PRIMARY_TOOL = "herd_escape"
-WHEN_TO_CALL = ("herd_escape when several scored attempts have stalled, the same failure keeps coming back, code "
+OFFLINE_DEMO_COMMAND = f"python -m diverge demo {OFFLINE_DEMO}"
+PRIMARY_TOOL = "diverge_escape"
+WHEN_TO_CALL = ("diverge_escape when several scored attempts have stalled, the same failure keeps coming back, code "
                 "changes a lot but the score barely moves, or you are about to retry another variation or escalate; "
-                "herd_check before committing to a strategy. Not for generic debugging.")
+                "diverge_check before committing to a strategy. Not for generic debugging.")
 KEYS = (("openrouter", "OPENROUTER_API_KEY", True, "every model call (fingerprinting, implementing, map builds)"),
         ("exa", "EXA_API_KEY", False, "literature search, only when a herd map is built for a new task"))
 
@@ -237,7 +237,7 @@ def _catalog_check(models, ids):
 
 
 def readiness(herd=None, env=None, live=False, root=REPO):
-    """Can HERD's live tools run here? A dict an agent can act on. Zero cost: no model or search call,
+    """Can DIVERGE's live tools run here? A dict an agent can act on. Zero cost: no model or search call,
     and no network call unless live=True (then one unauthenticated GET of OpenRouter's public model
     list, reported under "model_catalog" and optional). Reports whether each key is configured, never
     its value."""
@@ -263,16 +263,16 @@ def readiness(herd=None, env=None, live=False, root=REPO):
     cached_catalog = (_catalog_check(models, {m["id"] for m in _load(catalog_path)["data"]})
                       if catalog_path.exists() else {"error": f"{cfg['paths']['cache']}/openrouter_models.json not found"})
     if live_ok:
-        action = (f"HERD is configured. Call {PRIMARY_TOOL} yourself when attempts stall (see when_to_call); "
-                  f"herd_check before choosing a strategy.")
+        action = (f"DIVERGE is configured. Call {PRIMARY_TOOL} yourself when attempts stall (see when_to_call); "
+                  f"diverge_check before choosing a strategy.")
     elif "OPENROUTER_API_KEY" in missing:
-        action = ("Live HERD calls need OPENROUTER_API_KEY, which only the user can provide (in .env); ask them, and "
+        action = ("Live DIVERGE calls need OPENROUTER_API_KEY, which only the user can provide (in .env); ask them, and "
                   "never invent or guess a credential. Until then, " +
                   (f"run the offline demo ({OFFLINE_DEMO_COMMAND}, no API calls)." if demo_ok else
-                   "continue without HERD."))
+                   "continue without DIVERGE."))
     else:
         action = ("The spend cap is nearly reached; ask the user whether to raise budget_usd in config.yaml before "
-                  "any live HERD call." + (f" The offline demo still works: {OFFLINE_DEMO_COMMAND}." if demo_ok else ""))
+                  "any live DIVERGE call." + (f" The offline demo still works: {OFFLINE_DEMO_COMMAND}." if demo_ok else ""))
     out = {"ready": live_ok, "live_mode_available": live_ok, "remaining_budget_usd": round(remaining, 4),
            "budget": {"spent_usd": round(spent, 4), "cap_usd": cap}, "requirements": requirements,
            "missing": missing, "offline_demo_available": demo_ok,

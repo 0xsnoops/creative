@@ -1,4 +1,4 @@
-"""`python -m herd onboard`: skill, /herd command and .mcp.json install. Offline, writes only under tmp_path."""
+"""`python -m diverge onboard`: skill, /diverge command and .mcp.json install. Offline, writes only under tmp_path."""
 import json
 import subprocess
 import sys
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from herd import onboard
+from diverge import onboard
 
 REPO = Path(__file__).resolve().parent.parent
 FAKE_UV = "/opt/fake/bin/uv"
@@ -19,7 +19,7 @@ def run(target, **kw):
 
 
 def paths(target):
-    return (target / ".claude" / "skills" / "herd" / "SKILL.md", target / ".claude" / "commands" / "herd.md",
+    return (target / ".claude" / "skills" / "diverge" / "SKILL.md", target / ".claude" / "commands" / "diverge.md",
             target / ".mcp.json")
 
 
@@ -33,10 +33,10 @@ def test_creates_files_and_valid_mcp_json(tmp_path):
     skill, command, mcp = paths(tmp_path)
     assert skill.read_text() == onboard.SKILL_SRC.read_text()
     assert command.read_text() == onboard.COMMAND_SRC.read_text()
-    entry = json.loads(mcp.read_text())["mcpServers"]["herd"]
+    entry = json.loads(mcp.read_text())["mcpServers"]["diverge"]
     assert entry == {"type": "stdio", "command": FAKE_UV,
-                     "args": ["--directory", str(REPO), "run", "python", "-m", "herd", "serve"]}
-    assert report["mcp_server"]["name"] == "herd" and report["next_steps"]
+                     "args": ["--directory", str(REPO), "run", "python", "-m", "diverge", "serve"]}
+    assert report["mcp_server"]["name"] == "diverge" and report["next_steps"]
 
 
 def test_second_run_is_unchanged(tmp_path):
@@ -59,29 +59,29 @@ def test_unrelated_files_and_other_servers_untouched(tmp_path):
     assert code == 0 and statuses(report) == ["created", "created", "updated"]
     config = json.loads((tmp_path / ".mcp.json").read_text())
     assert config["mcpServers"]["other"] == other and config["extra"] == [1, 2]
-    assert "herd" in config["mcpServers"]
+    assert "diverge" in config["mcpServers"]
     assert mine.read_text() == "my command" and settings.read_text() == "{}"
     created = {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file()}
     assert created == {".mcp.json", ".claude/commands/mine.md", ".claude/settings.json",
-                       ".claude/commands/herd.md", ".claude/skills/herd/SKILL.md"}
+                       ".claude/commands/diverge.md", ".claude/skills/diverge/SKILL.md"}
 
 
 def test_conflicts_are_not_overwritten_unless_forced(tmp_path):
     skill, command, mcp = paths(tmp_path)
     skill.parent.mkdir(parents=True)
     skill.write_text("someone else's skill")
-    mcp.write_text(json.dumps({"mcpServers": {"herd": {"command": "python", "args": ["old"]}, "o": {"command": "x"}}}))
+    mcp.write_text(json.dumps({"mcpServers": {"diverge": {"command": "python", "args": ["old"]}, "o": {"command": "x"}}}))
     code, report = run(tmp_path)
     assert code == 1 and statuses(report) == ["conflict", "created", "conflict"]
     assert skill.read_text() == "someone else's skill"
-    assert json.loads(mcp.read_text())["mcpServers"]["herd"] == {"command": "python", "args": ["old"]}
+    assert json.loads(mcp.read_text())["mcpServers"]["diverge"] == {"command": "python", "args": ["old"]}
     assert any("--force" in s for s in report["next_steps"])
 
     code, report = run(tmp_path, force=True)
     assert code == 0 and statuses(report) == ["updated", "unchanged", "updated"]
     assert skill.read_text() == onboard.SKILL_SRC.read_text()
     servers = json.loads(mcp.read_text())["mcpServers"]
-    assert servers["herd"]["command"] == FAKE_UV and servers["o"] == {"command": "x"}
+    assert servers["diverge"]["command"] == FAKE_UV and servers["o"] == {"command": "x"}
 
 
 def test_invalid_mcp_json_is_a_conflict_even_with_force(tmp_path):
@@ -106,7 +106,7 @@ def test_unsupported_client(tmp_path):
 def test_cli_json_report_and_no_secrets(tmp_path):
     env = {"PATH": "/usr/bin:/bin", "HOME": str(Path.home()), "OPENROUTER_API_KEY": FAKE_KEY,
            "EXA_API_KEY": FAKE_KEY + "-exa"}
-    proc = subprocess.run([sys.executable, "-m", "herd", "onboard", "--client", "claude", "--target", str(tmp_path),
+    proc = subprocess.run([sys.executable, "-m", "diverge", "onboard", "--client", "claude", "--target", str(tmp_path),
                            "--json"], cwd=REPO, env=env, capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     report = json.loads(proc.stdout)
@@ -115,9 +115,9 @@ def test_cli_json_report_and_no_secrets(tmp_path):
     assert FAKE_KEY not in proc.stdout and FAKE_KEY not in proc.stderr
     config_text = (tmp_path / ".mcp.json").read_text()
     assert FAKE_KEY not in config_text
-    entry = json.loads(config_text)["mcpServers"]["herd"]
+    entry = json.loads(config_text)["mcpServers"]["diverge"]
     assert "env" not in entry and set(entry) == {"type", "command", "args"}
-    assert entry["args"][-3:] == ["-m", "herd", "serve"] and entry["type"] == "stdio"
+    assert entry["args"][-3:] == ["-m", "diverge", "serve"] and entry["type"] == "stdio"
     for p in tmp_path.rglob("*"):
         if p.is_file():
             assert FAKE_KEY not in p.read_text()
@@ -131,13 +131,13 @@ def test_cli_json_report_and_no_secrets(tmp_path):
 
 
 def test_cli_dry_run_text(tmp_path):
-    proc = subprocess.run([sys.executable, "-m", "herd", "onboard", "--target", str(tmp_path), "--dry-run"],
+    proc = subprocess.run([sys.executable, "-m", "diverge", "onboard", "--target", str(tmp_path), "--dry-run"],
                           cwd=REPO, capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0 and "dry run" in proc.stdout and "planned" in proc.stdout
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("path", ["skills/herd/SKILL.md", ".claude/commands/herd.md"])
+@pytest.mark.parametrize("path", ["skills/diverge/SKILL.md", ".claude/commands/diverge.md"])
 def test_frontmatter_parses(path):
     text = (REPO / path).read_text()
     assert text.startswith("---\n")
@@ -146,15 +146,15 @@ def test_frontmatter_parses(path):
 
 
 def test_skill_description_triggers():
-    meta = yaml.safe_load((REPO / "skills/herd/SKILL.md").read_text().split("---\n")[1])
-    assert meta["name"] == "herd" and len(meta["description"]) <= 1024
+    meta = yaml.safe_load((REPO / "skills/diverge/SKILL.md").read_text().split("---\n")[1])
+    assert meta["name"] == "diverge" and len(meta["description"]) <= 1024
     d = meta["description"].lower()
     assert "scored attempts" in d and ("flat" in d or "barely improving" in d)
     assert "escalate" in d and "human" in d
     assert "without being asked" in d
-    body = (REPO / "skills/herd/SKILL.md").read_text()
-    assert "Do not wait for the user to ask you to use HERD" in body
-    assert "Before escalating a scored strategy problem to a human, call `herd_escape`" in body
-    for tool in ("herd_status", "herd_check", "herd_escape", "herd_map", "blind_spots", "reality_check"):
+    body = (REPO / "skills/diverge/SKILL.md").read_text()
+    assert "Do not wait for the user to ask you to use DIVERGE" in body
+    assert "Before escalating a scored strategy problem to a human, call `diverge_escape`" in body
+    for tool in ("diverge_status", "diverge_check", "diverge_escape", "herd_map", "blind_spots", "reality_check"):
         assert tool in body
-    assert "python -m herd onboard" in body and "demo strategy_loop" in body
+    assert "python -m diverge onboard" in body and "demo strategy_loop" in body

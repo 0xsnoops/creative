@@ -1,6 +1,6 @@
 """Offline tests for herd/overlook.py: static input audit on hand-written code, assumption
 classification, grid gaps and minority detection."""
-from herd.overlook import (audit_bin_packing, audit_cache, classify_assumption, grid_gaps, minority)
+from diverge.overlook import (audit_bin_packing, audit_cache, classify_assumption, grid_gaps, minority)
 
 BP = "online_bin_packing"
 
@@ -149,10 +149,10 @@ def test_build_end_to_end_with_fake_models(monkeypatch):
     import json
     import re
     import pytest
-    from herd import overlook, pipeline
-    from herd.exa import Exa
-    from herd.llm import LLM
-    from herd.task import Task
+    from diverge import overlook, pipeline
+    from diverge.exa import Exa
+    from diverge.llm import LLM
+    from diverge.task import Task
     from tests.test_pipeline_offline import reply_to
     task = Task.resolve(BP)
 

@@ -1,8 +1,8 @@
 import pytest
 
-from herd.cache import JsonlCache, request_key
-from herd.llm import BudgetExceeded, Ledger
-from herd.sample import extract_code
+from diverge.cache import JsonlCache, request_key
+from diverge.llm import BudgetExceeded, Ledger
+from diverge.sample import extract_code
 
 
 def test_extract_code_picks_block_defining_entrypoint():

@@ -1,4 +1,4 @@
-"""DIAGNOSE: given an agent's attempts (a trajectory report from herd.trajectory), decide whether
+"""DIAGNOSE: given an agent's attempts (a trajectory report from diverge.trajectory), decide whether
 to keep going, repair the current strategy, or switch to a different one, and say what the
 attempts share. The decision is deterministic; the optional `phrase` callable only rewords text.
 

@@ -1,7 +1,7 @@
-"""Self-onboarding for coding agents: `python -m herd onboard --client claude --target <dir>`.
+"""Self-onboarding for coding agents: `python -m diverge onboard --client claude --target <dir>`.
 
-Installs the HERD skill and the /herd command into <target>/.claude/ and registers the HERD MCP
-server (stdio, `python -m herd serve` run by uv from this repo) in <target>/.mcp.json.
+Installs the DIVERGE skill and the /diverge command into <target>/.claude/ and registers the DIVERGE MCP
+server (stdio, `python -m diverge serve` run by uv from this repo) in <target>/.mcp.json.
 Idempotent; never overwrites different existing content without force; touches no other file.
 The MCP config never carries secrets: the server reads its keys from this repo's .env
 (pipeline.load_env) or the client's environment."""
@@ -11,10 +11,10 @@ import shutil
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SKILL_SRC = REPO / "skills" / "herd" / "SKILL.md"
-COMMAND_SRC = REPO / ".claude" / "commands" / "herd.md"
+SKILL_SRC = REPO / "skills" / "diverge" / "SKILL.md"
+COMMAND_SRC = REPO / ".claude" / "commands" / "diverge.md"
 SUPPORTED = ("claude",)
-SERVER_NAME = "herd"
+SERVER_NAME = "diverge"
 
 
 def find_uv():
@@ -29,7 +29,7 @@ def find_uv():
 
 def server_entry(uv, repo=REPO):
     return {"type": "stdio", "command": uv,
-            "args": ["--directory", str(repo), "run", "python", "-m", "herd", "serve"]}
+            "args": ["--directory", str(repo), "run", "python", "-m", "diverge", "serve"]}
 
 
 def _same_entry(a, b):
@@ -100,7 +100,7 @@ def _mcp_action(path, entry, force, dry_run):
 
 
 def next_steps(uv, actions, repo=REPO):
-    run = f"{uv or 'uv'} --directory {repo} run python -m herd"
+    run = f"{uv or 'uv'} --directory {repo} run python -m diverge"
     steps = []
     if any(a["status"] == "conflict" for a in actions):
         steps.append("Resolve the conflicts listed in actions: compare the existing files with this repo's "
@@ -110,9 +110,9 @@ def next_steps(uv, actions, repo=REPO):
                      "gets its absolute path.")
     steps += [
         "Restart or reload Claude Code in the target directory so it reads .mcp.json, and approve the project "
-        "MCP server 'herd' when asked (or check it with /mcp).",
-        "Check readiness with the herd_status MCP tool (no cost), or run: " + f"{run} preflight",
-        ("API keys are read from the HERD repo's .env (" + str(repo / ".env") + ") or the environment; "
+        "MCP server 'diverge' when asked (or check it with /mcp).",
+        "Check readiness with the diverge_status MCP tool (no cost), or run: " + f"{run} preflight",
+        ("API keys are read from the DIVERGE repo's .env (" + str(repo / ".env") + ") or the environment; "
          + ("OPENROUTER_API_KEY is present." if _key_present("OPENROUTER_API_KEY", repo) else
             "OPENROUTER_API_KEY is NOT set: ask the user to set it there. Never invent a key.")),
         "Try the offline demo (no API calls, $0): " + f"{run} demo strategy_loop",
@@ -132,15 +132,15 @@ def onboard(client="claude", target=".", dry_run=False, force=False, uv=None):
     if client not in SUPPORTED:
         report.update(supported=False, detail=f"client {client!r} is not supported by onboard (only: "
                       + ", ".join(SUPPORTED) + "). Register this stdio MCP server in your client by hand.",
-                      next_steps=[f"Add a stdio MCP server named 'herd' running: {entry['command']} "
+                      next_steps=[f"Add a stdio MCP server named 'diverge' running: {entry['command']} "
                                   + " ".join(entry["args"])])
         return 2, report
     if not target.is_dir():
         report.update(supported=True, detail=f"target {target} is not a directory", next_steps=[])
         return 1, report
     actions = [
-        _copy_action(SKILL_SRC, target / ".claude" / "skills" / "herd" / "SKILL.md", force, dry_run),
-        _copy_action(COMMAND_SRC, target / ".claude" / "commands" / "herd.md", force, dry_run),
+        _copy_action(SKILL_SRC, target / ".claude" / "skills" / "diverge" / "SKILL.md", force, dry_run),
+        _copy_action(COMMAND_SRC, target / ".claude" / "commands" / "diverge.md", force, dry_run),
         _mcp_action(target / ".mcp.json", entry, force, dry_run),
     ]
     report.update(supported=True, actions=actions, next_steps=next_steps(uv, actions))
@@ -148,7 +148,7 @@ def onboard(client="claude", target=".", dry_run=False, force=False, uv=None):
 
 
 def render(report):
-    lines = [f"HERD onboard: client={report['client']} target={report['target']}"
+    lines = [f"DIVERGE onboard: client={report['client']} target={report['target']}"
              + (" (dry run: nothing written)" if report.get("dry_run") else "")]
     if report.get("detail"):
         lines.append(report["detail"])
