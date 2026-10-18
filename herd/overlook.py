@@ -461,6 +461,8 @@ Assumptions:
 
 {solutions}
 
+Keep each evidence under 15 words.
+
 Return JSON: {{"checks": [{{"assumption": 1, "sample_id": "...", "holds": true, "evidence": "line N: ..."}}]}}"""
 
 
@@ -486,8 +488,13 @@ def shared_assumptions(herd, task, valid, top3, max_samples=12):
                         required=("assumptions",))["assumptions"]
     proposed = [a for a in proposed if isinstance(a, dict) and a.get("assumption")]
     listing = "\n".join(f"{i + 1}. {a['assumption']}" for i, a in enumerate(proposed))
-    checks = ask_json(herd.llm, extractor(herd), VERIFY_PROMPT.format(assumptions=listing, solutions=sols),
-                      required=("checks",))["checks"]
+    # Verify in batches of 4 solutions: one call for all 12 can exceed the completion limit on long code.
+    checks = []
+    for start in range(0, len(chosen), 4):
+        part = "\n\n".join(f'<solution id="{s["sample_id"]}" family="{s["family"]}">\n{s["code"]}\n</solution>'
+                            for s in chosen[start:start + 4])
+        checks += ask_json(herd.llm, extractor(herd), VERIFY_PROMPT.format(assumptions=listing, solutions=part),
+                           required=("checks",))["checks"]
     holds = defaultdict(dict)
     for c in checks:
         if isinstance(c, dict) and isinstance(c.get("assumption"), int):
