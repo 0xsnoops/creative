@@ -99,7 +99,7 @@ def fingerprint_candidate(path):
         choices.append(capacities[int(np.argmax(scores))])
     return choices
 
-# Admission perturbations (herd/admission.py): each rewrites the probe states for one input of
+# Admission perturbations (diverge/admission.py): each rewrites the probe states for one input of
 # priority(), and the child runs the candidate on the original and the perturbed states, each
 # with a fresh module. Chosen options are compared by the ORIGINAL capacity they stand for.
 PERTURB_SEED = 7000

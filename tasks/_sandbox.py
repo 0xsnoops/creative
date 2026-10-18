@@ -1,4 +1,4 @@
-"""Isolation for running model-written code, shared by the task evaluators and by HERD's
+"""Isolation for running model-written code, shared by the task evaluators and by DIVERGE's
 external evaluator_cmd support.
 
 - The child process gets a minimal environment: no API keys or other secrets.
@@ -24,7 +24,7 @@ import subprocess
 import sys
 import tempfile
 
-RESULT_TAG = "__HERD_RESULT__"
+RESULT_TAG = "__DIVERGE_RESULT__"
 
 REPO = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
 HOME = os.path.realpath(os.path.expanduser("~"))
