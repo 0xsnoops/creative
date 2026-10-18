@@ -50,50 +50,73 @@ retries resample the same prompt. Two operators test those suspicions one at a t
   timeout per candidate; under load a slow candidate can be marked invalid ("timeout after 600s").
   Invalid candidates are counted by reason below so the valid rate can be read with that in mind.
 
-## Results (interim: generation done for 7 of 8 operator-seed runs; held-out pending)
+## Results (held-out, 2 repeats)
 
-At the 08:48 cutoff the bench was still generating `blind_spot_directions` seed 1, after which it
-labels all candidates and scores each family pick on held-out. The held-out table, useful
-discoveries and the bench's own verdict will be in `results/bench-new-ops.log` and
-`results/cache_eviction/bench/bench.md` when it exits; the numbers below are read from the
-per-seed `run.json` files and are **dev scores only** (lower is better).
+Cells are mean [min, max] across the 2 repeats unless a single number. Spend is the operator's
+own calls per repeat; labeling the 64 valid candidates cost $0.471 and is billed to no operator.
+Lower miss ratio is better. Bench outputs: `results/cache_eviction/bench/` (bench.md, bench.json,
+candidates.jsonl, bench.png), log `results/bench-new-ops.log`.
 
-| operator | seed | candidates | valid rate | dev best | dev median (valid) | spent $ |
-|---|---|---|---|---|---|---|
-| plain | 0 | 12 | 1.00 | **0.5665** | 0.5872 | 0.265 |
-| plain | 1 | 12 | 1.00 | **0.5675** | 0.5856 | 0.256 |
-| blind_spot | 0 | 5 | 1.00 | 0.5903 | 0.5962 | 0.213 |
-| blind_spot | 1 | 6 | 1.00 | 0.5869 | 0.5960 | 0.272 |
-| blind_spot_hybrid | 0 | 8 | 1.00 | 0.5856 | 0.5960 | 0.253 |
-| blind_spot_hybrid | 1 | 8 | 1.00 | 0.5841 | 0.5956 | 0.256 |
-| blind_spot_directions | 0 | 7 | 1.00 | 0.5889 | 0.5961 | 0.256 |
-| blind_spot_directions | 1 | running at cutoff (2 candidates, $0.103) | | | | |
+| operator | candidates | valid rate | useful discoveries | best held-out | median held-out of family picks | median dev score (valid) | spent $ |
+|---|---|---|---|---|---|---|---|
+| plain | 12.0 [12.0, 12.0] | 1.00 | 2.0 [2.0, 2.0] | **0.5672** [0.5666, 0.5678] | 0.5760 | 0.5856 | 0.260 [0.256, 0.265] |
+| blind_spot | 5.5 [5.0, 6.0] | 1.00 | 3.5 [3.0, 4.0] | 0.5887 [0.5867, 0.5908] | 0.5930 | 0.5962 | 0.242 [0.213, 0.272] |
+| blind_spot_hybrid | 8.0 [8.0, 8.0] | 1.00 | **4.5** [4.0, 5.0] | 0.5843 [0.5838, 0.5848] | 0.5941 | 0.5960 | 0.255 [0.253, 0.256] |
+| blind_spot_directions | 7.0 [7.0, 7.0] | 0.93 [0.86, 1.00] | 4.0 [4.0, 4.0] | 0.5862 [0.5850, 0.5874] | 0.5944 | 0.5958 | 0.265 [0.256, 0.274] |
 
-Invalid candidates by reason: none so far (0 of 70 generated candidates across the 7 finished
-runs; no evaluator timeouts despite load average above 100). Useful discoveries and held-out
-columns: pending.
+Held-out baselines: LRU 0.6747, FIFO 0.7088. Discoveries per $ (cached): plain 7.68,
+blind_spot 14.41, blind_spot_hybrid 17.67, blind_spot_directions 15.09.
 
-Per-family dev picks of the new operators (both seeds): hybrid's best candidates were
-LeCaR/CACHEUS-based (0.5856) and CLOCK/SIEVE-based (0.5841); directions' best was CLOCK/SIEVE
-with the "state" direction (0.5889). Within each family the hybrid and direction retries still
-cluster within about 0.001 of each other on dev (for example LRU-K at 0.5958-0.5963 across all
-three blind-spot operators), so the retries are still landing on near-identical programs.
+Per repeat (best held-out; useful families):
 
-### Verdict (preliminary, 2 repeats, dev only)
+- plain: s0 0.5666, s1 0.5678; LFU and 2Q/S3-FIFO in both repeats.
+- blind_spot: s0 0.5908 (LRU-K, CLOCK/SIEVE, LeCaR/CACHEUS), s1 0.5867 (LRU-K, LeCaR/CACHEUS,
+  LIRS/CLOCK-Pro, 2Q/S3-FIFO).
+- blind_spot_hybrid: s0 0.5848 (LRU-K, LeCaR/CACHEUS, LIRS/CLOCK-Pro, 2Q/S3-FIFO), s1 0.5838
+  (those four plus CLOCK/SIEVE).
+- blind_spot_directions: s0 0.5874, s1 0.5850 (LRU-K, LeCaR/CACHEUS, LIRS/CLOCK-Pro, 2Q/S3-FIFO
+  in both).
 
-- Neither new operator closes the gap to plain sampling. On dev best, `blind_spot_hybrid`
-  improved on `blind_spot` in both seeds (0.5856 vs 0.5903; 0.5841 vs 0.5869) and
-  `blind_spot_directions` marginally in seed 0 (0.5889 vs 0.5903), but all three blind-spot
-  operators sit at 0.584-0.590 while plain reaches 0.5665-0.5675. The gap of about 0.017 miss
-  ratio to plain is unchanged in kind; the hybrid allowance recovers roughly a quarter of it.
-- The hybrid allowance produced more candidates per dollar (8 vs 5-6) at the same budget without
-  any loss of validity.
-- Treat this as a direction, not a result: 2 repeats, dev scores, and the controls are fresh
-  samples rather than the archived reference run. Held-out scores and useful-family counts
-  from the bench's own output are needed before any of this is written up as a finding.
+### Invalid candidates by reason
 
-Spend on this step: $2.03 by 08:44 (preflight remaining budget $8.44 before, $6.42 during
-labeling), projected about $2.6 after labeling; cap for the step was $3.00.
+| operator | generated | invalid | reasons |
+|---|---|---|---|
+| plain | 24 | 0 | |
+| blind_spot | 11 | 0 | |
+| blind_spot_hybrid | 16 | 0 | |
+| blind_spot_directions | 14 | 1 | no code in reply x1 (seed 1) |
+
+1 of 65 invalid in total. No evaluator timeouts occurred despite a load average above 100 during
+the run, so the valid rates are not depressed by machine load; the one failure is the
+implementer replying without a code block.
+
+### Verdict (preliminary, 2 repeats)
+
+- **No. Neither new operator closes the gap to plain sampling on the best held-out score.**
+  plain reached 0.5666-0.5678 in both repeats; the best blind-spot operator,
+  `blind_spot_hybrid`, reached 0.5838-0.5848. The ranges do not overlap in either direction
+  between plain and any blind-spot operator, so with 2 repeats plain is ahead of all three.
+- **The hybrid allowance helps, a little, on every measure.** `blind_spot_hybrid` beat `blind_spot`
+  in both repeats on best held-out (0.5848 vs 0.5908; 0.5838 vs 0.5867), on candidates per budget
+  (8 vs 5-6), on useful families (4 and 5 vs 3 and 4) and on discoveries per $ (17.7 vs 14.4). It
+  recovers about 0.004 of the roughly 0.021 gap to plain: the template was part of the problem,
+  not most of it.
+- **The directions lever did less.** `blind_spot_directions` improved on `blind_spot` in both
+  repeats on best held-out (0.5874 vs 0.5908; 0.5850 vs 0.5867) and matched it on useful
+  families, but its within-family retries still land within about 0.001 of each other on dev, so
+  a text direction does not by itself produce a different program.
+- The blind-spot operators keep their advantage in breadth: 3.5-4.5 distinct useful families per
+  repeat versus plain's 2, at 2x the discoveries per dollar. plain's edge is a single family
+  (an LFU/2Q-style policy) that is simply better on this task than anything in the blind spots.
+- Why it is preliminary: 2 repeats with the same evaluation data; the controls here are fresh
+  samples, not the archived reference run (see Setup); the dev/held-out split is fixed; and
+  `blind_spot`'s best is ~0.004 worse here than in the reference run, which is the scale of the
+  effects being claimed. A third repeat and the directions-plus-hybrid operator
+  (`blind_spot_directions_hybrid`) are the obvious next measurements.
+
+Spend on this step: $2.61 (preflight remaining budget $8.44 before, $5.84 after), of which
+roughly $1.0 was the two controls regenerating, $1.05 the two new operators and $0.47 labeling.
+Cap for the step was $3.00. The bench was run once and not rerun.
 
 ## Reference: the 3-operator Anthropic run (same setup, same seeds)
 
@@ -124,24 +147,3 @@ were LFU and 2Q/S3-FIFO in both repeats.
 - median dev score (valid): median dev score over all valid candidates of the operator, both repeats
   (typical candidate quality before selection).
 - spent $: the operator's own LLM calls per repeat, cached cost.
-
-### Final held-out table (run completed 08:45 Pacific; supersedes "held-out pending" above)
-
-Setup: cache_eviction, Claude Sonnet 5.5 implementer via the Anthropic API, $0.30 per operator per
-repeat, 2 repeats. Held-out miss ratio, lower is better; values are mean [min, max] across repeats.
-LRU scores 0.6747 on held-out.
-
-| operator | candidates | distinct families beating LRU | discoveries per $ (cached) | best held-out |
-|---|---|---|---|---|
-| plain | 12 | 2 | 7.68 | **0.5672** [0.5666, 0.5678] |
-| blind_spot | 5.5 | 3.5 | 14.41 | 0.5887 [0.5867, 0.5908] |
-| blind_spot_hybrid | 8 | **4.5** | **17.67** | 0.5843 [0.5838, 0.5848] |
-| blind_spot_directions | 7 | 4.0 | 15.09 | 0.5862 [0.5850, 0.5874] |
-
-**Verdict (preliminary, 2 repeats).**
-- **Hybrid:** the hybrid-allowed template helps blind-spot steering. It produces the most
-  distinct working families per dollar (17.67, against 7.68 for plain) and improves blind_spot's
-  best score from 0.5887 to 0.5843.
-- **Directions:** per-retry directions help a little.
-- **Against plain:** neither closes the gap to plain's best program (0.5672). On this workload,
-  steering toward overlooked families buys variety, not a better best program.
