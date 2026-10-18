@@ -35,3 +35,14 @@ whatever it shows, labelled preliminary with n = 4.
 
 **Known limitation.** With n = 4, one state changes any count. This measurement can rule out a
 large advantage at best. It cannot show a small one.
+
+## Amendment (07:55 Pacific, before the run)
+
+The user disabled OpenRouter and asked that every call go through their Anthropic API key, so
+Llama 4 Maverick is not available as the implementer. Changes:
+- **Implementer:** every arm uses `anthropic/claude-haiku-5.5` (`DIVERGE_PROVIDER=anthropic`).
+- **Supporting roles:** the extractor and critic are Claude models, chosen by `anthropic_only_models`.
+- **Unchanged:** the 4 stuck states are reused exactly as recorded. They are still Llama
+  trajectories, so the stuck agent and the rescuing implementer now differ for every arm alike.
+
+Arms, fresh seeds, the budget and the success rule are unchanged.

@@ -22,6 +22,7 @@ Writes results/rescue/{trajectories,arms,summary}.json.
 """
 import hashlib
 import json
+import os
 import random
 import sys
 import time
@@ -37,6 +38,8 @@ from diverge.task import Task  # noqa: E402
 
 TASK = "online_bin_packing"
 MODEL = "meta-llama/llama-4-maverick"  # cheapest configured sampler; its best herd samples are exactly best fit
+if os.environ.get("DIVERGE_PROVIDER", "").lower() == "anthropic":  # OpenRouter disabled: arms use Claude Haiku
+    MODEL = "anthropic/claude-haiku-5.5"
 N_ATTEMPTS, EPS, K = 6, 0.01, 3
 TRAJ_BUDGET, ARM_BUDGET = 0.30, 0.40
 # --round R (default 1): R > 1 reruns every arm on the same stuck states with fresh generation
