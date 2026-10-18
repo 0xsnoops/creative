@@ -21,7 +21,8 @@ def herd():
 def test_I2_bench_refuses_a_small_map_without_override(fake_world):
     from herd.bench import run_bench
     with pytest.raises(SystemExit, match="samples per model"):
-        run_bench(BIN, budget_usd=0.25, repeats=1, operators=["blind_spot"], progress=lambda m: None)
+        run_bench(BIN, budget_usd=0.25, repeats=1, operators=["blind_spot"], progress=lambda m: None,
+                  n_per_model=3)  # an explicitly small map
 
 
 def test_I2_literature_random_matches_the_blind_spot_count(fake_world):
@@ -197,3 +198,17 @@ def test_I17_long_family_names_get_distinct_slugs():
 def test_I18_empty_task_description_is_rejected():
     with pytest.raises(ValueError):
         Task.resolve("   ")
+
+
+# Found in the live run: bench rebuilt a default-size (N=5) map over the N=20 map, then refused.
+def test_bench_reuses_the_bigger_map_by_default(fake_world):
+    import yaml
+    from herd.bench import run_bench
+    path = pipeline.ROOT / "config.yaml"
+    cfg = yaml.safe_load(path.read_text())
+    cfg["reality_check"]["min_samples_per_model"] = 4  # config default n_per_model is 3 here
+    path.write_text(yaml.safe_dump(cfg))
+    pipeline.ensure_map(herd(), Task.resolve(BIN), n_per_model=4)
+    run_bench(BIN, budget_usd=0.1, repeats=1, operators=["blind_spot"], progress=lambda m: None)
+    saved = json.loads((pipeline.ROOT / "results" / BIN / "herd_map.json").read_text())
+    assert saved["meta"]["n_per_model"] == 4  # reused, not rebuilt at the default of 3

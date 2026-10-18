@@ -333,7 +333,8 @@ def candidate_records(runs, per_run, labels, out):
     return rows
 
 
-def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress=print, allow_small_map=False):
+def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress=print, allow_small_map=False,
+              n_per_model=None):
     task = Task.resolve(task_name)
     if not task.evaluator:
         raise SystemExit("the benchmark needs a registered task with an evaluator")
@@ -344,9 +345,13 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
     bench_cfg["repeats"] = repeats or bench_cfg["repeats"]
     operators = operators or bench_cfg["operators"]
 
-    study = ensure_map(herd, task)
-    map_spend = herd.ledger.new_spend
     min_n = cfg["reality_check"]["min_samples_per_model"]
+    # Blind-spot operators need a map of at least min_n per model. Default to that size so the
+    # benchmark reuses (or builds) the right map instead of rebuilding a smaller default one.
+    if n_per_model is None:
+        n_per_model = max(cfg["sampling"]["n_per_model"], min_n if NEEDS_MAP & set(operators) else 0)
+    study = ensure_map(herd, task, n_per_model)
+    map_spend = herd.ledger.new_spend
     if NEEDS_MAP & set(operators) and effective_n(study) < min_n and not allow_small_map:
         raise SystemExit(f"the herd map has only {effective_n(study)} labeled samples per model for its weakest "
                          f"model (need {min_n}); blind spots from it are noise. Build a bigger map "

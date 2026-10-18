@@ -89,6 +89,9 @@ def main():
     b.add_argument("--budget", type=float, help="USD per operator per repeat (overrides config)")
     b.add_argument("--repeats", type=int, help="repeats on different seeds (overrides config)")
     b.add_argument("--operators", help="comma-separated subset, e.g. plain,verbalized")
+    b.add_argument("--n", type=int, help="samples per model of the herd map to use (default: at least "
+                   "reality_check.min_samples_per_model when blind-spot operators run)")
+    b.add_argument("--allow-small-map", action="store_true", help="run blind-spot operators on a smaller map")
     f = sub.add_parser("fingerprints", help="behavioral fingerprints of a task's map samples (bin packing)")
     f.add_argument("task")
     sub.add_parser("spend", help="show estimated spend so far")
@@ -100,7 +103,8 @@ def main():
     elif args.command == "bench":
         from .bench import run_bench
         _, verdict, bench_dir = run_bench(args.task, args.budget, args.repeats,
-                                          args.operators.split(",") if args.operators else None)
+                                          args.operators.split(",") if args.operators else None,
+                                          allow_small_map=args.allow_small_map, n_per_model=args.n)
         print((bench_dir / "bench.md").read_text())
     elif args.command == "fingerprints":
         fingerprints_cmd(args.task)
