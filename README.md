@@ -119,12 +119,27 @@ comparison is still untested. Details: `docs/RESULTS-E1.md`. Following this, on 
 evaluator can fingerprint candidates (currently online_bin_packing) the loop decision uses the
 behavior signal; elsewhere it still uses strategy similarity. The live runs above used strategy similarity.
 
-**Escape has not been shown to beat fresh_start.** In a small rescue test (preliminary, n = 4 stuck
-Llama trajectories), diverge_escape v2 rescued 1 of 4, the same as "try a fundamentally different
-approach" and a random-lever control; fresh_start rescued 0. No arm beat a best-fit plateau.
-See docs/RESULTS.md.
+**Rescue tests (preliminary, n = 4 stuck states each).**
+- **Round 1:** no arm beat a best-fit plateau.
+- **Round 2** (pre-registered, Anthropic API, fresh seeds):
+  - Arms that run DIVERGE's escape pipeline did beat plateaus. A random-lever control reached
+    1.06 and 1.21 against 3.98, and escape v3 reached 2.52.
+  - Rescued counts: random_lever 3/4, fresh_start 2/4, try_different 2/4, escape v3 2/4, escape v4
+    2/4, escape v2 1/4.
+- **Default:** by the pre-registered rule, v2 stays the default and v3/v4 are opt-in.
+- **What this does and does not show:** the pipeline helps, but **DIVERGE's choice of the
+  overlooked lever has not been shown to beat a random lever**. Escape has not been shown to beat
+  simple baselines at scale.
 
-Operator benchmarks: started, stopped, no results yet.
+**Operator benchmark (cache eviction, Anthropic API, 2 repeats, preliminary).**
+- **Variety:** steering toward overlooked families doubled the distinct working families per
+  dollar (blind_spot 15.46 vs plain 7.67).
+- **Best program:** it did not produce a better best program (0.5877 vs 0.5681). The forensics in
+  docs/BENCH_FORENSICS.md show the overlooked families were weak for this workload.
+
+**Autonomous tool selection.** In both completed headless `claude -p` runs, the agent chose
+DIVERGE on its own; the prompt never mentioned it. In run 3 it got `keep`, followed it, and kept
+improving (docs/AUTONOMOUS_AGENT_DEMO.md).
 
 ## How it works
 
@@ -157,6 +172,10 @@ OPENROUTER_API_KEY=sk-or-...
 EXA_API_KEY=...
 EOF
 ```
+
+Anthropic only (no OpenRouter): set `DIVERGE_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`, in
+`.env` or in a private file named by `DIVERGE_ENV_FILE`. Every role then uses a Claude model,
+and cached consensus maps are reused. See `docs/MODEL_CHOICES.md`.
 
 Models, sample counts and the hard dollar cap (`budget_usd`, currently $28) are in
 `config.yaml`. Every LLM and Exa response is cached in `cache/*.jsonl`, keyed by a hash
@@ -466,5 +485,5 @@ The tests cover the evaluators and baselines, the sandbox (fake result lines, se
 network, file writes, reading `.env` and home-directory files, redaction), caching and the
 budget ledger, a regression test per confirmed review issue, and the new operators' prompts,
 control flow and accounting. They also run the whole pipeline,
-the operator benchmark and the MCP tools end to end, with OpenRouter and Exa replaced by
+the operator benchmark and the MCP tools end to end, with the model provider (OpenRouter or Anthropic) and Exa replaced by
 fakes.

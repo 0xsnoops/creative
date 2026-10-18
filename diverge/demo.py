@@ -183,7 +183,7 @@ def run(name, root=REPO, out=print):
     for label, dev, held, cost in rows:
         out(f"  {label:24} {_fmt(dev):>9} {_fmt(held):>9}  {cost}".rstrip())
 
-    out(f"\nPRELIMINARY: {rec.get('n_runs', 1)} run")
+    out(f"\nPRELIMINARY: {rec.get('n_runs') or 1} run" + ("s" if (rec.get('n_runs') or 1) != 1 else ""))
     if verdict is not None and verdict != "escape":
         out(f"no escape candidate: verdict {verdict}, so DIVERGE did not switch strategy and there is nothing to "
             f"compare with fresh_start")

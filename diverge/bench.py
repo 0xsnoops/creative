@@ -29,7 +29,8 @@ SURFACE, INK, INK_2, GRID, BLUE, ORANGE = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e
 MAP = ("sampling", "literature", "labeling")
 SETUP_STAGES = {"blind_spot": MAP, "blind_spot_contrast": MAP, "blind_spot_contrast_random": MAP,
                 "blind_spot_feedback": MAP, "blind_spot_feedback_sham": MAP,
-                "literature_all": ("literature",), "literature_random": ("literature",)}
+                "literature_all": ("literature",), "literature_random": ("literature",),
+                "blind_spot_hybrid": MAP, "blind_spot_directions": MAP, "blind_spot_directions_hybrid": MAP}
 # Operators whose families come from the herd map's blind spots (or are sized by them).
 NEEDS_MAP = {"blind_spot", "blind_spot_contrast", "blind_spot_contrast_random", "blind_spot_feedback",
              "blind_spot_feedback_sham", "literature_random", "blind_spot_hybrid", "blind_spot_directions",
@@ -328,7 +329,8 @@ def candidate_records(runs, per_run, labels, out):
                          "heldout_score": metrics["heldout_by_candidate"].get(cid),
                          "selected": metrics["selected"].get(cid),
                          "meta": {k: c[k] for k in ("temperature", "contrast_kind", "contrast_families",
-                                                    "feedback_round", "feedback_from", "frame", "adhd_round")
+                                                    "feedback_round", "feedback_from", "frame", "adhd_round",
+                                                    "template", "direction", "direction_round")
                                   if k in c},
                          "prompt": c.get("prompt"), "code": code, "dev_detail": c.get("dev_detail")})
     return rows

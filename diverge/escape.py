@@ -645,21 +645,29 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
     for i, s in enumerate(sketches):
         # The literal check misses paraphrases ("a new bin" for new_bin_slot) and family levers,
         # whose names never appear in a rule; the extractor model judges those cases.
-        uses = mentions_lever(s, chosen) or ask_json(judge_llm, extractor, USES_TEMPLATE.format(
+        try:  # one unparsable judge reply drops this sketch, not the whole run
+            uses = mentions_lever(s, chosen) or ask_json(judge_llm, extractor, USES_TEMPLATE.format(
             lever=chosen["name"], description=(f" ({(chosen.get('detail') or {}).get('description')})"
                                                if (chosen.get("detail") or {}).get("description") else ""),
             name=s.get("name", ""), state=s.get("state", ""), decision_rule=s.get("decision_rule", ""),
             uses_lever=s.get("uses_lever", "")),
             max_tokens=2000, key=f"escape_v2:uses:{seed}:{i}", required=("uses_lever",)).get("uses_lever") is True
+            verdict = ask_json(judge_llm, extractor, JUDGE_TEMPLATE.format(
+                shared=diagnosis["shared_cause"], name=s.get("name", ""), state=s.get("state", ""),
+                decision_rule=s.get("decision_rule", ""), lever=chosen["name"], uses_lever=s.get("uses_lever", "")),
+                max_tokens=2000, key=f"escape_v2:same:{seed}:{i}", required=("same_mechanism",)) if uses else {}
+        except BudgetExceeded:
+            raise
+        except Exception as e:
+            out["rejections"].append({"stage": "sketch_filter", "sketch": s.get("name"),
+                                      "reasons": [f"judge failed: {type(e).__name__}: {str(e)[:200]}"]})
+            note(out["rejections"][-1])
+            continue
         if not uses:
             reason = f"decision rule does not use {chosen['name']}"
             out["rejections"].append({"stage": "sketch_filter", "sketch": s.get("name"), "reasons": [reason]})
             note(out["rejections"][-1])
             continue
-        verdict = ask_json(judge_llm, extractor, JUDGE_TEMPLATE.format(
-            shared=diagnosis["shared_cause"], name=s.get("name", ""), state=s.get("state", ""),
-            decision_rule=s.get("decision_rule", ""), lever=chosen["name"], uses_lever=s.get("uses_lever", "")),
-            max_tokens=2000, key=f"escape_v2:same:{seed}:{i}", required=("same_mechanism",))
         if verdict.get("same_mechanism") is not False:
             reason = f"same mechanism as the shared strategy: {verdict.get('reason') or 'judged the same'}"
             out["rejections"].append({"stage": "sketch_filter", "sketch": s.get("name"), "reasons": [reason]})
@@ -709,7 +717,15 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
                 continue
             path = code_dir / f"{slug(chosen['name'])}-{seed}-{s['index']}-{attempt}.py"
             path.write_text(code)
-            result = evaluator(path)  # dev split only
+            try:
+                result = evaluator(path)  # dev split only
+            except BudgetExceeded:
+                raise
+            except Exception as e:
+                out["rejections"].append({"stage": "evaluate", "sketch": s.get("name"), "attempt": attempt,
+                                          "reasons": [f"{type(e).__name__}: {str(e)[:200]}"]})
+                note(out["rejections"][-1])
+                break
             error = (result.get("detail") or {}).get("error")
             admitted = {"sketch": s.get("name"), "attempt": attempt, "path": str(path), "valid": result["valid"],
                         "score": result["score"] if result["valid"] else None,

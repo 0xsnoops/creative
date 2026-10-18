@@ -69,4 +69,41 @@ directly (`DIVERGE_PROVIDER=anthropic`). Run 2 produced no result.
 
 ## Run 3: same prompt, DIVERGE on the Anthropic API
 
-RESULT_RUN3
+Transcript: `docs/demo/autonomous-run-3.jsonl`. Summary: `docs/demo/autonomous-run-3.summary.json`.
+This was revision 2 of the allowed two. The fixes were the evaluator guidance and the
+`mcp__diverge` allowlist, with DIVERGE calling the Anthropic API (`DIVERGE_PROVIDER=anthropic`).
+
+**The moment of selection.** The first DIVERGE call is at transcript line 586, after the agent's
+own tuning. The agent's words just before it:
+
+> Parameter tuning has converged around 0.116 on train (dev 0.1496). I'll check whether the
+> DIVERGE tool is set up here so I can ask it for a different strategy.
+
+**Calls**
+1. **`diverge_status`, no arguments.** Result: ready, with the Anthropic key configured and
+   `online_bin_packing` cached.
+2. **`diverge_escape`, at line 599.**
+   - Arguments: `task_description` = `online_bin_packing` (the built-in name, as the revised
+     description asks), the agent's current solution, two previous versions, and `budget_usd` = 1.
+   - Verdict: **`keep`**. The next action was "Continue the existing strategy; do not switch yet.
+     Score each change with the evaluator and call diverge_escape again if scores stall."
+   - Evidence: 12 MEASURED claims and 2 HYPOTHESIZED. The lever on record, unused here, was
+     `n_open_bins`, used by 5 of 95 consensus samples.
+
+**What the agent did next.** It followed the verdict, kept its strategy, and finished at
+**0.1496 dev** against 0.658 for the best previous attempt. That gain is the agent's own work.
+DIVERGE's contribution was a correct "do not switch".
+
+**Costs.** The agent itself cost $2.58, as reported by `claude -p`; DIVERGE made 2 model calls,
+both on the Anthropic API, for $0.0017 (trace: `results/traces/autonomous-demo-run3/`). Run time was 39 minutes. No human intervened.
+
+## Summary
+
+| run | chose DIVERGE itself | verdict | outcome |
+|---|---|---|---|
+| 1 | yes | inconclusive (evaluator could not be nested; fixed) | the agent improved on its own |
+| 2 | could not (tool allowlist bug; aborted) | none | none |
+| 3 | yes | keep | the agent followed it and kept improving |
+
+In both completed runs the agent chose DIVERGE on its own, from a prompt that never mentions it.
+That is n = 2: it shows the behavior happens, not how often.

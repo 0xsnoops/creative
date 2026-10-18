@@ -41,7 +41,7 @@ from 50% to 17%. One of the three paraphrases stayed close to the original (TVD 
 moved a lot (0.4–0.5). With groups of 10 samples, only large shifts can be detected. Consensus claims
 should be read as "for this wording".
 
-## Overlook (`diverge overlook <task>`)
+## Overlook (`python -m diverge overlook <task>`)
 
 ### online_bin_packing (95 valid samples, $0.17)
 
@@ -194,7 +194,7 @@ revisions of the same code can measure as different strategies.
 Fixtures: `fixtures/trajectories/` and `fixtures/runs/`, as `strategy_loop`,
 `strategy_loop_tune` and `strategy_loop_unconstrained`. Reproduce with
 `scripts/strategy_loop_run.py --mode open|tune|plateau` and `scripts/forced_escape.py`; cached
-calls replay at no cost. Replay with `diverge demo <fixture>`.
+calls replay at no cost. Replay with `python -m diverge demo <fixture>`.
 
 ## Mini rescue test (preliminary, n = 4 stuck states)
 
@@ -232,6 +232,65 @@ from the stuck attempts or not depending on the lever.
 **Bug fixed before these numbers:** the first run of this test exposed a bug in the sketch filter.
 Family and paraphrased levers were always dropped. It was fixed in commit 6ba6309, and the table
 above comes from the rerun.
+
+## Rescue test round 2 (pre-registered in docs/PREREGISTRATION-final.md; preliminary, n = 4)
+
+**Setup**
+- **Stuck states:** the same 4 as round 1.
+- **Arms:** every arm got fresh seeds and used Claude Haiku 5.5 as the implementer, through the
+  Anthropic API, per the amendment.
+- **Scoring:** selection was on dev. Held-out was rescored one program at a time
+  (`scripts/rescore_rescue.py`), because the machine was overloaded during the run and one program
+  timed out. The candidates and dev picks are unchanged.
+- **Rescue:** the arm's held-out score beats the stuck best's held-out score.
+
+| state (stuck best held-out) | fresh_start | try_different | random_lever | escape v2 | escape v3 | escape v4 (exploratory) |
+|---|---|---|---|---|---|---|
+| 0 (148.12) | 3.98 yes | 3.98 yes | 7.54 yes | 3.97 yes | 3.98 yes | **1.66 yes** |
+| 1 (3.98, best fit) | 3.98 no | 3.75 yes | **1.21 yes** | 8.88 no | 2.52 yes | no admitted candidate |
+| 3 (3.98, best fit) | 4.16 no | 3.98 no | **1.06 yes** | 7.49 no | no admitted candidate | no admitted candidate |
+| 4 (3.96) | 3.76 yes | 3.98 no | 6.53 no | 6.46 no | 4.01 no | **1.11 yes** |
+| **rescued** | 2/4 | 2/4 | **3/4** | 1/4 | 2/4 | 2/4 |
+
+Cost per arm was $0.003 to $0.08 per state; v3 and v4 cost the most.
+
+**Pre-registered rule:** v3 becomes the default only if it rescues more states than both
+`try_different` and `random_lever`. It rescued 2, against 2 and 3, so **v2 stays the default and
+v3 stays opt-in**. v4 was added after the pre-registration and is exploratory. It also stays opt-in.
+
+**What the data show**
+- **Pipeline vs plain instruction:** arms that go through DIVERGE's escape pipeline (fresh
+  context, failure summary, sketches, behavioral admission check) did break best-fit plateaus.
+  random_lever reached 1.21 and 1.06, and v3 reached 2.52. Round 1 had none, and "try something
+  different" reached 3.75 once.
+- **The lever choice:** the arm that rescued most used a random lever (the control). So the
+  pipeline helps, but DIVERGE's choice of the overlooked lever has not been shown to matter.
+- **v4's quality:** when v4 produced a candidate, it was the best of any arm (1.66 and 1.11).
+  But it produced no admitted candidate on 2 of 4 states.
+- **Sample size:** n = 4. One state changes any count.
+
+## Three-operator benchmark on the Anthropic API (budget fix applied; preliminary, 2 repeats)
+
+**Setup**
+- Task: cache_eviction, held-out miss ratio, lower is better.
+- Implementer: Claude Sonnet 5.5. Budget: $0.30 per operator per repeat.
+- Every operator now uses its whole budget.
+
+| operator | candidates per repeat | best held-out | distinct families beating LRU | discoveries per $ (cached) |
+|---|---|---|---|---|
+| plain | 12 | 0.5681 | 2 | 7.67 |
+| literature_random | 9-11 | **0.5680** | 4 | 14.74 |
+| blind_spot | 6 | 0.5877 | 4 | **15.46** |
+
+- **Best final program:** blind_spot does not produce a better one. Plain and random literature
+  tie.
+- **Variety:** blind_spot and random literature find twice as many distinct working families as
+  plain per repeat.
+
+docs/BENCH_FORENSICS.md explains why. The blind-spot families (LRU-K, LeCaR, LIRS, CLOCK) are weak
+for this workload, and "best of a few draws" hides that plain has the worst median.
+docs/BENCH_NEW_OPERATORS.md has the hybrid and per-retry-direction operators, if that run finished
+before the freeze.
 
 ## Not yet measured
 
