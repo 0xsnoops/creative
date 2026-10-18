@@ -41,7 +41,7 @@ random-lever control rescued the most (3/4) and default escape v2 the fewest (1/
 |---|---|
 | A real MCP server | `python -m diverge serve` (stdio) and `diverge_mcp_http.py` (streamable HTTP at `/mcp`, an ASGI `app` for `uvicorn 'diverge_mcp_http:app'`), both serving the same `diverge.server.mcp` object, so the tool list is identical. |
 | Designed for agents | Server `INSTRUCTIONS` that say when to use which tool; a free readiness tool (`diverge_status`); one primary tool (`diverge_escape`) with a verdict, `next_action` and structuredContent; structured errors; progress notifications on long calls; per-call `budget_usd` caps plus a global cap. |
-| Safe to host | Bearer token (`DIVERGE_HTTP_TOKEN`, with `HERD_HTTP_TOKEN` as a fallback; constant-time compare): missing or wrong token gives 401, unset token gives 503 (fails closed). Candidate code runs in `tasks/_sandbox.py` (macOS sandbox, no secrets in the child environment, redacted errors). |
+| Safe to host | Bearer token (`DIVERGE_HTTP_TOKEN`, constant-time compare): missing or wrong token gives 401, unset token gives 503 (fails closed). Candidate code runs in `tasks/_sandbox.py` (macOS sandbox, no secrets in the child environment, redacted errors). |
 
 **Demonstrated:** local HTTP. `tests/test_manufact.py` starts the app on loopback and checks
 that the HTTP tool list equals the stdio one and that 401/503 are returned; `docs/MANUFACT.md`

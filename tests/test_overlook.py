@@ -1,4 +1,4 @@
-"""Offline tests for herd/overlook.py: static input audit on hand-written code, assumption
+"""Offline tests for diverge/overlook.py: static input audit on hand-written code, assumption
 classification, grid gaps and minority detection."""
 from diverge.overlook import (audit_bin_packing, audit_cache, classify_assumption, grid_gaps, minority)
 
@@ -123,13 +123,13 @@ def test_assumption_classification_needs_a_verbatim_quote():
 
 
 def test_grid_gaps():
-    herd = {"s1": {"score": "tight fit", "state": "none"}, "s2": {"score": "tight fit", "state": "none"},
+    session = {"s1": {"score": "tight fit", "state": "none"}, "s2": {"score": "tight fit", "state": "none"},
             "s3": {"score": "gap balance", "state": "none"}, "s4": {"score": "gap balance", "state": "item histogram"},
             "s5": {"score": "tight fit", "state": "none"}, "s6": {"score": "gap balance", "state": "item histogram"}}
     lit = {"Harmonic": {"score": "size classes", "state": "class counts"},
            "Best Fit": {"score": "tight fit", "state": "none"}}
-    lit_gaps, pairs = grid_gaps(herd, lit)
-    assert [g["family"] for g in lit_gaps] == ["Harmonic"]  # Best Fit's cell is occupied by the herd
+    lit_gaps, pairs = grid_gaps(session, lit)
+    assert [g["family"] for g in lit_gaps] == ["Harmonic"]  # Best Fit's cell is occupied by the consensus
     assert {"pair": [["score", "tight fit"], ["state", "item histogram"]], "support": [3, 2]} in pairs
     assert all(p["pair"] != [["score", "gap balance"], ["state", "item histogram"]] for p in pairs)  # seen together
 
@@ -214,7 +214,7 @@ def test_build_end_to_end_with_fake_models(monkeypatch):
     monkeypatch.setattr(LLM, "_post", post)
     monkeypatch.setattr(Exa, "_post", lambda self, request, attempts=3: {
         "costDollars": {"total": 0.005}, "results": [{"url": f"https://{x}.example", "title": x, "highlights": ["..."]} for x in "abc"]})
-    h = pipeline.Herd(progress=lambda m: None)
+    h = pipeline.Session(progress=lambda m: None)
     pipeline.ensure_map(h, task)
     result = overlook.build(h, task)
     inputs = {r["input"]: r for r in result["inputs"]}
@@ -226,8 +226,8 @@ def test_build_end_to_end_with_fake_models(monkeypatch):
     assert a["quotes something not in the prompt"]["shared"] is False  # one checked sample does not hold it
     assert "Harmonic" in [g["family"] for g in result["grid"]["literature_only_cells"]]
     lt = result["latent_tail"]
-    # with the herd shown: Harmonic (taxonomy) counts; "Mystery fit" (vague, no source mentions it) does not.
-    # without: only First Fit, which is a herd family here, so nothing counts.
+    # with the consensus shown: Harmonic (taxonomy) counts; "Mystery fit" (vague, no source mentions it) does not.
+    # without: only First Fit, which is a consensus family here, so nothing counts.
     assert lt["verified_non_herd_per_model"][offline.MODELS[0]] == {"with_herd": 1, "without_herd": 0}
     assert offline.MODELS[1] in seen["models"]  # the extractor model did the reading
     assert (tmp / "results" / BP / "overlook.json").exists()

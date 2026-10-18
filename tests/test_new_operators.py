@@ -17,7 +17,7 @@ BIN = "online_bin_packing"
 
 def study_and_task():
     task = Task.resolve(BIN)
-    return pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), task), task
+    return pipeline.ensure_map(pipeline.Session(progress=lambda m: None), task), task
 
 
 def run(name, budget=0.3, seed=0):
@@ -25,10 +25,10 @@ def run(name, budget=0.3, seed=0):
     return run_operator(name, task, budget, seed=seed, study=study, progress=lambda m: None), study
 
 
-def test_contrast_lists_the_herd_and_the_control_lists_random_others(fake_world):
-    herd_run, study = run("blind_spot_contrast")
+def test_contrast_lists_the_consensus_and_the_control_lists_random_others(fake_world):
+    consensus_run, study = run("blind_spot_contrast")
     top3, blind = study["herd_map"]["top3"], {b["family"] for b in study["blind_spots"]}
-    c = herd_run["candidates"][0]
+    c = consensus_run["candidates"][0]
     assert c["contrast_kind"] == "herd" and set(c["contrast_families"]) == set(top3) - {c["intended_family"]}
     assert "Mechanisms your solution should differ from" in c["prompt"]
     for name in c["contrast_families"]:
@@ -97,7 +97,7 @@ def test_fingerprint_gate_and_clusters(fake_world, tmp_path):
 
 def test_bench_reports_behavior_clusters_and_candidate_traces(fake_world, tmp_path, monkeypatch):
     from diverge.bench import run_bench
-    monkeypatch.setenv("HERD_TRACE_DIR", str(tmp_path / "trace"))
+    monkeypatch.setenv("DIVERGE_TRACE_DIR", str(tmp_path / "trace"))
     table, _, bench_dir = run_bench(BIN, budget_usd=0.25, repeats=1, operators=["blind_spot", "blind_spot_contrast"],
                                     progress=lambda m: None, allow_small_map=True)
     data = json.loads((bench_dir / "bench.json").read_text())

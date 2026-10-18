@@ -13,8 +13,8 @@ from tests.test_pipeline_offline import MODELS, call_tool, fake_world  # noqa: F
 BIN = "online_bin_packing"
 
 
-def herd():
-    return pipeline.Herd(progress=lambda m: None)
+def session():
+    return pipeline.Session(progress=lambda m: None)
 
 
 # I2: the thesis benchmark needs a big enough map, and a count-matched literature control.
@@ -28,7 +28,7 @@ def test_I2_bench_refuses_a_small_map_without_override(fake_world):
 def test_I2_literature_random_matches_the_blind_spot_count(fake_world):
     from diverge.operators import run_operator
     task = Task.resolve(BIN)
-    study = pipeline.ensure_map(herd(), task)
+    study = pipeline.ensure_map(session(), task)
     run = run_operator("literature_random", task, 0.25, seed=0, study=study, progress=lambda m: None)
     sourced = {f["family"] for f in study["families"] if f["source_urls"]}
     assert len(run["notes"]["families"]) == len(study["blind_spots"])
@@ -40,9 +40,9 @@ def test_I2_literature_random_matches_the_blind_spot_count(fake_world):
 # I3: dev evaluator detail is kept with each candidate and implementation.
 def test_I3_dev_detail_is_kept(fake_world):
     task = Task.resolve(BIN)
-    study = pipeline.ensure_map(herd(), task)
+    study = pipeline.ensure_map(session(), task)
     best_fit = next(f for f in study["families"] if f["family"] == "Best Fit")
-    s = pipeline.ensure_family_scores(herd(), task, study, [best_fit], Evaluator(task), k=1)["Best Fit"]
+    s = pipeline.ensure_family_scores(session(), task, study, [best_fit], Evaluator(task), k=1)["Best Fit"]
     detail = s["implementations"][0]["dev_detail"]
     assert detail["split"] == "dev" and len(detail["instances"]) == 5
 
@@ -57,12 +57,12 @@ def test_I4_evaluator_key_includes_direction_and_inputs():
 
 def test_I4_changed_family_text_is_rescored(fake_world):
     task = Task.resolve(BIN)
-    study = pipeline.ensure_map(herd(), task)
+    study = pipeline.ensure_map(session(), task)
     fam = dict(next(f for f in study["families"] if f["family"] == "Best Fit"))
-    pipeline.ensure_family_scores(herd(), task, study, [fam], Evaluator(task), k=1)
+    pipeline.ensure_family_scores(session(), task, study, [fam], Evaluator(task), k=1)
     calls = fake_world["llm"]
     fam["one_line_mechanism"] = "a different mechanism text"
-    pipeline.ensure_family_scores(herd(), task, study, [fam], Evaluator(task), k=1)
+    pipeline.ensure_family_scores(session(), task, study, [fam], Evaluator(task), k=1)
     assert fake_world["llm"] > calls
 
 
@@ -80,7 +80,7 @@ def test_I5_labeling_budget_stop_keeps_operator_results(fake_world, monkeypatch)
 
 def test_I5_preflight_includes_labeling_estimate(fake_world):
     import diverge.bench as bench
-    estimate = bench.labeling_estimate(herd(), operators=["plain", "hot"], repeats=2)
+    estimate = bench.labeling_estimate(session(), operators=["plain", "hot"], repeats=2)
     assert estimate > 0
 
 
@@ -92,19 +92,19 @@ def test_I6_partial_sampling_is_recorded_and_reused(fake_world, monkeypatch):
             raise RuntimeError("provider down")
         return real_post(self, body, attempts)
     monkeypatch.setattr(LLM, "_post", flaky)
-    study = pipeline.ensure_map(herd(), Task.resolve(BIN))
+    study = pipeline.ensure_map(session(), Task.resolve(BIN))
     meta = study["herd_map"]["meta"]
     assert meta["completed_per_model"] == {MODELS[0]: 3, MODELS[1]: 0}
     assert meta["min_completed_per_model"] == 0
     calls = fake_world["llm"]
-    pipeline.ensure_map(herd(), Task.resolve(BIN))
+    pipeline.ensure_map(session(), Task.resolve(BIN))
     assert fake_world["llm"] == calls  # reused, not rebuilt
 
 
 # I7: diverge_check returns a partial comparison when the budget runs out.
 def test_I7_diverge_check_returns_partial_results(fake_world, monkeypatch):
     task = Task.resolve(BIN)
-    study = pipeline.ensure_map(herd(), task)
+    study = pipeline.ensure_map(session(), task)
     real = pipeline.ensure_family_scores
     seen = []
     def limited(h, t, s, families, ev, k, *rest):
@@ -113,7 +113,7 @@ def test_I7_diverge_check_returns_partial_results(fake_world, monkeypatch):
             raise BudgetExceeded("run budget reached")
         return real(h, t, s, families, ev, k, *rest)
     monkeypatch.setattr(pipeline, "ensure_family_scores", limited)
-    result = pipeline.check_approach(herd(), task, study, "first fit", Evaluator(task), k=1)
+    result = pipeline.check_approach(session(), task, study, "first fit", Evaluator(task), k=1)
     assert result["complete"] is False and result["stopped_at"] == seen[1]
     assert result["family"] == "First Fit" and "First Fit" in result["tested"]
 
@@ -123,7 +123,7 @@ def test_I8_missing_keys_are_retried_then_rejected(fake_world, monkeypatch):
     monkeypatch.setattr(LLM, "_post", lambda self, body, attempts=4: {
         "choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}], "usage": {"cost": 0.0}})
     with pytest.raises(ValueError, match="families"):
-        ask_json(herd().llm, MODELS[0], "anything", required=("families",))
+        ask_json(session().llm, MODELS[0], "anything", required=("families",))
 
 
 def test_I8_run_tool_turns_any_exception_into_a_structured_error(fake_world, monkeypatch):
@@ -152,7 +152,7 @@ def test_I10_overruns_are_counted():
 
 
 def test_I10_reservation_includes_completion_margin(fake_world, monkeypatch):
-    h = herd()
+    h = session()
     amounts = []
     real = h.ledger.reserve
     monkeypatch.setattr(h.ledger, "reserve", lambda a: (amounts.append(a), real(a))[1])
@@ -162,11 +162,11 @@ def test_I10_reservation_includes_completion_margin(fake_world, monkeypatch):
 
 # I12: blind spots report how many sampler models never used them.
 def test_I12_blind_spots_report_models_missing(fake_world):
-    study = pipeline.ensure_map(herd(), Task.resolve(BIN))
+    study = pipeline.ensure_map(session(), Task.resolve(BIN))
     assert all(b["models_missing"] == len(MODELS) for b in study["blind_spots"])
 
 
-# I14: MCP reality_check says which herd families it compared against.
+# I14: MCP reality_check says which consensus families it compared against.
 def test_I14_reality_check_names_compared_families(fake_world):
     rc, _ = call_tool("reality_check", {"task_description": BIN, "family": "Best Fit", "k": 1})
     assert rc["compared_herd_families"] == [] and rc["best_tested_herd"] is None
@@ -208,7 +208,7 @@ def test_bench_reuses_the_bigger_map_by_default(fake_world):
     cfg = yaml.safe_load(path.read_text())
     cfg["reality_check"]["min_samples_per_model"] = 4  # config default n_per_model is 3 here
     path.write_text(yaml.safe_dump(cfg))
-    pipeline.ensure_map(herd(), Task.resolve(BIN), n_per_model=4)
+    pipeline.ensure_map(session(), Task.resolve(BIN), n_per_model=4)
     run_bench(BIN, budget_usd=0.1, repeats=1, operators=["blind_spot"], progress=lambda m: None)
     saved = json.loads((pipeline.ROOT / "results" / BIN / "herd_map.json").read_text())
     assert saved["meta"]["n_per_model"] == 4  # reused, not rebuilt at the default of 3

@@ -1,15 +1,15 @@
 """One live end-to-end run for the strategy-loop demo (online_bin_packing). Writes
 fixtures/trajectories/strategy_loop.json and fixtures/runs/strategy_loop.json.
 
-1. Trajectory: attempt 1 is a real herd sample from the implementer model in the herd's
+1. Trajectory: attempt 1 is a real consensus sample from the implementer model in the consensus'
    dominant family; attempts 2-4 are real implementer revisions, each given its previous
    code and dev score and asked to improve it (the usual agent loop).
-2. herd_escape on that trajectory (k=2 candidates).
+2. DIVERGE escape on that trajectory (k=2 candidates).
 3. fresh_start at the same budget: the implementer gets the task, the attempts and their dev
-   scores, and "try a different strategy", with no herd information (k=2 candidates).
+   scores, and "try a different strategy", with no consensus information (k=2 candidates).
 Selection uses dev scores only; held-out scores are computed once at the end for reporting.
 
-    HERD_TRACE_DIR=results/traces/demo-20261018 uv run python scripts/strategy_loop_run.py
+    DIVERGE_TRACE_DIR=results/traces/demo-20261018 uv run python scripts/strategy_loop_run.py
 """
 import json
 import subprocess
@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from diverge.llm import message_text  # noqa: E402
-from diverge.pipeline import Herd, read_json  # noqa: E402
+from diverge.pipeline import Session, read_json  # noqa: E402
 from diverge.reality import Evaluator  # noqa: E402
 from diverge.sample import extract_code  # noqa: E402
 from diverge.server import escape_for_agent  # noqa: E402
@@ -32,7 +32,7 @@ TASK, REVISIONS, K, BUDGET_EACH = "online_bin_packing", 3, 2, 1.50
 #   each revision is just told to improve; recorded first, and it did not get stuck.
 MODE = sys.argv[sys.argv.index("--mode") + 1] if "--mode" in sys.argv else "tune"
 # --mode plateau (fixture "strategy_loop", the demo): continue the tune trajectory 4 more revisions from its
-#   last attempt and use those 4 as the agent's current window (agents call HERD on recent attempts).
+#   last attempt and use those 4 as the agent's current window (agents call DIVERGE on recent attempts).
 NAME = {"tune": "strategy_loop_tune", "open": "strategy_loop_unconstrained", "plateau": "strategy_loop"}[MODE]
 # Cache tags as recorded (fixtures were renamed afterwards); keeps reruns free.
 TAG = {"tune": "strategy_loop", "open": "strategy_loop", "plateau": "strategy_loop_plateau"}[MODE]
@@ -67,9 +67,9 @@ def feedback_for(result, baseline):
             f"the best-fit baseline scores {baseline:.4f}%.")
 
 
-def implement(herd, prompt, tag, out_dir, evaluator, task):
-    entry = herd.llm.chat(herd.cfg["models"]["implementer"], [{"role": "user", "content": prompt}],
-                          temperature=1.0, max_tokens=herd.cfg["reality_check"]["max_tokens"], sample_idx=tag)
+def implement(session, prompt, tag, out_dir, evaluator, task):
+    entry = session.llm.chat(session.cfg["models"]["implementer"], [{"role": "user", "content": prompt}],
+                          temperature=1.0, max_tokens=session.cfg["reality_check"]["max_tokens"], sample_idx=tag)
     code = extract_code(message_text(entry), task.entrypoint)
     if code is None:
         return None, {"valid": False, "score": None, "detail": {"error": "no code in reply"}}
@@ -85,16 +85,16 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     dev_base = {k: r["score"] for k, r in task.baselines("dev").items()}
     held_base = {k: r["score"] for k, r in task.baselines("heldout").items()}
-    herd_map = read_json(ROOT / "results" / TASK / "herd_map.json")
+    consensus_map = read_json(ROOT / "results" / TASK / "herd_map.json")
     samples = [json.loads(l) for l in (ROOT / "results" / TASK / "samples.jsonl").read_text().splitlines()]
     labels = {json.loads(l)["sample_id"]: json.loads(l)["family"]
               for l in (ROOT / "results" / TASK / "labels.jsonl").read_text().splitlines()}
-    implementer = Herd().cfg["models"]["implementer"]
+    implementer = Session().cfg["models"]["implementer"]
 
     # 1. Trajectory.
-    seed = next(s for fam in herd_map["top3"] for s in sorted(samples, key=lambda s: s["idx"])
+    seed = next(s for fam in consensus_map["top3"] for s in sorted(samples, key=lambda s: s["idx"])
                 if s["model"] == implementer and s["status"] == "valid" and labels.get(s["sample_id"]) == fam)
-    traj_herd = Herd(budget_usd=BUDGET_EACH)
+    traj_session = Session(budget_usd=BUDGET_EACH)
     if MODE == "plateau":
         base = json.loads((ROOT / "fixtures" / "trajectories" / "strategy_loop_tune.json").read_text())["attempts"]
         last = base[-1]
@@ -104,7 +104,7 @@ def main():
         for i in range(4):
             prev = window[-1] if window else prior
             prompt = REVISE.format(task=task.prompt, code=prev["code"], feedback=prev["feedback"], keep=KEEP)
-            code, result = implement(traj_herd, prompt, f"trajectory:{TAG}:{i}", out, evaluator, task)
+            code, result = implement(traj_session, prompt, f"trajectory:{TAG}:{i}", out, evaluator, task)
             if code is None:
                 break
             window.append({"id": f"attempt-{len(base) + i + 1}", "code": code, "dev_score": result["score"],
@@ -116,13 +116,13 @@ def main():
         attempts = None
     if attempts is None:
         attempts = [{"id": "attempt-1", "code": (ROOT / "results" / TASK / seed["code_path"]).read_text(),
-                     "dev_score": seed["score"], "source": f"herd sample {seed['sample_id']} ({labels[seed['sample_id']]})"}]
+                     "dev_score": seed["score"], "source": f"consensus sample {seed['sample_id']} ({labels[seed['sample_id']]})"}]
         first = {"valid": True, "score": seed["score"], "detail": {}}  # the map already scored this sample on dev
         attempts[0]["feedback"] = feedback_for(first, dev_base["best_fit"])
         for i in range(REVISIONS):
             prev = attempts[-1]
             prompt = REVISE.format(task=task.prompt, code=prev["code"], feedback=prev["feedback"], keep=KEEP)
-            code, result = implement(traj_herd, prompt, f"trajectory:{TAG}:{i}", out, evaluator, task)
+            code, result = implement(traj_session, prompt, f"trajectory:{TAG}:{i}", out, evaluator, task)
             if code is None:
                 break
             attempts.append({"id": f"attempt-{i + 2}", "code": code, "dev_score": result["score"],
@@ -131,30 +131,30 @@ def main():
             print(f"attempt-{i + 2}: dev {result['score']}", flush=True)
     attempts[-1]["feedback"] = None  # the last attempt is where the agent is now
     fixture = {"name": NAME, "task": TASK, "attempts": attempts, "how_generated": (
-        f"attempt-1 is a real herd-map sample from the implementer model ({implementer}) in the herd's dominant "
+        f"attempt-1 is a real consensus-map sample from the implementer model ({implementer}) in the consensus' dominant "
         f"families; attempts 2-{len(attempts)} are real revisions by the same model, each given the previous code "
         f"and its dev score and asked to improve it"
         + (" while keeping the same approach (tuning parameters and details, not switching method). This "
            "instruction was meant to keep the trajectory in one strategy (in the recorded run it still kept improving); an earlier run without it "
            "(fixture strategy_loop_unconstrained) kept improving and was not stuck" if MODE == "tune" else "")
         + f". Generated {time.strftime('%Y-%m-%d %H:%M %Z')}; traj cost "
-        f"${traj_herd.ledger.new_spend:.4f}.")}
+        f"${traj_session.ledger.new_spend:.4f}.")}
     (ROOT / "fixtures" / "trajectories").mkdir(parents=True, exist_ok=True)
     (ROOT / "fixtures" / "trajectories" / f"{NAME}.json").write_text(json.dumps(fixture, indent=2))
 
-    # 2. herd_escape.
-    esc_herd = Herd(budget_usd=BUDGET_EACH)
-    esc = escape_for_agent(esc_herd, task, attempts[-1]["code"], [a["code"] for a in attempts[:-1]], evaluator, k=K)
-    esc_cost, esc_calls = esc_herd.ledger.new_spend, None
+    # 2. DIVERGE escape.
+    esc_session = Session(budget_usd=BUDGET_EACH)
+    esc = escape_for_agent(esc_session, task, attempts[-1]["code"], [a["code"] for a in attempts[:-1]], evaluator, k=K)
+    esc_cost, esc_calls = esc_session.ledger.new_spend, None
 
     # 3. fresh_start, same implementer, k and caps.
-    fresh_herd = Herd(budget_usd=BUDGET_EACH)
+    fresh_session = Session(budget_usd=BUDGET_EACH)
     listing = "\n\n".join(f"Attempt {i + 1} (dev score {a['dev_score']}):\n```python\n{a['code']}\n```"
                           for i, a in enumerate(attempts))
     fresh_prompt = FRESH.format(task=task.prompt, attempts=listing)
     fresh = []
     for i in range(K):
-        code, result = implement(fresh_herd, fresh_prompt, f"fresh_start:{TAG}:{i}", out, evaluator, task)
+        code, result = implement(fresh_session, fresh_prompt, f"fresh_start:{TAG}:{i}", out, evaluator, task)
         fresh.append({"code": code, "dev_score": result["score"], "valid": result["valid"],
                       "error": result["detail"].get("error")})
 
@@ -192,8 +192,8 @@ def main():
                            "candidate_code": best_fresh["code"] if best_fresh else None,
                            "dev_score": best_fresh["dev_score"] if best_fresh else None,
                            "heldout_score": heldout(best_fresh["code"], "fresh") if best_fresh else None,
-                           "cost_usd": round(fresh_herd.ledger.new_spend, 4), "calls": K},
-           "trajectory_cost_usd": round(traj_herd.ledger.new_spend, 4),
+                           "cost_usd": round(fresh_session.ledger.new_spend, 4), "calls": K},
+           "trajectory_cost_usd": round(traj_session.ledger.new_spend, 4),
            "overlook_excerpt": {"inputs": overlook["inputs"],
                                 "assumptions": [a for a in overlook["assumptions"]["assumptions"] if a["shared"]]},
            "paraphrase": {k: para[k] for k in ("verdict", "mean_P", "max_R", "mean_R")} if para else None}

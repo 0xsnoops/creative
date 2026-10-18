@@ -18,20 +18,20 @@ from . import fingerprint
 from .label import UNLABELED, label_samples
 from .operators import run_operator
 from .llm import BudgetExceeded
-from .pipeline import Herd, effective_n, ensure_map, read_json, write_json
+from .pipeline import Session, effective_n, ensure_map, read_json, write_json
 from .reality import Evaluator
 from .task import Task
 
 # Reference palette (dataviz skill): categorical slots 1-2, neutral ink and surface.
 SURFACE, INK, INK_2, GRID, BLUE, ORANGE = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df", "#2a78d6", "#eb6834"
 
-# Setup each operator relies on, as stages of the herd map build (see ensure_map).
+# Setup each operator relies on, as stages of the consensus map build (see ensure_map).
 MAP = ("sampling", "literature", "labeling")
 SETUP_STAGES = {"blind_spot": MAP, "blind_spot_contrast": MAP, "blind_spot_contrast_random": MAP,
                 "blind_spot_feedback": MAP, "blind_spot_feedback_sham": MAP,
                 "literature_all": ("literature",), "literature_random": ("literature",),
                 "blind_spot_hybrid": MAP, "blind_spot_directions": MAP, "blind_spot_directions_hybrid": MAP}
-# Operators whose families come from the herd map's blind spots (or are sized by them).
+# Operators whose families come from the consensus map's blind spots (or are sized by them).
 NEEDS_MAP = {"blind_spot", "blind_spot_contrast", "blind_spot_contrast_random", "blind_spot_feedback",
              "blind_spot_feedback_sham", "literature_random", "blind_spot_hybrid", "blind_spot_directions",
              "blind_spot_directions_hybrid"}
@@ -57,13 +57,13 @@ def setup_cost(operator, build_cost):
     return sum(build_cost.get(s, 0.0) for s in stages)
 
 
-def label_candidates(herd, task, runs, out):
+def label_candidates(session, task, runs, out):
     """Label every valid candidate by mechanism, with one shared taxonomy and labeler."""
     records = [{"sample_id": candidate_id(c), "model": f"{c['operator']}/s{c['seed']}", "idx": c["idx"],
                 "code_path": c["code_path"], "text_path": c["code_path"]}
                for run in runs for c in run["candidates"] if c["valid"]]
     taxonomy = read_json(out / "taxonomy.json")
-    return label_samples(task, records, taxonomy, herd.llm, herd.cfg, out, herd.progress)
+    return label_samples(task, records, taxonomy, session.llm, session.cfg, out, session.progress)
 
 
 def run_metrics(run, labels, evaluator, out, best_baseline, setup, taxonomy_names=()):
@@ -285,10 +285,10 @@ def report(task, table, per_run, baselines, cfg, verdict_text, setup):
     return "\n".join(lines) + "\n"
 
 
-def labeling_estimate(herd, operators, repeats):
+def labeling_estimate(session, operators, repeats):
     """Worst-case cost of labeling every candidate the benchmark could produce."""
-    cfg = herd.cfg
-    info = herd.llm.catalog[cfg["models"]["labeler"]]
+    cfg = session.cfg
+    info = session.llm.catalog[cfg["models"]["labeler"]]
     price_in, price_out = float(info["pricing"]["prompt"]), float(info["pricing"]["completion"])
     batch = cfg["labeling"]["batch_size"]
     n_batches = -(-len(operators) * repeats * cfg["bench"]["max_candidates"] // batch)
@@ -341,8 +341,8 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
     task = Task.resolve(task_name)
     if not task.evaluator:
         raise SystemExit("the benchmark needs a registered task with an evaluator")
-    herd = Herd(progress=progress)  # setup and measurement: global cap only
-    cfg = herd.cfg
+    session = Session(progress=progress)  # setup and measurement: global cap only
+    cfg = session.cfg
     bench_cfg = cfg["bench"]
     bench_cfg["budget_usd_per_operator"] = budget_usd or bench_cfg["budget_usd_per_operator"]
     bench_cfg["repeats"] = repeats or bench_cfg["repeats"]
@@ -353,17 +353,17 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
     # benchmark reuses (or builds) the right map instead of rebuilding a smaller default one.
     if n_per_model is None:
         n_per_model = max(cfg["sampling"]["n_per_model"], min_n if NEEDS_MAP & set(operators) else 0)
-    study = ensure_map(herd, task, n_per_model)
-    map_spend = herd.ledger.new_spend
+    study = ensure_map(session, task, n_per_model)
+    map_spend = session.ledger.new_spend
     if NEEDS_MAP & set(operators) and effective_n(study) < min_n and not allow_small_map:
         raise SystemExit(f"the consensus map has only {effective_n(study)} labeled samples per model for its weakest "
                          f"model (need {min_n}); blind spots from it are noise. Build a bigger map "
                          f"(python -m diverge run {task.name} --n {min_n} --no-reality) or pass --allow-small-map")
     # Operators run one after another; if the global cap could run out partway, the last ones
     # would be underfunded and look worse. Refuse to start instead.
-    labeling = labeling_estimate(herd, operators, bench_cfg["repeats"])
+    labeling = labeling_estimate(session, operators, bench_cfg["repeats"])
     needed = len(operators) * bench_cfg["repeats"] * bench_cfg["budget_usd_per_operator"] + labeling
-    remaining = herd.ledger.global_cap - herd.ledger.total_spent
+    remaining = session.ledger.global_cap - session.ledger.total_spent
     if needed > remaining:
         raise SystemExit(f"the benchmark may spend up to ${needed:.2f} ({len(operators)} operators x "
                          f"{bench_cfg['repeats']} repeats x ${bench_cfg['budget_usd_per_operator']:.2f}, plus up to "
@@ -372,16 +372,16 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
     runs = [run_operator(op, task, bench_cfg["budget_usd_per_operator"], seed, study, progress)
             for seed in range(bench_cfg["repeats"]) for op in operators]
 
-    out = herd.out_dir(task)
+    out = session.out_dir(task)
     bench_dir = out / "bench"
     write_json(bench_dir / "runs.json", runs)  # keep generation results even if labeling stops
     try:
-        labels, emergent = label_candidates(herd, task, runs, out)
+        labels, emergent = label_candidates(session, task, runs, out)
         labeling_status = {"status": "ok"}
     except BudgetExceeded as e:
         labels, emergent = {}, []
         labeling_status = {"status": "stopped", "detail": str(e)}
-    label_spend = herd.ledger.new_spend - map_spend
+    label_spend = session.ledger.new_spend - map_spend
 
     evaluator = Evaluator(task)
     baselines = {name: r["score"] for name, r in task.baselines("heldout").items()}
@@ -400,8 +400,8 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
     with (bench_dir / "candidates.jsonl").open("w") as f:
         for row in rows:
             f.write(json.dumps(row) + "\n")
-    if herd.trace_dir:
-        with (herd.trace_dir / "candidates.jsonl").open("a") as f:
+    if session.trace_dir:
+        with (session.trace_dir / "candidates.jsonl").open("a") as f:
             for row in rows:
                 f.write(json.dumps({"task": task.name, **row}) + "\n")
     write_json(bench_dir / "bench.json", {"config": bench_cfg, "heldout_baselines": baselines,

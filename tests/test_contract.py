@@ -131,7 +131,7 @@ def classes(body):
     return {e["claim"]: e for e in body["evidence"]}
 
 
-def test_lever_herd_counts_are_measured_and_mechanism_hypothesized():
+def test_lever_consensus_counts_are_measured_and_mechanism_hypothesized():
     _, body = parse(render(result()))
     ev = classes(body)
     assert ev["history used by 38/95 consensus samples"]["class"] == "MEASURED"

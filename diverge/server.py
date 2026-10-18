@@ -15,7 +15,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp_types import CallToolResult, TextContent
 
 from .llm import BudgetExceeded
-from .pipeline import (Herd, baseline_scores, check_approach, effective_n, ensure_family_scores, ensure_map,
+from .pipeline import (Session, baseline_scores, check_approach, effective_n, ensure_family_scores, ensure_map,
                        record_heldout_use)
 from .reality import Evaluator
 from .task import Task
@@ -104,13 +104,13 @@ async def run_tool(ctx, budget_usd, work):
             asyncio.run_coroutine_threadsafe(ctx.report_progress(step[0], None, message), loop)
 
     def call():
-        herd = None
+        session = None
         try:
-            herd = Herd(budget_usd, progress)
-            result = work(herd)
+            session = Session(budget_usd, progress)
+            result = work(session)
         except Exception as e:  # any failure becomes a structured answer the agent can read
-            result = classify(e, herd.ledger.spent_this_run if herd else 0.0)
-        return {**result, "spent_usd": round(herd.ledger.spent_this_run, 4) if herd else 0.0}
+            result = classify(e, session.ledger.spent_this_run if session else 0.0)
+        return {**result, "spent_usd": round(session.ledger.spent_this_run, 4) if session else 0.0}
 
     return compact(await anyio.to_thread.run_sync(call))
 
@@ -138,7 +138,7 @@ async def diverge_map(task_description: str, ctx: Context, budget_usd: float = 5
     Returns task, n_samples, low_confidence, concentration_top3, top3, families [[family, share,
     count]], per_model, spent_usd."""
     return await run_tool(ctx, budget_usd,
-                          lambda herd: map_summary(ensure_map(herd, Task.resolve(task_description)), herd.cfg))
+                          lambda session: map_summary(ensure_map(session, Task.resolve(task_description)), session.cfg))
 
 
 @mcp.tool()
@@ -151,9 +151,9 @@ async def blind_spots(task_description: str, ctx: Context, budget_usd: float = 5
     Returns low_confidence (true: too few samples per model to tell an overlooked family from an
     unlucky one) and blind_spots [{family, mechanism, observed (k of n), share_upper_95 (95% upper
     bound on the true share), per_model_counts, source_urls}], spent_usd."""
-    def work(herd):
-        study = ensure_map(herd, Task.resolve(task_description))
-        return {"low_confidence": low_confidence(study, herd.cfg),
+    def work(session):
+        study = ensure_map(session, Task.resolve(task_description))
+        return {"low_confidence": low_confidence(study, session.cfg),
                 "blind_spots": [{"family": b["family"], "mechanism": b["one_line_mechanism"],
                                  "observed": b["observed"], "share_upper_95": b["share_upper_95"],
                                  "per_model_counts": b["per_model_counts"], "source_urls": b["source_urls"]}
@@ -175,19 +175,19 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
     evaluator_cmd; see scored_on). Returns family, kind, share, n_valid, n_invalid, dev_best_score,
     final_score, scored_on, baselines, beats_baselines, best_tested_consensus (the best already-scored consensus family), best_code, invalid_errors,
     spent_usd. contrast=True adds the consensus-contrast section (experimental; see README)."""
-    def work(herd):
+    def work(session):
         task = Task.resolve(task_description)
-        study = ensure_map(herd, task)
+        study = ensure_map(session, task)
         by_name = {f["family"]: f for f in study["families"]}
         if family not in by_name:
             return {**failure("unknown_family", f"{family!r} is not a family in this task's consensus map",
                               "Call again with one of the names in families.", ["family"], can_continue=True),
                     "families": sorted(by_name)}
         evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
-        scores = ensure_family_scores(herd, task, study, [by_name[family]], evaluator, k, contrast)
-        s, out = scores[family], herd.out_dir(task)
+        scores = ensure_family_scores(session, task, study, [by_name[family]], evaluator, k, contrast)
+        s, out = scores[family], session.out_dir(task)
         # Only consensus families that were already scored under this evaluator; none are tested here.
-        herd_scores = {f: v["final_score"] for f, v in scores.items()
+        consensus_scores = {f: v["final_score"] for f, v in scores.items()
                        if v["kind"] == "herd" and v.get("final_score") is not None}
         baselines = baseline_scores(task, evaluator, baseline_files or ())
         result = {"family": family, "kind": s["kind"], "share": s["share"], "k": s["k"],
@@ -195,19 +195,19 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
                   "dev_best_score": s["best_score"], "dev_median_score": s["median_score"],
                   "final_score": s["final_score"], "scored_on": s["final_split"],
                   "invalid_errors": [m["error"] for m in s["implementations"] if not m["valid"]],
-                  "baselines": baselines, "compared_herd_families": sorted(herd_scores), "best_tested_herd": None,
-                  "compared_consensus_families": sorted(herd_scores), "best_tested_consensus": None}
+                  "baselines": baselines, "compared_herd_families": sorted(consensus_scores), "best_tested_herd": None,
+                  "compared_consensus_families": sorted(consensus_scores), "best_tested_consensus": None}
         if evaluator.has_heldout and s["final_score"] is not None:
-            prior = record_heldout_use(herd, task, evaluator)
+            prior = record_heldout_use(session, task, evaluator)
             result["heldout_prior_uses"], result["exploratory"] = prior, prior > 0
         if s["final_score"] is not None:
             result["beats_baselines"] = [b for b, v in baselines.items()
                                          if v is not None and evaluator.beats(s["final_score"], v)]
         if s["best_code_path"]:
             result["best_code"] = (out / s["best_code_path"]).read_text()
-        if herd_scores:
-            top = evaluator.best(herd_scores.values())
-            result["best_tested_herd"] = {"family": next(f for f, v in herd_scores.items() if v == top),
+        if consensus_scores:
+            top = evaluator.best(consensus_scores.values())
+            result["best_tested_herd"] = {"family": next(f for f, v in consensus_scores.items() if v == top),
                                           "final_score": top}
             result["best_tested_consensus"] = result["best_tested_herd"]
         return result
@@ -232,43 +232,43 @@ ALT_FIELDS = ("name", "mechanism", "strength", "trap", "how_to_test")
 N_ALTERNATIVES = (3, 5)
 
 
-def cached_study(herd, task):
+def cached_study(session, task):
     """The task's consensus map if one is saved for the current inputs (exactly the case where ensure_map
     returns it without building), else None. Never starts a cold-start build."""
     from .pipeline import inputs_hash, read_json
-    cfg = herd.cfg
-    saved = read_json(herd.out_dir(task) / "herd_map.json")
+    cfg = session.cfg
+    saved = read_json(session.out_dir(task) / "herd_map.json")
     inputs = {"samplers": cfg["models"]["samplers"], "labeler": cfg["models"]["labeler"],
               "n_per_model": cfg["sampling"]["n_per_model"], "inputs_hash": inputs_hash(task, cfg)}
     if not saved or {k: (saved.get("meta") or {}).get(k) for k in inputs} != inputs:
         return None
-    return ensure_map(herd, task)
+    return ensure_map(session, task)
 
 
-def free_text_check(herd, task, my_approach):
+def free_text_check(session, task, my_approach):
     """diverge_check without an evaluator: the consensus comparison when a map is cached (no map is built),
     plus untested alternatives from one extractor-model call, every one HYPOTHESIZED."""
     from .llm import ask_json
     from .overlook import extractor
-    study, herd_cmp = cached_study(herd, task), None
+    study, consensus_cmp = cached_study(session, task), None
     if study:
-        placed = check_approach(herd, task, study, my_approach, None, 0)
+        placed = check_approach(session, task, study, my_approach, None, 0)
         m = study["herd_map"]
-        herd_cmp = {"family": placed["family"], "why": placed.get("why", ""), "share": placed["share"],
+        consensus_cmp = {"family": placed["family"], "why": placed.get("why", ""), "share": placed["share"],
                     "rank": placed["rank"], "in_top_families": placed["family"] in m["top3"],
                     "is_blind_spot": placed["is_blind_spot"],
                     "top_families": [[r["family"], r["share"]] for r in m["families"] if r["family"] in m["top3"]],
                     "concentration_top3": m["concentration_top3"], "n_samples": m["n_labeled"],
-                    "low_confidence": low_confidence(study, herd.cfg),
+                    "low_confidence": low_confidence(study, session.cfg),
                     "blind_spots": [b["family"] for b in study["blind_spots"]], "evidence_class": "MEASURED"}
-    herd_text = ("\nAI models asked this task mostly converge on: " + ", ".join(m["top3"]) +
+    consensus_text = ("\nAI models asked this task mostly converge on: " + ", ".join(m["top3"]) +
                  ". Prefer strategies outside these.\n") if study else ""
-    reply = ask_json(herd.llm, extractor(herd), ALTERNATIVES_PROMPT.format(
-        task=task.prompt, approach=my_approach, herd=herd_text, n=N_ALTERNATIVES[1]), required=("alternatives",))
+    reply = ask_json(session.llm, extractor(session), ALTERNATIVES_PROMPT.format(
+        task=task.prompt, approach=my_approach, herd=consensus_text, n=N_ALTERNATIVES[1]), required=("alternatives",))
     alts = [{k: str(a.get(k) or "").strip() for k in ALT_FIELDS} | {"evidence_class": "HYPOTHESIZED"}
             for a in reply.get("alternatives") or [] if isinstance(a, dict) and a.get("name")][:N_ALTERNATIVES[1]]
-    out = {"verdict": "untested", "mode": "free_text", "my_approach": my_approach, "herd_comparison": herd_cmp,
-           "consensus_comparison": herd_cmp,
+    out = {"verdict": "untested", "mode": "free_text", "my_approach": my_approach, "herd_comparison": consensus_cmp,
+           "consensus_comparison": consensus_cmp,
            "alternatives": alts, "complete": True}
     if not study:
         out["herd_note"] = out["consensus_note"] = (
@@ -299,13 +299,13 @@ async def diverge_check(task_description: str, my_approach: str, ctx: Context, e
     spot also beat yours, and spent_usd. contrast=True is experimental (see README)."""
     from .contract import check_result
 
-    def work(herd):
+    def work(session):
         task = Task.resolve(task_description)
         if not evaluator_cmd and not task.evaluator:
-            return free_text_check(herd, task, my_approach)
-        study = ensure_map(herd, task)
+            return free_text_check(session, task, my_approach)
+        study = ensure_map(session, task)
         evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
-        return check_approach(herd, task, study, my_approach, evaluator, k, contrast)
+        return check_approach(session, task, study, my_approach, evaluator, k, contrast)
     text, structured = check_result(json.loads(await run_tool(ctx, budget_usd, work)))
     return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=structured)
 
@@ -329,7 +329,7 @@ async def diverge_status(check_model_catalog: bool = False) -> str:
     return compact({**await anyio.to_thread.run_sync(call), "spent_usd": 0.0})
 
 
-def escape_for_agent(herd, task, current_solution, previous_attempts, evaluator, k=1, counterexamples=True):
+def escape_for_agent(session, task, current_solution, previous_attempts, evaluator, k=1, counterexamples=True):
     """diverge.escape.escape plus what the agent needs to trust it: strategy counterexamples between its
     attempts and the escape candidate (tasks with a probe mode), and how stable the consensus map is
     under rewording (the paraphrase test), when those exist."""
@@ -337,12 +337,12 @@ def escape_for_agent(herd, task, current_solution, previous_attempts, evaluator,
     from .escape import escape
     from .pipeline import read_json
     from .strategy import llm_extractor
-    out = herd.out_dir(task)
-    result = escape(herd, task, current_solution, previous_attempts, evaluator,
+    out = session.out_dir(task)
+    result = escape(session, task, current_solution, previous_attempts, evaluator,
                     overlook=read_json(out / "overlook.json"), families=read_json(out / "blind_spots.json"),
-                    extract=llm_extractor(herd, task), k=k)
+                    extract=llm_extractor(session, task), k=k)
     para = read_json(out / "paraphrase.json")
-    result["herd_stability"] = ({"verdict": para["verdict"], "paraphrase_tvd": para["mean_P"],
+    result["herd_stability"] = result["consensus_stability"] = ({"verdict": para["verdict"], "paraphrase_tvd": para["mean_P"],
                                  "resampling_tvd_max": para["max_R"]} if para else None)
     if counterexamples and result.get("candidate") and task.evaluator and hasattr(task.evaluator, "probe"):
         codes = [a if isinstance(a, str) else a["code"] for a in [*previous_attempts, current_solution]]
@@ -383,7 +383,7 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
     from .pipeline import read_json
     loaded = {}
 
-    def work(herd):
+    def work(session):
         task = Task.resolve(task_description)
         if not evaluator_cmd and not task.evaluator:
             return failure("evaluator_required", "pass evaluator_cmd or use a registered task", (
@@ -392,7 +392,7 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
                 ["evaluator_cmd"], can_continue=True)
         evaluator = RecordingEvaluator(Evaluator(task, evaluator_cmd or None, lower_is_better))
         codes = [*(previous_attempts or []), current_solution]
-        result = escape_for_agent(herd, task, current_solution, previous_attempts or [], evaluator, k)
+        result = escape_for_agent(session, task, current_solution, previous_attempts or [], evaluator, k)
         result["attempts"] = evaluator.attempts(codes)
         result["lower_is_better"] = evaluator.lower_is_better
         plateau.attach(result, task.baselines("dev"))  # None for external evaluators (no built-in baselines)
@@ -409,7 +409,7 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
                 "secrets, and it cannot start another sandbox; use a self-contained command with absolute paths. "
                 "Check it by scoring one file yourself, then call diverge_escape again."),
                 ["working evaluator"], can_continue=True)
-        out = herd.out_dir(task)
+        out = session.out_dir(task)
         loaded.update(overlook=read_json(out / "overlook.json"), paraphrase=read_json(out / "paraphrase.json"),
                       families=[*(read_json(out / "blind_spots.json") or []), *(read_json(out / "families.json") or [])])
         return result

@@ -5,17 +5,17 @@ python -m diverge demo <fixture>  |  python -m diverge preflight"""
 import argparse
 import json
 
-from .pipeline import Herd, effective_n, ensure_family_scores, ensure_map
+from .pipeline import Session, effective_n, ensure_family_scores, ensure_map
 from .reality import Evaluator
 from .sample import summarize
 from .task import Task
 
 
 def run(task_name, n, reality):
-    herd = Herd()
+    session = Session()
     task = Task.resolve(task_name)
-    study = ensure_map(herd, task, n)
-    out = herd.out_dir(task)
+    study = ensure_map(session, task, n)
+    out = session.out_dir(task)
     print(summarize([json.loads(line) for line in (out / "samples.jsonl").read_text().splitlines()]))
     m = study["herd_map"]
     print(f"\nconcentration (top 3): {m['concentration_top3']:.0%}  top3: {m['top3']}")
@@ -25,7 +25,7 @@ def run(task_name, n, reality):
     for b in study["blind_spots"]:
         print(f"  {b['observed']}, true share <= {b['share_upper_95']:.1%} (95%)  {b['family']}")
 
-    min_n = herd.cfg["reality_check"]["min_samples_per_model"]
+    min_n = session.cfg["reality_check"]["min_samples_per_model"]
     if reality and task.evaluator and effective_n(study) < min_n:
         print(f"\nreality check skipped: the weakest model has {effective_n(study)} labeled samples, so the "
               f"blind-spot list is noise; rerun with --n {min_n} or more")
@@ -33,8 +33,8 @@ def run(task_name, n, reality):
         # Top 3 consensus families and every blind spot, all through the same prompt template.
         by_name = {f["family"]: f for f in study["families"]}
         families = [by_name[f] for f in m["top3"]] + study["blind_spots"]
-        scores = ensure_family_scores(herd, task, study, families, Evaluator(task),
-                                      herd.cfg["reality_check"]["k"])
+        scores = ensure_family_scores(session, task, study, families, Evaluator(task),
+                                      session.cfg["reality_check"]["k"])
         print("\nreality check (dev best / dev median / held-out score of the dev-selected best / valid of k):")
         fmt = lambda v: f"{v:.4f}" if v is not None else "-"
         for f in families:
@@ -44,8 +44,8 @@ def run(task_name, n, reality):
         dev, heldout = task.baselines(), task.baselines("heldout")
         for name in dev:
             print(f"  {'baseline':10} {fmt(dev[name]['score']):>8} {'':>8} {fmt(heldout[name]['score']):>8}  {name}")
-    print(f"\nspend this run ${herd.ledger.new_spend:.4f}; total ${herd.ledger.total_spent:.4f} "
-          f"of ${herd.ledger.global_cap:.2f}")
+    print(f"\nspend this run ${session.ledger.new_spend:.4f}; total ${session.ledger.total_spent:.4f} "
+          f"of ${session.ledger.global_cap:.2f}")
 
 
 def escape_cmd(args):
@@ -57,9 +57,9 @@ def escape_cmd(args):
     if not args.evaluator and not task.evaluator:
         raise SystemExit("this task has no built-in evaluator; pass --evaluator")
     history = sorted(Path(args.history).glob("*.py")) if args.history else []
-    herd = Herd(budget_usd=args.budget)
+    session = Session(budget_usd=args.budget)
     evaluator = Evaluator(task, args.evaluator or None, not args.higher_is_better)
-    r = escape_for_agent(herd, task, Path(args.candidate).read_text(), [p.read_text() for p in history], evaluator)
+    r = escape_for_agent(session, task, Path(args.candidate).read_text(), [p.read_text() for p in history], evaluator)
     ev = r["evaluation"]
     print(f"Current score: {ev['before']}")
     print(f"{len(history) + 1} attempts. Strategy similarity: {r['strategy_similarity']}  "
@@ -76,10 +76,10 @@ def escape_cmd(args):
         print(f"Candidate: {r['candidate_path']}  dev score {ev['after']} (improved: {ev['improved']})")
     for ce in r.get("counterexamples", [])[:2]:
         print(f"Counterexample: {ce['case']} -> {ce['explanation']}")
-    print(f"spent ${herd.ledger.new_spend:.4f}")
+    print(f"spent ${session.ledger.new_spend:.4f}")
     from . import contract
     from .pipeline import read_json
-    out = herd.out_dir(task)
+    out = session.out_dir(task)
     print()
     print(contract.render(r, read_json(out / "overlook.json"), read_json(out / "paraphrase.json"),
                           read_json(out / "blind_spots.json")))
@@ -89,7 +89,7 @@ def fingerprints_cmd(task_name):
     """Fingerprint the consensus map's valid samples and compare behavior clusters with labels."""
     from . import fingerprint
     from .pipeline import read_json, write_json
-    herd = Herd()
+    session = Session()
     task = Task.resolve(task_name)
     if not fingerprint.supported(task):
         raise SystemExit(f"{task.name} has no fingerprint support")
@@ -97,7 +97,7 @@ def fingerprints_cmd(task_name):
     print(f"validation gate: {gate}")
     if not gate["passed"]:
         raise SystemExit("validation gate failed; not fingerprinting")
-    out = herd.out_dir(task)
+    out = session.out_dir(task)
     records = [json.loads(l) for l in (out / "samples.jsonl").read_text().splitlines()]
     labels = {r["sample_id"]: r["family"] for r in map(json.loads, (out / "labels.jsonl").read_text().splitlines())}
     paths = {r["sample_id"]: out / r["code_path"] for r in records if r["status"] == "valid"}
@@ -173,14 +173,14 @@ def main():
         escape_cmd(args)
     elif args.command == "overlook":
         from .overlook import build
-        result = build(Herd(), Task.resolve(args.task))
+        result = build(Session(), Task.resolve(args.task))
         print(json.dumps({"inputs": [(r["input"], r["share"], r["overlooked"]) for r in result["inputs"]],
                           "shared_assumptions": [(a["assumption"], a["kind"]) for a in result["assumptions"]["assumptions"]
                                                  if a["shared"]],
                           "new_spend_usd": result["new_spend_usd"]}, indent=2))
     elif args.command == "paraphrase":
         from .paraphrase import run as run_paraphrase
-        result = run_paraphrase(Herd(), Task.resolve(args.task))
+        result = run_paraphrase(Session(), Task.resolve(args.task))
         print(json.dumps({k: v for k, v in result.items() if not k.endswith("distributions")}, indent=2))
     elif args.command == "fingerprints":
         fingerprints_cmd(args.task)
@@ -198,7 +198,7 @@ def main():
         from . import onboard
         raise SystemExit(onboard.main(args))
     elif args.command == "spend":
-        ledger = Herd().ledger
+        ledger = Session().ledger
         print(f"estimated spend: ${ledger.total_spent:.4f} of ${ledger.global_cap:.2f}")
     else:
         from .server import serve

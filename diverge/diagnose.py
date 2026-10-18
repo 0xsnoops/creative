@@ -2,12 +2,12 @@
 to keep going, repair the current strategy, or switch to a different one, and say what the
 attempts share. The decision is deterministic; the optional `phrase` callable only rewords text.
 
-Also herd anchors: implementation details most herd samples keep although the task does not
+Also consensus anchors: implementation details most consensus samples keep although the task does not
 require them (a first, purely lexical version)."""
 import re
 
 IMPROVING = 0.02     # relative improvement of the best attempt over the first that counts as progress
-ANCHOR_SHARE = 0.8   # share of herd texts that must retain a phrase for it to be a suspected anchor
+ANCHOR_SHARE = 0.8   # share of consensus texts that must retain a phrase for it to be a suspected anchor
 REQUIREMENT = re.compile(r"\b(must|required|only|exactly)\b", re.I)
 
 
@@ -58,11 +58,11 @@ def unused_inputs(trajectory, overlook=None):
     return out
 
 
-def herd_prevalence(trajectory, overlook):
-    """(prevalence, evidence): how much of the herd shares the attempts' input profile.
+def consensus_prevalence(trajectory, overlook):
+    """(prevalence, evidence): how much of the consensus shares the attempts' input profile.
     For every input the overlook audit decided (share not None) that all attempts use (shared
-    inputs_used) or that no attempt uses (unused_inputs), the herd marginal is `share` or
-    `1 - share`. Without per-sample joint data, the share of herd samples matching ALL of these
+    inputs_used) or that no attempt uses (unused_inputs), the consensus marginal is `share` or
+    `1 - share`. Without per-sample joint data, the share of consensus samples matching ALL of these
     is at most the smallest marginal (exact with a single input), which is what we report; the
     Frechet lower bound max(0, sum(m) - (len(m) - 1)) is kept in the evidence."""
     if not overlook:
@@ -82,7 +82,8 @@ def herd_prevalence(trajectory, overlook):
     upper = min(marginals.values())
     lower = max(0.0, sum(marginals.values()) - (len(marginals) - 1))
     return round(upper, 3), {"marginals": {k: round(v, 3) for k, v in marginals.items()},
-                             "bounds": [round(lower, 3), round(upper, 3)], "herd_samples": (overlook.get("herd") or {}).get("valid")}
+                             "bounds": [round(lower, 3), round(upper, 3)], "herd_samples": (overlook.get("herd") or {}).get("valid"),
+                             "consensus_samples": (overlook.get("herd") or {}).get("valid")}
 
 
 def shared_cause(trajectory):
@@ -139,7 +140,7 @@ def polish(phrase, text):
 
 def behavior_decision(behavior, weak):
     """(action, repairability, reason) from the behavior detector's measured conditions
-    (herd.trajectory): switch_strategy when (a) same behavior cluster, (b) same failure sets and
+    (diverge.trajectory): switch_strategy when (a) same behavior cluster, (b) same failure sets and
     (c) stalled all hold; repair when stalled but (a) or (b) fails; continue when improving."""
     cond = behavior["conditions"]
     if all(cond.values()):
@@ -188,17 +189,17 @@ def diagnose(task, trajectory, overlook=None, phrase=None):
     else:
         failure = f"no progress after {n} attempts"
     cause = shared_cause(trajectory)
-    prevalence, prevalence_evidence = herd_prevalence(trajectory, overlook)
+    prevalence, prevalence_evidence = consensus_prevalence(trajectory, overlook)
     evidence = {k: trajectory.get(k) for k in ("n", "loop_score", "loop_detected", "strategy_similarity",
                                                "code_similarity", "progress", "detector", "behavior")}
-    evidence.update(shared=shared, herd_prevalence=prevalence_evidence, task=getattr(task, "name", task))
+    evidence.update(shared=shared, herd_prevalence=prevalence_evidence, consensus_prevalence=prevalence_evidence, task=getattr(task, "name", task))
     return {"action": action, "repairability": repairability,
             "failure": polish(phrase, failure), "shared_cause": polish(phrase, cause),
             "target_properties": target_properties(trajectory, overlook),
             "herd_prevalence": prevalence, "evidence": evidence, "reasons": reasons}
 
 
-# ---------------------------------------------------------------- herd anchors
+# ---------------------------------------------------------------- consensus anchors
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:[.\-+#/][A-Za-z0-9_]+)*(?:\+\+|#)?")
 FENCED = re.compile(r"```[^\n]*\n(.*?)```", re.S)
 
@@ -231,8 +232,8 @@ def mentions(phrase, text):
     return re.search(rf"(?<!\w){re.escape(phrase.lower())}(?!\w)", text.lower()) is not None
 
 
-def anchors(task_text, herd_texts, required_text=None, extract=None):
-    """Phrases from the task that most herd texts retain, with whether the task requires them.
+def anchors(task_text, consensus_texts, required_text=None, extract=None):
+    """Phrases from the task that most consensus texts retain, with whether the task requires them.
     A phrase is required if it appears in a sentence of required_text (default: the task text)
     containing must/required/only/exactly, or inside one of its fenced code blocks (the stated
     interface). Counting is case-insensitive whole-phrase matching; it does not see synonyms."""
@@ -240,10 +241,10 @@ def anchors(task_text, herd_texts, required_text=None, extract=None):
     required_text = task_text if required_text is None else required_text
     rules = [s for s in sentences(FENCED.sub(" ", required_text)) if REQUIREMENT.search(s)]
     rules += FENCED.findall(required_text)
-    total = len(herd_texts)
+    total = len(consensus_texts)
     rows = []
     for p in phrases:
-        retained = sum(mentions(p, t) for t in herd_texts)
+        retained = sum(mentions(p, t) for t in consensus_texts)
         required = any(mentions(p, r) for r in rules)
         rows.append({"anchor": p, "retained_by": retained, "total": total, "required": required,
                      "suspected_anchor": bool(total) and retained / total >= ANCHOR_SHARE and not required})

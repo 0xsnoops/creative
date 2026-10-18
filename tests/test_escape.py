@@ -1,5 +1,5 @@
-"""Diagnosis (repair vs escape), herd anchors and the escape step, offline. The evaluator in the
-end-to-end test is the real one; the implementer and herd.trajectory.analyze are fakes."""
+"""Diagnosis (repair vs escape), consensus anchors and the escape step, offline. The evaluator in the
+end-to-end test is the real one; the implementer and diverge.trajectory.analyze are fakes."""
 import sys
 import types
 
@@ -57,7 +57,7 @@ def overlook_dict(history_share=0.03, assumptions=True, minority=True):
 def test_diagnose_loop_switches_strategy():
     d = diagnose(None, report(), overlook_dict())
     assert d["action"] == "switch_strategy" and d["repairability"] == "low"
-    assert "use an input the attempts never use: history" == d["target_properties"][0]  # rarest in the herd first
+    assert "use an input the attempts never use: history" == d["target_properties"][0]  # rarest in the consensus first
     assert "a primary signal other than capacity_values" in d["target_properties"]
     assert "keep persistent state across calls" in d["target_properties"]
     assert d["shared_cause"] == ("all 3 attempts decide using only item and capacity_values, keep no state, "
@@ -91,7 +91,7 @@ def test_choose_prefers_an_overlooked_unused_input_then_falls_back():
     tr = report()
     c = choose(diagnose(None, tr, overlook_dict()), tr, overlook_dict())
     assert c["lever"]["type"] == "unused_signal" and c["lever"]["name"] == "history"
-    assert "3/95 herd samples" in c["why"] and "none of your 3 attempts" in c["why"]
+    assert "3/95 consensus samples" in c["why"] and "none of your 3 attempts" in c["why"]
     assert [a["type"] for a in c["alternatives"]] == ["assumption_break", "minority_mechanism"]
 
     common = overlook_dict(history_share=0.5)
@@ -138,10 +138,10 @@ def test_escape_end_to_end(fake_world, monkeypatch):
     stub = types.ModuleType("diverge.trajectory")
     stub.analyze = analyze
     monkeypatch.setitem(sys.modules, "diverge.trajectory", stub)
-    import diverge as herd
-    monkeypatch.setattr(herd, "trajectory", stub, raising=False)
+    import diverge as pkg
+    monkeypatch.setattr(pkg, "trajectory", stub, raising=False)
 
-    h = pipeline.Herd(progress=lambda m: None)
+    h = pipeline.Session(progress=lambda m: None)
     task = Task.resolve("online_bin_packing")
     best_fit_dev = task.baselines()["best_fit"]["score"]
     rescaled = "def priority(item, capacities):\n    return [-1000.0 * (c - item) + 7 for c in capacities]\n"
@@ -173,7 +173,7 @@ def test_escape_with_the_real_trajectory_module(fake_world, monkeypatch):
     monkeypatch.setattr(LLM, "_post", fake_post)
     task = Task.resolve("online_bin_packing")
     rescaled = "def priority(item, capacities):\n    return [-1000.0 * (c - item) + 7 for c in capacities]\n"
-    result = escape(pipeline.Herd(progress=lambda m: None), task, BEST_FIT, [rescaled, BEST_FIT.replace("item)", "item) + 0.0")],
+    result = escape(pipeline.Session(progress=lambda m: None), task, BEST_FIT, [rescaled, BEST_FIT.replace("item)", "item) + 0.0")],
                     Evaluator(task), overlook=overlook_dict())
     assert result["action"] in {"switch_strategy", "repair", "continue"}
     assert result["evaluation"]["before"] == pytest.approx(task.baselines()["best_fit"]["score"])

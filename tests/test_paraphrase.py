@@ -1,4 +1,4 @@
-"""Offline tests for the paraphrase (herd-robustness) test."""
+"""Offline tests for the paraphrase (consensus-robustness) test."""
 import pytest
 
 from diverge.paraphrase import analyze, check, distribution, tvd

@@ -11,11 +11,11 @@ from .llm import BudgetExceeded, message_text
 from .sample import extract_code
 from .task import TASKS_DIR
 
-_spec = importlib.util.spec_from_file_location("herd_sandbox", TASKS_DIR / "_sandbox.py")
+_spec = importlib.util.spec_from_file_location("diverge_sandbox", TASKS_DIR / "_sandbox.py")
 sandbox = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sandbox)
 
-# The same template for every family, herd or blind spot.
+# The same template for every family, consensus or blind spot.
 IMPLEMENT_TEMPLATE = """{task}
 
 ---

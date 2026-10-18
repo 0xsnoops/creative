@@ -1,4 +1,4 @@
-"""Autonomous tool-selection demo (Armature track): does a coding agent pick HERD on its own?
+"""Autonomous tool-selection demo (Armature track): does a coding agent pick DIVERGE on its own?
 
     uv run python scripts/autonomous_demo.py --run 1 [--max-budget 5]
 
@@ -7,9 +7,9 @@
 2. Copies in the stalled bin-packing trajectory (fixtures/trajectories/strategy_loop.json) as
    attempts/ with their dev scores, the task statement and a small evaluator wrapper.
 3. Runs a separate headless agent, `claude -p` with stream-json output, in that project. The
-   prompt does not mention HERD.
+   prompt does not mention DIVERGE.
 4. Saves the raw transcript to docs/demo/autonomous-run-<n>.jsonl (after checking it holds no
-   secrets) and prints where the agent first selected a HERD tool, if it did.
+   secrets) and prints where the agent first selected a DIVERGE tool, if it did.
 """
 import argparse
 import json
@@ -74,8 +74,8 @@ def build_project(target):
     return json.loads(onboard.stdout)
 
 
-def herd_moment(lines):
-    """Index and details of the first HERD tool call, plus the agent text right before it."""
+def diverge_moment(lines):
+    """Index and details of the first DIVERGE tool call, plus the agent text right before it."""
     last_text, tools = None, []
     for i, line in enumerate(lines):
         try:
@@ -101,14 +101,14 @@ def main():
     ap.add_argument("--max-budget", type=float, default=5.0)
     ap.add_argument("--max-turns", type=int, default=60)
     args = ap.parse_args()
-    target = Path(tempfile.mkdtemp(prefix="herd-autonomous-"))
+    target = Path(tempfile.mkdtemp(prefix="diverge-autonomous-"))
     report = build_project(target)
     print(f"project: {target}\nonboard: {json.dumps(report)[:600]}", flush=True)
     trace_dir = ROOT / "results" / "traces" / f"autonomous-demo-run{args.run}"
     # The agent itself keeps its normal Claude Code login: no API key in its environment. The DIVERGE
     # MCP server it starts reads keys from .env or the private file named by DIVERGE_ENV_FILE.
     env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "EXA_API_KEY")}
-    env["HERD_TRACE_DIR"] = str(trace_dir)
+    env["DIVERGE_TRACE_DIR"] = str(trace_dir)
     cmd = ["claude", "-p", PROMPT, "--output-format", "stream-json", "--verbose",
            "--mcp-config", str(target / ".mcp.json"), "--strict-mcp-config",
            "--allowedTools", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__diverge",
@@ -122,10 +122,10 @@ def main():
     out = ROOT / "docs" / "demo"
     out.mkdir(parents=True, exist_ok=True)
     (out / f"autonomous-run-{args.run}.jsonl").write_text(raw + "\n")
-    moment = herd_moment(lines)
+    moment = diverge_moment(lines)
     final = next((json.loads(l) for l in reversed(lines) if '"type":"result"' in l.replace(" ", "")), {})
     summary = {"run": args.run, "project": str(target), "prompt": PROMPT, "command": cmd[:1] + ["-p", "<PROMPT>"] + cmd[3:],
-               "exit": proc.returncode, "seconds": round(time.time() - started), "herd_selected": moment["tool"] is not None,
+               "exit": proc.returncode, "seconds": round(time.time() - started), "diverge_selected": moment["tool"] is not None,
                "moment": moment, "agent_cost_usd": final.get("total_cost_usd"), "num_turns": final.get("num_turns"),
                "final_text": final.get("result"), "stderr_tail": proc.stderr[-1500:]}
     (out / f"autonomous-run-{args.run}.summary.json").write_text(json.dumps(summary, indent=2))

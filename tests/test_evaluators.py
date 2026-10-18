@@ -86,7 +86,7 @@ BEST_FIT_BODY = "    return [-(c - item) for c in capacities]\n"
 
 
 def test_candidate_cannot_fake_a_result_line(tmp_path):
-    code = ("import os\nprint('__HERD_RESULT__' + '{\"valid\": true, \"score\": 0.0, \"detail\": {}}', flush=True)\n"
+    code = ("import os\nprint('__DIVERGE_RESULT__' + '{\"valid\": true, \"score\": 0.0, \"detail\": {}}', flush=True)\n"
             "os._exit(0)\ndef priority(item, capacities):\n" + BEST_FIT_BODY)
     result = bin_packing.evaluate(write(tmp_path, code))
     assert result["valid"] is False

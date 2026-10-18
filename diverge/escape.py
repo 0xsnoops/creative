@@ -1,8 +1,8 @@
 """ESCAPE: when an agent's attempts are different code but the same strategy, pick ONE lever the
-attempts (and most of the herd) leave unused and implement a solution built on it.
+attempts (and most of the consensus samples) leave unused and implement a solution built on it.
 
-Levers, in order of preference: an input the herd overlooks and the attempts never use; an
-incidental assumption shared by the herd and by every attempt; a family only one or two sampler
+Levers, in order of preference: an input the consensus overlooks and the attempts never use; an
+incidental assumption shared by the consensus and by every attempt; a family only one or two sampler
 models produced; a blind-spot family. Evidence comes from the overlook study and dev-split
 scores only: held-out results never enter a prompt. Candidate code only runs through the
 Evaluator (sandboxed)."""
@@ -41,7 +41,7 @@ def levers(diagnosis, trajectory, overlook, families=None):
                     | {"evidence": (r.get("evidence") or [])[:3]},
                     "mechanism": f"Build the decision rule around {r['input']} ({r.get('description') or 'unused input'}), "
                                  f"so that different values of it change which option is chosen.",
-                    "why": f"{r['input']} is used by {r.get('used_by')}/{r.get('decided')} herd samples "
+                    "why": f"{r['input']} is used by {r.get('used_by')}/{r.get('decided')} consensus samples "
                            f"({_pct(r['share'])}); none of your {n} attempts use it"})
 
     mine_assumptions = [text_of(a) for a in shared.get("assumptions") or []]
@@ -56,7 +56,7 @@ def levers(diagnosis, trajectory, overlook, families=None):
                                "evidence": (a.get("evidence") or [])[:3]},
                     "mechanism": f'Drop the assumption "{a["assumption"]}" and let the decisions exploit '
                                  f"what becomes possible without it.",
-                    "why": f"held by {a.get('held_by')}/{a.get('checked')} checked herd samples and by all {n} of your "
+                    "why": f"held by {a.get('held_by')}/{a.get('checked')} checked consensus samples and by all {n} of your "
                            f"attempts; the task statement does not force it"})
 
     for f in (overlook.get("minority") or {}).get("families", []):
@@ -76,8 +76,8 @@ def levers(diagnosis, trajectory, overlook, families=None):
         seen = fam.get("observed") or (f"share {_pct(fam['share'])}" if fam.get("share") is not None else "rarely observed")
         out.append({"type": "blind_spot", "name": fam["family"],
                     "detail": {k: fam.get(k) for k in ("one_line_mechanism", "share", "observed", "source_urls")},
-                    "mechanism": f"{fam['family']}: {fam.get('one_line_mechanism') or 'a sourced family the herd rarely uses'}.",
-                    "why": f"a sourced family the herd rarely produces ({seen})"})
+                    "mechanism": f"{fam['family']}: {fam.get('one_line_mechanism') or 'a sourced family the consensus rarely uses'}.",
+                    "why": f"a sourced family the consensus rarely produces ({seen})"})
     return out
 
 
@@ -94,6 +94,7 @@ def choose(diagnosis, trajectory, overlook, families=None):
                 "unused_inputs": unused_inputs(trajectory, overlook),
                 "attempt_mechanism": (trajectory.get("shared") or {}).get("mechanism_family"),
                 "n_attempts": trajectory.get("n"), "herd": (overlook or {}).get("herd"),
+                "consensus": (overlook or {}).get("herd"),
                 "paraphrase_verdict": ((overlook or {}).get("paraphrase_test") or {}).get("verdict")}
     if not found:
         return {"lever": None, "mechanism": None, "evidence": evidence, "alternatives": [],
@@ -142,16 +143,16 @@ def escape_prompt(task, choice, diagnosis, current_code):
                                   code=(current_code or "")[:CODE_LIMIT])
 
 
-def generate(herd, task, choice, diagnosis, current_code, evaluator, k=1, seed=0):
+def generate(session, task, choice, diagnosis, current_code, evaluator, k=1, seed=0):
     """k implementations of the escape prompt, each scored on the dev split."""
     prompt = escape_prompt(task, choice, diagnosis, current_code)
-    code_dir = herd.out_dir(task) / "escape"
+    code_dir = session.out_dir(task) / "escape"
     code_dir.mkdir(parents=True, exist_ok=True)
     candidates = []
     for i in range(k):
         try:
-            entry = herd.llm.chat(herd.cfg["models"]["implementer"], [{"role": "user", "content": prompt}],
-                                  temperature=1.0, max_tokens=herd.cfg["reality_check"]["max_tokens"],
+            entry = session.llm.chat(session.cfg["models"]["implementer"], [{"role": "user", "content": prompt}],
+                                  temperature=1.0, max_tokens=session.cfg["reality_check"]["max_tokens"],
                                   sample_idx=f"escape:{seed}:{i}")
         except BudgetExceeded:
             raise
@@ -205,11 +206,11 @@ def _analyze(task, attempts, evaluator, extract):
     return trajectory.analyze(**{k: v for k, v in offered.items() if k in params})
 
 
-def escape(herd, task, current_solution, previous_attempts, evaluator, overlook=None, families=None,
+def escape(session, task, current_solution, previous_attempts, evaluator, overlook=None, families=None,
            extract=None, k=1):
     """Diagnose the attempts and, if they loop on one strategy, implement one escape lever."""
     attempts = [_attempt(a, i) for i, a in enumerate([*previous_attempts, current_solution])]
-    score_dir = herd.out_dir(task) / "escape" / "attempts"
+    score_dir = session.out_dir(task) / "escape" / "attempts"
     for a in attempts:  # attempts given without a score are scored on dev, sandboxed
         if a.get("score") is None and a.get("code") and "valid" not in a:
             score_dir.mkdir(parents=True, exist_ok=True)
@@ -223,7 +224,7 @@ def escape(herd, task, current_solution, previous_attempts, evaluator, overlook=
     choice = choose(diagnosis, report, overlook, families)
     generated = None
     if diagnosis["action"] == "switch_strategy" and choice["lever"] is not None:
-        generated = generate(herd, task, choice, diagnosis, current["code"], evaluator, k=k)
+        generated = generate(session, task, choice, diagnosis, current["code"], evaluator, k=k)
     best = (generated or {}).get("best")
     before, after = current.get("score"), best["score"] if best else None
     improved = after is not None and (before is None or evaluator.beats(after, before))
@@ -245,7 +246,7 @@ def escape(herd, task, current_solution, previous_attempts, evaluator, overlook=
 # ================================================================ escape v2
 # Research-guided escape (docs/RESEARCH-loop-escape.md: consolidated restart, agreement
 # counterexample, idea-level search, admission gate). Fresh contexts only: no attempt code ever
-# enters a v2 prompt; the agent sees a failure summary, one lever with its herd evidence and one
+# enters a v2 prompt; the agent sees a failure summary, one lever with its consensus evidence and one
 # agreement counterexample, proposes mechanism sketches, and only sketches that differ from the
 # stuck strategy are implemented. Every implementation must pass admission before dev scoring.
 CX_CASES = 1000  # better-than-stuck cases are rare on tiny inputs (about 1 in 1000 vs best fit)
@@ -353,7 +354,7 @@ def _lever_v2(lever, overlook):
     if lever is None:
         detail = {k: (row or {}).get(k) for k in ("description", "share", "used_by", "decided")}
         detail["evidence"] = ((row or {}).get("evidence") or [])[:3]
-        share = f"{row['used_by']}/{row['decided']} herd samples" if row and row.get("decided") else "unknown"
+        share = f"{row['used_by']}/{row['decided']} consensus samples" if row and row.get("decided") else "unknown"
         lever = {"type": "input", "name": name, "detail": detail,
                  "mechanism": f"Build the decision rule around {name}, so that different values of it change "
                               f"which option is chosen.",
@@ -366,16 +367,16 @@ def _lever_v2(lever, overlook):
 
 
 def _lever_samples(lever, overlook):
-    """Herd sample ids that use the lever: the overlook input row's evidence, else the lever's own."""
+    """Consensus sample ids that use the lever: the overlook input row's evidence, else the lever's own."""
     row = next((r for r in (overlook or {}).get("inputs", []) if r.get("input") == lever["name"]), None)
     evidence = (row or {}).get("evidence") or (lever.get("detail") or {}).get("evidence") or []
     ids = [e.get("sample_id") if isinstance(e, dict) else e for e in evidence]
     return list(dict.fromkeys(i for i in ids if isinstance(i, str)))
 
 
-def _herd_programs(herd, task, sample_ids, limit=MAX_ALTERNATIVES):
-    """{sample_id: code} for up to limit valid herd samples among sample_ids."""
-    out_dir = herd.out_dir(task)
+def _consensus_programs(session, task, sample_ids, limit=MAX_ALTERNATIVES):
+    """{sample_id: code} for up to limit valid consensus samples among sample_ids."""
+    out_dir = session.out_dir(task)
     path = out_dir / "samples.jsonl"
     if not sample_ids or not path.exists():
         return {}
@@ -418,7 +419,7 @@ def describe_counterexample(task_name, cx, lever_name, n_attempts):
     from . import counterexample as ce
     who = {1: "the attempt", 2: "both attempts"}.get(n_attempts, f"all {n_attempts} attempts")
     case, a, b = cx["case"], cx["attempts_output"], cx["alternative_output"]
-    alt = f"the alternative (herd sample {cx['alternative_id']}, which uses {lever_name})"
+    alt = f"the alternative (consensus sample {cx['alternative_id']}, which uses {lever_name})"
     if task_name == ce.BIN:
         cap, items = ce.CAPACITY, list(case["items"])
         i = next(j for j, (x, y) in enumerate(zip(a["chosen"], b["chosen"])) if x != y)
@@ -471,15 +472,15 @@ def describe_counterexample(task_name, cx, lever_name, n_attempts):
             "outcome_text": outcome_text, "text": text}
 
 
-def _counterexample_v2(herd, task, attempts, lever, overlook, seed):
-    """The best agreement counterexample whose alternative (a herd program using the lever) is
+def _counterexample_v2(session, task, attempts, lever, overlook, seed):
+    """The best agreement counterexample whose alternative (a consensus program using the lever) is
     better, or None; plus a note on what was searched."""
     from . import counterexample as ce
     if task.name not in (ce.BIN, ce.CACHE) or not getattr(task, "evaluator", None):
         return None, "no counterexample: this task has no probe mode"
-    alternatives = _herd_programs(herd, task, _lever_samples(lever, overlook))
+    alternatives = _consensus_programs(session, task, _lever_samples(lever, overlook))
     if not alternatives:
-        return None, f"no counterexample: no valid herd program that uses {lever['name']} was found"
+        return None, f"no counterexample: no valid consensus program that uses {lever['name']} was found"
     stuck = {a["id"]: a["code"] for a in attempts if a.get("code")}
     try:
         found = ce.find(task, stuck, alternatives, n=CX_CASES, seed=seed)
@@ -489,7 +490,7 @@ def _counterexample_v2(herd, task, attempts, lever, overlook, seed):
         return None, f"no counterexample: probe failed ({sandbox.redact(str(e))[:200]})"
     better = [c for c in found["counterexamples"] if c["alternative_better"]]
     if not better:
-        return None, (f"no counterexample: on {found['summary']['cases']} tiny cases no herd program using "
+        return None, (f"no counterexample: on {found['summary']['cases']} tiny cases no consensus program using "
                       f"{lever['name']} beat the attempts where they all agree")
     cx = better[0]
     described = describe_counterexample(task.name, cx, lever["name"], found["summary"]["valid_attempts"])
@@ -529,7 +530,7 @@ def _lever_text(lever):
     description = detail.get("description") or lever.get("mechanism") or "the lever"
     evidence = [e for e in detail.get("evidence") or [] if isinstance(e, dict) and e.get("evidence")]
     ev = "".join(f"\n- {e.get('model') or e.get('sample_id')}: {e['evidence']}" for e in evidence[:3])
-    return description, (f"\nHow herd programs use it:{ev}" if ev else "")
+    return description, (f"\nHow consensus programs use it:{ev}" if ev else "")
 
 
 def _constraints(overlook):
@@ -582,7 +583,7 @@ def _admit(task, code, stuck_codes, lever_name):
                 "reasons": [f"admission failed: {sandbox.redact(str(e))[:300]}"], "valid": False}
 
 
-def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
+def escape_v2(session, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
               k_sketches=3, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=False):
     """Escape v2: failure summary + one lever + agreement counterexample -> k mechanism sketches
     (fresh context, no code) -> keep sketches that use the lever and differ from the stuck
@@ -598,7 +599,7 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
             log(event)
 
     attempts = [_attempt(a, i) for i, a in enumerate([*previous_attempts, current_solution])]
-    score_dir = herd.out_dir(task) / "escape_v2" / "attempts"
+    score_dir = session.out_dir(task) / "escape_v2" / "attempts"
     for a in attempts:  # scored on dev (sandboxed) when the score or the per-case detail is missing
         if a.get("code") and (a.get("score") is None or not a.get("dev_detail")):
             score_dir.mkdir(parents=True, exist_ok=True)
@@ -624,19 +625,19 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
     out["failure_summary"] = summary
     if chosen is None:
         note({"stage": "lever", "event": "no lever available"})
-        out["spent_usd"] = herd.ledger.spent_this_run
+        out["spent_usd"] = session.ledger.spent_this_run
         return out
 
-    cx, no_cx = _counterexample_v2(herd, task, attempts, chosen, overlook, seed)
+    cx, no_cx = _counterexample_v2(session, task, attempts, chosen, overlook, seed)
     out["counterexample"] = cx
     note({"stage": "counterexample", "found": cx is not None, "note": no_cx})
 
-    implementer = herd.cfg["models"]["implementer"]
-    extractor = herd.cfg["models"].get("extractor") or herd.cfg["models"].get("labeler") or implementer
-    impl_llm, judge_llm = _Counted(herd.llm, calls, "implementer"), _Counted(herd.llm, calls, "extractor")
+    implementer = session.cfg["models"]["implementer"]
+    extractor = session.cfg["models"].get("extractor") or session.cfg["models"].get("labeler") or implementer
+    impl_llm, judge_llm = _Counted(session.llm, calls, "implementer"), _Counted(session.llm, calls, "extractor")
 
     prompt = sketch_prompt(task, summary, chosen, cx, overlook, k=k_sketches, no_cx_note=no_cx)
-    reply = ask_json(impl_llm, implementer, prompt, max_tokens=herd.cfg["reality_check"]["max_tokens"],
+    reply = ask_json(impl_llm, implementer, prompt, max_tokens=session.cfg["reality_check"]["max_tokens"],
                      key=f"escape_v2:sketch:{seed}", temperature=1.0, required=("sketches",))
     sketches = [s for s in reply.get("sketches") or [] if isinstance(s, dict)][:k_sketches]
     out["sketches"], out["sketch_prompt"] = sketches, prompt
@@ -676,7 +677,7 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
         kept.append({**s, "index": i, "difference": verdict.get("reason")})
     out["kept_sketches"] = kept
 
-    code_dir = herd.out_dir(task) / "escape_v2"
+    code_dir = session.out_dir(task) / "escape_v2"
     code_dir.mkdir(parents=True, exist_ok=True)
     stuck_codes = [a["code"] for a in attempts if a.get("code")]
     prompts = []
@@ -691,7 +692,7 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
                 prompts.append(prompt)
             try:
                 entry = impl_llm.chat(implementer, [{"role": "user", "content": prompt}], temperature=1.0,
-                                      max_tokens=herd.cfg["reality_check"]["max_tokens"],
+                                      max_tokens=session.cfg["reality_check"]["max_tokens"],
                                       sample_idx=f"escape_v2:impl:{seed}:{s['index']}:{attempt}")
             except BudgetExceeded:
                 raise
@@ -745,7 +746,7 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
         out["evaluation"] = {"before": before, "after": after,
                              "improved": before is None or evaluator.beats(after, before), "split": "dev"}
     out["admitted"] = [{k: v for k, v in c.items() if k != "code"} for c in out["admitted"]]
-    out["spent_usd"] = herd.ledger.spent_this_run
+    out["spent_usd"] = session.ledger.spent_this_run
     return out
 
 
@@ -944,7 +945,7 @@ def _critic_model(models):
     return models.get("labeler") or models.get("extractor") or impl
 
 
-def escape_v3(herd, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
+def escape_v3(session, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
               n_sketches=5, n_deepen=2, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=True):
     """Escape v3: anchor-stripped failure summary -> n_sketches isolated sketches, each on its own
     lever -> critic (a different model) drops traps / restatements and ranks -> deepen the top
@@ -965,7 +966,7 @@ def escape_v3(herd, task, current_solution, previous_attempts, evaluator, overlo
         note(out["rejections"][-1])
 
     attempts = [_attempt(a, i) for i, a in enumerate([*previous_attempts, current_solution])]
-    score_dir = herd.out_dir(task) / "escape_v3" / "attempts"
+    score_dir = session.out_dir(task) / "escape_v3" / "attempts"
     for a in attempts:  # scored on dev (sandboxed) when the score or the per-case detail is missing
         if a.get("code") and (a.get("score") is None or not a.get("dev_detail")):
             score_dir.mkdir(parents=True, exist_ok=True)
@@ -979,7 +980,7 @@ def escape_v3(herd, task, current_solution, previous_attempts, evaluator, overlo
     diagnosis = diagnose(task, report, overlook)
     pool = [_lever_v2(lever, overlook)] if lever is not None else lever_pool(diagnosis, report, overlook, families)
     before = current.get("score")
-    models = herd.cfg["models"]
+    models = session.cfg["models"]
     implementer = models["implementer"]
     extractor = models.get("extractor") or models.get("labeler") or implementer
     critic = _critic_model(models)
@@ -992,12 +993,12 @@ def escape_v3(herd, task, current_solution, previous_attempts, evaluator, overlo
     if not pool:
         out["failure_summary"] = failure_summary(attempts, diagnosis, evaluator)
         note({"stage": "lever", "event": "no lever available"})
-        out["spent_usd"] = herd.ledger.spent_this_run
+        out["spent_usd"] = session.ledger.spent_this_run
         return out
 
-    impl_llm = _Counted(herd.llm, calls, "implementer")
-    ext_llm, critic_llm = _Counted(herd.llm, calls, "extractor"), _Counted(herd.llm, calls, "critic")
-    max_tokens = herd.cfg["reality_check"]["max_tokens"]
+    impl_llm = _Counted(session.llm, calls, "implementer")
+    ext_llm, critic_llm = _Counted(session.llm, calls, "extractor"), _Counted(session.llm, calls, "critic")
+    max_tokens = session.cfg["reality_check"]["max_tokens"]
 
     # a. anchor strip
     summary_v2 = failure_summary(attempts, diagnosis, evaluator)
@@ -1069,7 +1070,7 @@ def escape_v3(herd, task, current_solution, previous_attempts, evaluator, overlo
 
     # d. deepen the top n_deepen, implement, admit, score on dev
     levers_by_name = {str(lv["name"]): lv for lv in pool}
-    code_dir = herd.out_dir(task) / "escape_v3"
+    code_dir = session.out_dir(task) / "escape_v3"
     code_dir.mkdir(parents=True, exist_ok=True)
     stuck_codes = [a["code"] for a in attempts if a.get("code")]
     impl_prompts = []
@@ -1151,7 +1152,7 @@ def escape_v3(herd, task, current_solution, previous_attempts, evaluator, overlo
         out["evaluation"] = {"before": before, "after": best["score"],
                              "improved": before is None or evaluator.beats(best["score"], before), "split": "dev"}
     out["admitted"] = [{k: v for k, v in c.items() if k != "code"} for c in out["admitted"]]
-    out["spent_usd"] = herd.ledger.spent_this_run
+    out["spent_usd"] = session.ledger.spent_this_run
     return out
 
 
@@ -1343,7 +1344,7 @@ def _case_lines(detail, limit=12):
     return "\n".join(f"- {case}: {value:.4g}" for case, value in cases[:limit])
 
 
-def escape_v4(herd, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
+def escape_v4(session, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
               n_sketches=5, n_deepen=2, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=True,
               n_parents=2):
     """Escape v4: v3's anchor strip and isolated sketches -> rubric critic with hard filters ->
@@ -1368,7 +1369,7 @@ def escape_v4(herd, task, current_solution, previous_attempts, evaluator, overlo
         note(out["rejections"][-1])
 
     attempts = [_attempt(a, i) for i, a in enumerate([*previous_attempts, current_solution])]
-    score_dir = herd.out_dir(task) / "escape_v4" / "attempts"
+    score_dir = session.out_dir(task) / "escape_v4" / "attempts"
     for a in attempts:
         if a.get("code") and (a.get("score") is None or not a.get("dev_detail")):
             score_dir.mkdir(parents=True, exist_ok=True)
@@ -1383,7 +1384,7 @@ def escape_v4(herd, task, current_solution, previous_attempts, evaluator, overlo
     stuck = diagnosis["shared_cause"]
     pool = [_lever_v2(lever, overlook)] if lever is not None else lever_pool(diagnosis, report, overlook, families)
     before = current.get("score")
-    models = herd.cfg["models"]
+    models = session.cfg["models"]
     implementer = models["implementer"]
     extractor = models.get("extractor") or models.get("labeler") or implementer
     critic = _critic_model(models)
@@ -1398,13 +1399,13 @@ def escape_v4(herd, task, current_solution, previous_attempts, evaluator, overlo
     if not pool:
         out["failure_summary"] = failure_summary(attempts, diagnosis, evaluator)
         note({"stage": "lever", "event": "no lever available"})
-        out["spent_usd"] = herd.ledger.spent_this_run
+        out["spent_usd"] = session.ledger.spent_this_run
         return out
 
-    impl_llm = _Counted(herd.llm, calls, "implementer")
-    ext_llm, critic_llm = _Counted(herd.llm, calls, "extractor"), _Counted(herd.llm, calls, "critic")
-    repair_llm = _Counted(herd.llm, calls, "repair")
-    max_tokens = herd.cfg["reality_check"]["max_tokens"]
+    impl_llm = _Counted(session.llm, calls, "implementer")
+    ext_llm, critic_llm = _Counted(session.llm, calls, "extractor"), _Counted(session.llm, calls, "critic")
+    repair_llm = _Counted(session.llm, calls, "repair")
+    max_tokens = session.cfg["reality_check"]["max_tokens"]
 
     # a. anchor strip (as v3)
     summary_v2 = failure_summary(attempts, diagnosis, evaluator)
@@ -1473,7 +1474,7 @@ def escape_v4(herd, task, current_solution, previous_attempts, evaluator, overlo
     out["kept_sketches"] = kept
 
     levers_by_name = {str(lv["name"]): lv for lv in pool}
-    code_dir = herd.out_dir(task) / "escape_v4"
+    code_dir = session.out_dir(task) / "escape_v4"
     code_dir.mkdir(parents=True, exist_ok=True)
     stuck_codes = [a["code"] for a in attempts if a.get("code")]
 
@@ -1642,7 +1643,7 @@ def escape_v4(herd, task, current_solution, previous_attempts, evaluator, overlo
     strip = lambda rows: [{k: v for k, v in c.items() if k not in ("code", "dev_detail")} for c in rows]
     out["admitted"] = strip(out["admitted"])
     out["evolve"]["children"] = strip(out["evolve"]["children"])
-    out["spent_usd"] = herd.ledger.spent_this_run
+    out["spent_usd"] = session.ledger.spent_this_run
     return out
 
 

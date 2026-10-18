@@ -10,7 +10,7 @@ Research date: 2026-10-18. Nothing was deployed: we have no Manufact credentials
 | Is mcp-use required? | **Optional.** The official Python guide and example repo use only the official `mcp` SDK (FastMCP). Manufact detects `mcp` in `pyproject.toml` and labels the repo `mcp-python`. The `mcp-use` npm CLI is just one way to deploy (`npx mcp-use deploy`); the dashboard "Import from GitHub" flow does the same job. | High |
 | Is a thin adapter enough? | **Yes.** In the installed SDK (`mcp` 2.3.0), `MCPServer` has `streamable_http_app(stateless_http=..., transport_security=...)`, which returns a Starlette app. `diverge_mcp_http.py` wraps the existing `diverge.server.mcp` object, so no tool code changes. | Verified locally |
 | Manifest, Dockerfile or entry point required? | **No manifest.** Runtime is detected from `pyproject.toml` / `requirements.txt` (uv, poetry, pipenv, pip). If there is no `uv.lock`, Manufact runs `pip install .`. If `uv.lock` is committed, it runs `uv sync --frozen`. DIVERGE commits `uv.lock`, and `uv lock --check` passes. You set the port and start command in the dashboard. A Dockerfile is optional and only needed for unsupported runtimes. | High (docs + example repo) |
-| Proxy gotcha | Behind Manufact's reverse proxy, the SDK's DNS-rebinding check returns **421 Misdirected Request**. The guide disables it (`enable_dns_rebinding_protection=False`) and notes that `allowed_hosts=["*"]` does not work. The adapter disables the check unless `HERD_ALLOWED_HOSTS` is set. | Docs; not verified against the real proxy |
+| Proxy gotcha | Behind Manufact's reverse proxy, the SDK's DNS-rebinding check returns **421 Misdirected Request**. The guide disables it (`enable_dns_rebinding_protection=False`) and notes that `allowed_hosts=["*"]` does not work. The adapter disables the check unless `DIVERGE_ALLOWED_HOSTS` is set. | Docs; not verified against the real proxy |
 | Credentials | You need a Manufact Cloud account with an organization, plus GitHub access through the Manufact/mcp-use GitHub App. The CLI alternative is `npx mcp-use login`, then `npx mcp-use deploy` (`--no-github` uploads a tarball instead). The Free plan covers the first server. DIVERGE's own runtime keys (`OPENROUTER_API_KEY`, `EXA_API_KEY`) go in the server's environment variables in the dashboard, never in the repo. | High |
 | Local testing without credentials | Yes. Run uvicorn locally and connect with the official `mcp` client (done below), or with MCP Inspector (`npx @modelcontextprotocol/inspector`, transport "Streamable HTTP", URL `http://127.0.0.1:8000/mcp`, header `Authorization: Bearer <token>`). Inspector was not run here. | Verified with the mcp client |
 
@@ -26,10 +26,10 @@ Research date: 2026-10-18. Nothing was deployed: we have no Manufact credentials
 ## What was implemented
 
 - `diverge_mcp_http.py` (repo root) exports the ASGI `app` that Manufact's start command runs. It serves the same `diverge.server.mcp` object as the stdio server (`streamable_http_app(stateless_http=True)`), so the tools are identical, at `/mcp`. The local entry `python diverge_mcp_http.py [--port N]` binds 127.0.0.1 only.
-- **Exposure guard.** DIVERGE's tools spend the owner's OpenRouter/Exa budget, and `reality_check` / `diverge_check` / `diverge_escape` run the caller's `evaluator_cmd` as a command. On a public URL, that is remote command execution. The adapter therefore requires `Authorization: Bearer $DIVERGE_HTTP_TOKEN` (the older `HERD_HTTP_TOKEN` is still accepted), which uses constant-time comparison:
+- **Exposure guard.** DIVERGE's tools spend the owner's OpenRouter/Exa budget, and `reality_check` / `diverge_check` / `diverge_escape` run the caller's `evaluator_cmd` as a command. On a public URL, that is remote command execution. The adapter therefore requires `Authorization: Bearer $DIVERGE_HTTP_TOKEN`, which uses constant-time comparison:
   - wrong or missing token: **401**
-  - `DIVERGE_HTTP_TOKEN` (and `HERD_HTTP_TOKEN`) unset: **503** (fails closed), unless `HERD_HTTP_ALLOW_OPEN=1`
-  - the local loopback entry sets `HERD_HTTP_ALLOW_OPEN=1` by default
+  - `DIVERGE_HTTP_TOKEN` unset: **503** (fails closed), unless `DIVERGE_HTTP_ALLOW_OPEN=1`
+  - the local loopback entry sets `DIVERGE_HTTP_ALLOW_OPEN=1` by default
 - `tests/test_manufact.py` starts the app on a free loopback port. It checks that the HTTP tool list equals the stdio server's tool list, that a missing or wrong token gets 401, and that an unset token gets 503. It makes no API calls.
 - No new dependencies. `uvicorn` 0.54.0 and `starlette` 1.8.0 already come in through `mcp[cli]`. mcp-use was not added. No files outside the allowed set were touched.
 
@@ -71,7 +71,7 @@ server stopped
      - `DIVERGE_HTTP_TOKEN`: a long random string
      - `OPENROUTER_API_KEY`
      - `EXA_API_KEY`
-     - optionally `HERD_ALLOWED_HOSTS=<slug>.run.mcp-use.com`, but only after confirming the Host header the proxy forwards
+     - optionally `DIVERGE_ALLOWED_HOSTS=<slug>.run.mcp-use.com`, but only after confirming the Host header the proxy forwards
 3. Click **Deploy**. Then smoke-test:
    ```bash
    curl -s -X POST https://<slug>.run.mcp-use.com/mcp \

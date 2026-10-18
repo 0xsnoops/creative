@@ -1,12 +1,12 @@
 """adhd_frames: ADHD's divergent frames as a benchmark operator. Per round, pick 5 frames with
 ADHD's rule (4 engineering-tagged frames plus 1 "wild" frame), ask the implementer model for
 ideas under each frame with ADHD's divergent-mode prompt, then implement and evaluate each idea
-with HERD's shared implementation template. All planning calls are billed to this operator.
+with DIVERGE's shared implementation template. All planning calls are billed to this operator.
 
 The frames, the selection rule and the DIVERGE prompts are copied from ADHD
 (https://github.com/UditAkhourii/adhd, src/packs/core.ts, src/frames.ts, src/engine.ts at
 commit 7b91ce6), MIT License, Copyright (c) 2026 ADHD contributors. The full license text is in
-herd/operators/ADHD_LICENSE. ADHD's later stages (anchor-stripping reframe, critic scoring,
+diverge/operators/ADHD_LICENSE. ADHD's later stages (anchor-stripping reframe, critic scoring,
 clustering, deepening) are not used: this operator measures frames -> implement -> evaluate."""
 import itertools
 import json

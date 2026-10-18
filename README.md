@@ -393,7 +393,7 @@ MCP_TOOL_TIMEOUT=1800000 claude   # or set it under "env" in ~/.claude/settings.
 ```
 
 For a hosted (streamable HTTP) deployment such as Manufact Cloud, `diverge_mcp_http.py` serves the
-same tools at `/mcp` behind a bearer token (`DIVERGE_HTTP_TOKEN`; the older `HERD_HTTP_TOKEN` is still accepted). It has been verified locally
+same tools at `/mcp` behind a bearer token (`DIVERGE_HTTP_TOKEN`). It has been verified locally
 only; nothing is deployed. See `docs/MANUFACT.md`.
 
 Building a consensus map for a new task means sampling every model, so the first call can
@@ -503,7 +503,7 @@ under `results/` for inspection, and `labels_audit.csv` supports spot checks.
 
 ## Traces
 
-Set `DIVERGE_TRACE_DIR=<dir>` (the older `HERD_TRACE_DIR` is still accepted) to append every model and search call to `<dir>/calls.jsonl`
+Set `DIVERGE_TRACE_DIR=<dir>` to append every model and search call to `<dir>/calls.jsonl`
 (messages, parameters, raw content and reasoning, usage, cost, cache status, latency; redacted)
 and every benchmark candidate to `<dir>/candidates.jsonl` (prompt, operator, code, dev and
 held-out scores, labeled family, whether it was selected).

@@ -1,4 +1,4 @@
-"""HERD MAP and BLIND SPOTS."""
+"""CONSENSUS MAP and BLIND SPOTS."""
 import math
 from collections import Counter
 
@@ -11,7 +11,7 @@ def shares(families):
     return counts, {f: c / len(counted) for f, c in counts.items()} if counted else {}
 
 
-def build_herd_map(records, labels, families):
+def build_consensus_map(records, labels, families):
     """Share of samples per family, overall and per model. Unlabeled samples are excluded from
     the shares and reported separately."""
     model_of = {r["sample_id"]: r["model"] for r in records}
@@ -47,17 +47,17 @@ def share_upper_bound(k, n, confidence=0.95):
     return round(hi, 4)
 
 
-def find_blind_spots(herd_map, families, max_share):
+def find_blind_spots(consensus_map, families, max_share):
     """Sourced families whose observed share is below max_share. With few samples that only
     means "rarely or never observed", so each entry carries the raw count, the per-model counts
     and an upper bound on the true share, instead of a bare share."""
     by_name = {f["family"]: f for f in families}
-    n = herd_map["n_labeled"]
+    n = consensus_map["n_labeled"]
     spots = []
-    for r in herd_map["families"]:
+    for r in consensus_map["families"]:
         if r["sourced"] and not r["family"].startswith(EMERGENT) and r["share"] < max_share:
-            per_model = {m: c["counts"].get(r["family"], 0) for m, c in herd_map["per_model_counts"].items()}
-            sampled = [m for m, c in herd_map["per_model_counts"].items() if c["n"] > 0]
+            per_model = {m: c["counts"].get(r["family"], 0) for m, c in consensus_map["per_model_counts"].items()}
+            sampled = [m for m, c in consensus_map["per_model_counts"].items() if c["n"] > 0]
             spots.append({**by_name[r["family"]], "share": r["share"], "count": r["count"],
                           "observed": f"{r['count']} of {n} labeled samples",
                           "per_model_counts": per_model,

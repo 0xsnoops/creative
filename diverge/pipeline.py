@@ -14,11 +14,11 @@ from . import label as label_stage
 from . import literature as literature_stage
 from .cache import JsonlCache
 from .exa import Exa
-from .herdmap import build_herd_map, find_blind_spots
+from .consensus import build_consensus_map, find_blind_spots
 from .label import EMERGENT, UNLABELED, classify, label_samples, write_audit
 from .literature import build_taxonomy, search_literature
 from .llm import LLM, BudgetExceeded, Ledger, load_model_catalog
-from .contrast import herd_section
+from .contrast import consensus_section
 from .reality import reality_check
 from .reality import sandbox as _sandbox
 
@@ -75,7 +75,7 @@ def shared_cache(path):
     return _caches[path]
 
 
-class Herd:
+class Session:
     """Wiring for one CLI run or one tool call: config, budget ledger, cached clients.
     budget_usd caps this call's spend; the config's budget_usd caps total spend."""
 
@@ -89,7 +89,7 @@ class Herd:
         llm_cache, exa_cache = shared_cache(cache_dir / "llm.jsonl"), shared_cache(cache_dir / "exa.jsonl")
         spent = llm_cache.total_cost() + exa_cache.total_cost()
         self.ledger = Ledger(self.cfg["budget_usd"], spent, budget_usd, bill_cached)
-        # DIVERGE_TRACE_DIR (legacy name: HERD_TRACE_DIR) set: every model and search call is also
+        # DIVERGE_TRACE_DIR set: every model and search call is also
         # appended to <dir>/calls.jsonl.
         trace = os.environ.get("DIVERGE_TRACE_DIR") or os.environ.get("HERD_TRACE_DIR")
         self.trace_dir = Path(trace) if trace else None
@@ -129,11 +129,11 @@ def effective_n(study):
     return min(counts.values()) if counts else 0
 
 
-def ensure_map(herd, task, n_per_model=None, retry_failed=False):
-    """SAMPLE -> LITERATURE -> LABEL -> HERD MAP -> BLIND SPOTS, or the saved result if it
+def ensure_map(session, task, n_per_model=None, retry_failed=False):
+    """SAMPLE -> LITERATURE -> LABEL -> CONSENSUS MAP -> BLIND SPOTS, or the saved result if it
     was built from the same inputs. A saved map with failed samples is reused (the gaps are
-    recorded in its meta) unless retry_failed is set. Returns {herd_map, blind_spots, families}."""
-    cfg, out = herd.cfg, herd.out_dir(task)
+    recorded in its meta) unless retry_failed is set. Returns {"herd_map", "blind_spots", "families"} (saved key names)."""
+    cfg, out = session.cfg, session.out_dir(task)
     n = n_per_model or cfg["sampling"]["n_per_model"]
     inputs = {"samplers": cfg["models"]["samplers"], "labeler": cfg["models"]["labeler"], "n_per_model": n,
               "inputs_hash": inputs_hash(task, cfg)}
@@ -145,15 +145,15 @@ def ensure_map(herd, task, n_per_model=None, retry_failed=False):
                     "families": read_json(out / "families.json")}
 
         # What each stage would cost from a cold cache, for cold-start benchmark accounting.
-        build_cost, mark = {}, herd.ledger.recorded
+        build_cost, mark = {}, session.ledger.recorded
 
         def stage_done(stage):
             nonlocal mark
-            build_cost[stage] = round(herd.ledger.recorded - mark, 6)
-            mark = herd.ledger.recorded
+            build_cost[stage] = round(session.ledger.recorded - mark, 6)
+            mark = session.ledger.recorded
 
-        herd.progress(f"sampling {n} per model x {len(inputs['samplers'])} models")
-        records = run_sampling(task, herd.llm, cfg, out, n, herd.progress)
+        session.progress(f"sampling {n} per model x {len(inputs['samplers'])} models")
+        records = run_sampling(task, session.llm, cfg, out, n, session.progress)
         stage_done("sampling")
         if over := [r for r in records if r["status"] == "budget_exceeded"]:
             raise BudgetExceeded(over[0]["error"])
@@ -161,15 +161,15 @@ def ensure_map(herd, task, n_per_model=None, retry_failed=False):
         if len(errors) == len(records):
             raise RuntimeError(f"every sample failed; first error: {errors[0]['error']}")
 
-        herd.progress("literature search")
-        literature = search_literature(task, herd.llm, herd.exa, cfg, herd.progress)
+        session.progress("literature search")
+        literature = search_literature(task, session.llm, session.exa, cfg, session.progress)
         write_json(out / "literature.json", literature)
-        taxonomy = build_taxonomy(task, literature, herd.llm, cfg)
+        taxonomy = build_taxonomy(task, literature, session.llm, cfg)
         write_json(out / "taxonomy.json", taxonomy)
         stage_done("literature")
 
-        herd.progress(f"labeling against {len(taxonomy['families'])} families")
-        labels, emergent = label_samples(task, records, taxonomy, herd.llm, cfg, out, herd.progress)
+        session.progress(f"labeling against {len(taxonomy['families'])} families")
+        labels, emergent = label_samples(task, records, taxonomy, session.llm, cfg, out, session.progress)
         with (out / "labels.jsonl").open("w") as f:
             for sid, l in labels.items():
                 f.write(json.dumps({"sample_id": sid, **l}) + "\n")
@@ -177,19 +177,19 @@ def ensure_map(herd, task, n_per_model=None, retry_failed=False):
         stage_done("labeling")
 
         families = taxonomy["families"] + emergent
-        built = build_herd_map(records, labels, families)
+        built = build_consensus_map(records, labels, families)
         completed = {m: sum(r["model"] == m and bool(r.get("text_path")) for r in records) for m in inputs["samplers"]}
         labeled = {m: built["per_model_counts"].get(m, {}).get("n", 0) for m in inputs["samplers"]}
         meta = {**inputs, "completed_per_model": completed, "labeled_per_model": labeled,
                 "min_completed_per_model": min(completed.values()),
                 "failed_samples": sorted(r["sample_id"] for r in errors)}
-        herd_map = {"task": task.name, "meta": meta, "n_api_errors": len(errors), "build_cost_usd": build_cost,
+        consensus_map = {"task": task.name, "meta": meta, "n_api_errors": len(errors), "build_cost_usd": build_cost,
                     **built}
-        blind_spots = find_blind_spots(herd_map, families, cfg["blind_spot_max_share"])
+        blind_spots = find_blind_spots(consensus_map, families, cfg["blind_spot_max_share"])
         write_json(out / "families.json", families)
-        write_json(out / "herd_map.json", herd_map)
+        write_json(out / "herd_map.json", consensus_map)
         write_json(out / "blind_spots.json", blind_spots)
-        return {"herd_map": herd_map, "blind_spots": blind_spots, "families": families}
+        return {"herd_map": consensus_map, "blind_spots": blind_spots, "families": families}
 
 
 def family_kind(study, name):
@@ -207,15 +207,15 @@ def scores_key(evaluator, contrast=False):
     return evaluator.key + ("|contrast" if contrast else "")
 
 
-def load_scores(herd, task, evaluator, contrast=False):
-    return read_json(herd.out_dir(task) / "family_scores.json", {}).get(scores_key(evaluator, contrast), {})
+def load_scores(session, task, evaluator, contrast=False):
+    return read_json(session.out_dir(task) / "family_scores.json", {}).get(scores_key(evaluator, contrast), {})
 
 
-def record_heldout_use(herd, task, evaluator):
+def record_heldout_use(session, task, evaluator):
     """Count how often held-out comparisons were shown for this task and evaluator. Returns the
     number of earlier uses; any earlier use makes a new comparison exploratory, because the
     caller may already have adapted to held-out results."""
-    path = herd.out_dir(task) / "family_scores.json"
+    path = session.out_dir(task) / "family_scores.json"
     with _task_locks[task.name]:
         saved = read_json(path, {})
         uses = saved.setdefault("_heldout_uses", {})
@@ -225,13 +225,13 @@ def record_heldout_use(herd, task, evaluator):
     return prior
 
 
-def ensure_family_scores(herd, task, study, families, evaluator, k, contrast=False):
+def ensure_family_scores(session, task, study, families, evaluator, k, contrast=False):
     """Reality-check each family (a dict from families.json) unless already done with >= k
     implementations under this evaluator and the same family text. With contrast, blind-spot
-    families are implemented with the herd-contrast section and scored separately. Returns all
+    families are implemented with the consensus-contrast section and scored separately. Returns all
     saved scores for this evaluator (and contrast setting)."""
     blind = {b["family"] for b in study["blind_spots"]}
-    out = herd.out_dir(task)
+    out = session.out_dir(task)
     share = {r["family"]: r["share"] for r in study["herd_map"]["families"]}
     with _task_locks[task.name]:
         saved = read_json(out / "family_scores.json", {})
@@ -241,8 +241,8 @@ def ensure_family_scores(herd, task, study, families, evaluator, k, contrast=Fal
             prev = scores.get(name)
             if prev and prev["k"] >= k and "final_score" in prev and prev.get("family_hash") == fhash:
                 continue
-            extra = herd_section(study, family) if contrast and name in blind else ""
-            scores[name] = {**reality_check(task, family, evaluator, herd.llm, herd.cfg, out, k, herd.progress,
+            extra = consensus_section(study, family) if contrast and name in blind else ""
+            scores[name] = {**reality_check(task, family, evaluator, session.llm, session.cfg, out, k, session.progress,
                                             extra), "family_hash": fhash, "contrast": bool(extra)}
             refresh_kinds(scores, study, share)
             write_json(out / "family_scores.json", saved)  # save after each family
@@ -263,11 +263,11 @@ def baseline_scores(task, evaluator, baseline_files=()):
     return {Path(p).stem: evaluator(Path(p))["score"] for p in baseline_files}
 
 
-def check_approach(herd, task, study, approach, evaluator, k, contrast=False):
-    """Place an approach in the herd map; with an evaluator, test its family against the
-    blind spots and the top herd families and say which is best."""
+def check_approach(session, task, study, approach, evaluator, k, contrast=False):
+    """Place an approach in the consensus map; with an evaluator, test its family against the
+    blind spots and the top consensus families and say which is best."""
     families = study["families"]
-    picked = classify(task, approach, families, herd.llm, herd.cfg)
+    picked = classify(task, approach, families, session.llm, session.cfg)
     name = picked["family"]
     row = next((r for r in study["herd_map"]["families"] if r["family"] == name), None)
     blind = {b["family"]: b for b in study["blind_spots"]}
@@ -286,18 +286,18 @@ def check_approach(herd, task, study, approach, evaluator, k, contrast=False):
     mine = by_name.get(name) or {"family": name, "one_line_mechanism": picked.get("justification", ""),
                                  "source_summary": "No literature source; family named for this approach.",
                                  "source_urls": []}
-    # Cheapest decisive order: your family, then blind spots (ranked), then the top herd families.
+    # Cheapest decisive order: your family, then blind spots (ranked), then the top consensus families.
     # Each family is scored on its own so a budget stop keeps everything tested so far.
     to_test = [mine] + [b for b in study["blind_spots"] if b["family"] != name] \
         + [by_name[f] for f in study["herd_map"]["top3"] if f != name and f not in blind]
     stopped_at = None
     for family in to_test:
         try:
-            ensure_family_scores(herd, task, study, [family], evaluator, k, contrast)
+            ensure_family_scores(session, task, study, [family], evaluator, k, contrast)
         except BudgetExceeded:
             stopped_at = family["family"]
             break
-    scores = load_scores(herd, task, evaluator, contrast)
+    scores = load_scores(session, task, evaluator, contrast)
     result["contrast"] = contrast
     # Each family is represented by its implementation selected on dev, and families are compared
     # on that implementation's held-out score (dev score only for external evaluators).
@@ -306,7 +306,7 @@ def check_approach(herd, task, study, approach, evaluator, k, contrast=False):
     result["complete"], result["stopped_at"] = stopped_at is None, stopped_at
     result["scored_on"] = "heldout" if evaluator.has_heldout else "dev"
     if evaluator.has_heldout and tested:
-        prior = record_heldout_use(herd, task, evaluator)
+        prior = record_heldout_use(session, task, evaluator)
         result["heldout_prior_uses"], result["exploratory"] = prior, prior > 0
     result["my_family_score"] = tested.get(name)
     result["tested"] = {f: round(s, 6) for f, s in tested.items()}
@@ -319,7 +319,7 @@ def check_approach(herd, task, study, approach, evaluator, k, contrast=False):
         entry, s = by_name.get(f) or blind.get(f) or {}, scores[f]
         return {"family": f, "kind": s["kind"], "share": s["share"], "score": tested[f],
                 "mechanism": entry.get("one_line_mechanism", ""), "source_urls": entry.get("source_urls", []),
-                "code_path": str(herd.out_dir(task) / s["best_code_path"])}
+                "code_path": str(session.out_dir(task) / s["best_code_path"])}
 
     def best_of(names):
         return min(names, key=tested.get) if evaluator.lower_is_better else max(names, key=tested.get)
@@ -327,7 +327,7 @@ def check_approach(herd, task, study, approach, evaluator, k, contrast=False):
     # Decide on quality first; rarity only explains the winner, it never overrides it.
     best = best_of(tested)
     if not evaluator.beats(tested[best], tested[name]):
-        common = result["share"] >= herd.cfg["blind_spot_max_share"]
+        common = result["share"] >= session.cfg["blind_spot_max_share"]
         return {**result, "verdict": "keep",
                 "message": "common and best, keep it" if common else "rare and best, keep it"}
     if best in blind:

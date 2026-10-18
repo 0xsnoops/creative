@@ -1,4 +1,4 @@
-"""Admission gate (herd/admission.py) and the evaluator's sandboxed perturbation mode."""
+"""Admission gate (diverge/admission.py) and the evaluator's sandboxed perturbation mode."""
 import sys
 from pathlib import Path
 

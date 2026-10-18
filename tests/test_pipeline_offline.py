@@ -118,9 +118,9 @@ def fake_world(tmp_path, monkeypatch):
 
 
 def test_map_blind_spots_and_check(fake_world):
-    herd = pipeline.Herd(progress=lambda m: None)
+    session = pipeline.Session(progress=lambda m: None)
     task = Task.resolve("online_bin_packing")
-    study = pipeline.ensure_map(herd, task)
+    study = pipeline.ensure_map(session, task)
     m = study["herd_map"]
     assert m["n_labeled"] == 6 and m["top3"][0] == "First Fit"
     assert m["families"][0]["share"] == pytest.approx(4 / 6, abs=1e-4)
@@ -138,10 +138,10 @@ def test_map_blind_spots_and_check(fake_world):
     assert (pipeline.ROOT / "results/online_bin_packing/labels_audit.csv").exists()
 
     calls_before = dict(fake_world)
-    assert pipeline.ensure_map(herd, task) == study  # cached: no new API calls
+    assert pipeline.ensure_map(session, task) == study  # cached: no new API calls
     assert fake_world == calls_before
 
-    verdict = pipeline.check_approach(herd, task, study, "first fit", Evaluator(task), k=2)
+    verdict = pipeline.check_approach(session, task, study, "first fit", Evaluator(task), k=2)
     assert verdict["verdict"] == "try_blind_spot"
     assert verdict["blind_spot"]["family"] == "Best Fit"
     scores = json.loads((pipeline.ROOT / "results/online_bin_packing/family_scores.json").read_text())
@@ -150,11 +150,11 @@ def test_map_blind_spots_and_check(fake_world):
 
 
 def test_free_text_task_without_evaluator(fake_world):
-    herd = pipeline.Herd(progress=lambda m: None)
+    session = pipeline.Session(progress=lambda m: None)
     task = Task.resolve("Write a function that packs items into bins of capacity 100.")
     assert task.name.startswith("desc-") and task.evaluator is None
-    study = pipeline.ensure_map(herd, task)
-    verdict = pipeline.check_approach(herd, task, study, "first fit", None, k=2)
+    study = pipeline.ensure_map(session, task)
+    verdict = pipeline.check_approach(session, task, study, "first fit", None, k=2)
     assert verdict["verdict"] == "untested" and verdict["family"] == "First Fit"
 
 
@@ -177,8 +177,8 @@ def call_tool(name, args):
 
 
 def test_mcp_tools(fake_world):
-    herd_map, progress = call_tool("diverge_map", {"task_description": "online_bin_packing"})
-    assert herd_map["top3"][0] == "First Fit" and herd_map["spent_usd"] > 0
+    consensus_map, progress = call_tool("diverge_map", {"task_description": "online_bin_packing"})
+    assert consensus_map["top3"][0] == "First Fit" and consensus_map["spent_usd"] > 0
     assert any(m.startswith("sample") for m in progress)
 
     spots, _ = call_tool("blind_spots", {"task_description": "online_bin_packing"})
@@ -215,7 +215,7 @@ def test_bench_operators_at_equal_budget(fake_world):
     assert by[("literature_all", 0)]["spent_cold_usd"] == pytest.approx(
         by[("literature_all", 0)]["spent_usd"] + data["herd_map_build_cost_usd"]["literature"])
     assert by[("plain", 0)]["spent_cold_usd"] == by[("plain", 0)]["spent_usd"]
-    # literature_all ignores the map: it implements every sourced family, herd ones included.
+    # literature_all ignores the map: it implements every sourced family, consensus ones included.
     lit = json.loads((bench_dir / "seed0" / "literature_all" / "run.json").read_text())
     assert lit["notes"]["families"] == ["First Fit", "Best Fit", "Harmonic"]
     # Scores are held-out scores of dev-selected candidates.
@@ -239,33 +239,33 @@ def test_bench_operators_at_equal_budget(fake_world):
 
 def test_map_is_rebuilt_when_a_prompt_changes(fake_world, monkeypatch):
     import diverge.literature as literature
-    herd = pipeline.Herd(progress=lambda m: None)
+    session = pipeline.Session(progress=lambda m: None)
     task = Task.resolve("online_bin_packing")
-    pipeline.ensure_map(herd, task)
+    pipeline.ensure_map(session, task)
     calls = dict(fake_world)
     monkeypatch.setattr(literature, "TAXONOMY_PROMPT", literature.TAXONOMY_PROMPT + "\nBe thorough.")
-    pipeline.ensure_map(herd, task)
+    pipeline.ensure_map(session, task)
     assert fake_world["llm"] > calls["llm"]  # the taxonomy was asked again
 
 
 def test_scores_take_kind_and_share_from_the_current_map(fake_world):
-    herd = pipeline.Herd(progress=lambda m: None)
+    session = pipeline.Session(progress=lambda m: None)
     task = Task.resolve("online_bin_packing")
-    study = pipeline.ensure_map(herd, task)
+    study = pipeline.ensure_map(session, task)
     families = {f["family"]: f for f in study["families"]}
-    scores = pipeline.ensure_family_scores(herd, task, study, [families["Best Fit"]], Evaluator(task), k=1)
+    scores = pipeline.ensure_family_scores(session, task, study, [families["Best Fit"]], Evaluator(task), k=1)
     assert scores["Best Fit"]["kind"] == "blind_spot" and scores["Best Fit"]["share"] == 0.0
     # Simulate a rebuilt map in which Best Fit became common.
     study["herd_map"]["top3"] = ["Best Fit"]
     study["herd_map"]["families"] = [{"family": "Best Fit", "share": 0.5, "count": 3, "sourced": True}]
     study["blind_spots"] = []
-    scores = pipeline.ensure_family_scores(herd, task, study, [], Evaluator(task), k=1)
+    scores = pipeline.ensure_family_scores(session, task, study, [], Evaluator(task), k=1)
     assert scores["Best Fit"]["kind"] == "herd" and scores["Best Fit"]["share"] == 0.5
 
 
 def test_bench_survives_an_operator_planning_failure(fake_world, monkeypatch):
     from diverge.bench import run_bench
-    pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), Task.resolve("online_bin_packing"))
+    pipeline.ensure_map(pipeline.Session(progress=lambda m: None), Task.resolve("online_bin_packing"))
 
     def broken_search(self, request, attempts=3):
         raise RuntimeError("exa: HTTP 500")
@@ -296,11 +296,11 @@ def test_external_evaluator_cmd_runs_without_secrets(fake_world, tmp_path, monke
 
 
 def test_reality_check_selects_on_dev_and_reports_heldout(fake_world):
-    herd = pipeline.Herd(progress=lambda m: None)
+    session = pipeline.Session(progress=lambda m: None)
     task = Task.resolve("online_bin_packing")
-    study = pipeline.ensure_map(herd, task)
+    study = pipeline.ensure_map(session, task)
     best_fit = next(f for f in study["families"] if f["family"] == "Best Fit")
-    s = pipeline.ensure_family_scores(herd, task, study, [best_fit], Evaluator(task), k=1)["Best Fit"]
+    s = pipeline.ensure_family_scores(session, task, study, [best_fit], Evaluator(task), k=1)["Best Fit"]
     heldout_baseline = task.baselines("heldout")["best_fit"]["score"]
     assert s["final_split"] == "heldout" and s["final_score"] == pytest.approx(heldout_baseline)
     assert s["best_score"] == pytest.approx(task.baselines()["best_fit"]["score"])  # dev
@@ -327,8 +327,8 @@ def synthetic_check(monkeypatch, tmp_path, scores):
     monkeypatch.setattr(pipeline, "load_scores", lambda *a: {
         f: {"final_score": v, "best_code_path": f"{f}.py", "kind": kinds[f], "share": 0.0}
         for f, v in scores.items()})
-    herd = pipeline.Herd(progress=lambda m: None)
-    return pipeline.check_approach(herd, Task.resolve("online_bin_packing"), study, "mine", StubEvaluator(), 1)
+    session = pipeline.Session(progress=lambda m: None)
+    return pipeline.check_approach(session, Task.resolve("online_bin_packing"), study, "mine", StubEvaluator(), 1)
 
 
 def test_diverge_check_recommends_the_best_family_not_the_first_rare_one(fake_world, monkeypatch, tmp_path):

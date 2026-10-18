@@ -1,4 +1,4 @@
-"""Behavior-based loop detection (herd.trajectory detector "behavior"), offline: real sandboxed
+"""Behavior-based loop detection (diverge.trajectory detector "behavior"), offline: real sandboxed
 fingerprints and dev scoring for online_bin_packing, no API calls. The LLM extractor, where used,
 is a fake that returns random strategy captions."""
 import random

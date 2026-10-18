@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-import diverge as herd
+import diverge as pkg
 import diverge.pipeline as pipeline
 from diverge import demo
 from diverge.llm import LLM, Ledger
@@ -27,9 +27,9 @@ RESULT = {
                                                                   "no progress after 3 attempts"],
     "herd_prevalence": 0.62,
     "overlooked_levers": [{"type": "unused_signal", "name": "history", "mechanism": "Build the rule around history.",
-                           "why": "history is used by 38/95 herd samples (40%); none of your 3 attempts use it"}],
+                           "why": "history is used by 38/95 consensus samples (40%); none of your 3 attempts use it"}],
     "recommended_switch": {"mechanism": "Build the decision rule around history.",
-                           "why": "history is used by 38/95 herd samples (40%); none of your 3 attempts use it"},
+                           "why": "history is used by 38/95 consensus samples (40%); none of your 3 attempts use it"},
     "evaluation": {"before": 4.20, "after": 3.90, "improved": True, "split": "dev"},
 }
 
@@ -79,7 +79,7 @@ def offline(monkeypatch):
         monkeypatch.setattr(httpx, name, boom)
     monkeypatch.setattr(httpx.Client, "send", boom)
     monkeypatch.setattr(LLM, "_post", boom)
-    monkeypatch.setattr(pipeline.Herd, "__init__", boom)
+    monkeypatch.setattr(pipeline.Session, "__init__", boom)
 
 
 def test_demo_prints_every_section_in_order(tmp_path, offline):
@@ -115,7 +115,7 @@ def test_demo_renders_contract_when_not_recorded(tmp_path, offline, monkeypatch)
     stub.render = lambda result, overlook=None, paraphrase=None, families=None: \
         f"VERDICT: stubbed\n{json.dumps({'loop': result['loop_detected']})}"
     monkeypatch.setitem(sys.modules, "diverge.contract", stub)
-    monkeypatch.setattr(herd, "contract", stub, raising=False)
+    monkeypatch.setattr(pkg, "contract", stub, raising=False)
     write_fixture(tmp_path, contract=None)
     _, text = capture("loop", tmp_path)
     assert 'VERDICT: stubbed\n{"loop": true}' in text
@@ -174,7 +174,7 @@ def test_escape_cli_prints_contract_after_summary(tmp_path, monkeypatch, capsys)
     (tmp_path / "paraphrase.json").write_text(json.dumps({"verdict": "stable", "mean_P": 0.1, "max_R": 0.2}))
     seen = {}
 
-    class FakeHerd:
+    class FakeSession:
         def __init__(self, budget_usd=None):
             self.ledger = Ledger(28.0, 1.0)
 
@@ -187,10 +187,10 @@ def test_escape_cli_prints_contract_after_summary(tmp_path, monkeypatch, capsys)
     stub = types.ModuleType("diverge.contract")
     stub.render = render
     monkeypatch.setitem(sys.modules, "diverge.contract", stub)
-    monkeypatch.setattr(herd, "contract", stub, raising=False)
-    monkeypatch.setattr(cli, "Herd", FakeHerd)
-    monkeypatch.setattr(herd.reality, "Evaluator", lambda *a, **k: None)
-    monkeypatch.setattr(herd.server, "escape_for_agent", lambda *a, **k: dict(RESULT))
+    monkeypatch.setattr(pkg, "contract", stub, raising=False)
+    monkeypatch.setattr(cli, "Session", FakeSession)
+    monkeypatch.setattr(pkg.reality, "Evaluator", lambda *a, **k: None)
+    monkeypatch.setattr(pkg.server, "escape_for_agent", lambda *a, **k: dict(RESULT))
     candidate = tmp_path / "cand.py"
     candidate.write_text(ATTEMPTS[0]["code"])
     args = SimpleNamespace(task="online_bin_packing", candidate=str(candidate), history=None, evaluator="",

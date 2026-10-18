@@ -1,7 +1,7 @@
 # Phase 2 live-experiment protocol (written before any live call)
 
 Branch `model-review-changes`. Implementer `google/gemini-4-argon` for every operator.
-Labeler `anthropic/claude-opus-5.5`. Every call is traced (`HERD_TRACE_DIR=results/traces/phase2-20261018`).
+Labeler `anthropic/claude-opus-5.5`. Every call is traced (`DIVERGE_TRACE_DIR=results/traces/phase2-20261018`).
 
 ## Spending
 - Hard cap: DIVERGE `budget_usd: 25.0` (counts everything in DIVERGE's cache; this experiment starts

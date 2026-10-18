@@ -50,7 +50,7 @@ def test_escape_markdown_for_every_verdict():
 
 
 def test_escape_tool_text_is_readable_and_structured_unchanged(fake_world, monkeypatch):
-    pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), Task.resolve("online_bin_packing"))
+    pipeline.ensure_map(pipeline.Session(progress=lambda m: None), Task.resolve("online_bin_packing"))
 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]

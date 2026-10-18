@@ -25,7 +25,7 @@ This run predates the rename, so the transcript shows the old tool names.
 before it:
 
 > Gains are now within noise: 0.094 → 0.085 on the tuning seeds, flat on the validation seeds.
-> I'll check HERD for a different strategy before tuning any further.
+> I'll check DIVERGE for a different strategy before tuning any further.
 
 **Calls**
 1. **Readiness tool (`diverge_status` today), no arguments.** Result: ready, with

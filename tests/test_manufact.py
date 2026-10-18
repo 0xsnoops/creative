@@ -1,4 +1,4 @@
-"""The streamable-HTTP entry (diverge_mcp_http) serves HERD's tools and guards exposure. No API calls."""
+"""The streamable-HTTP entry (diverge_mcp_http) serves DIVERGE's tools and guards exposure. No API calls."""
 import asyncio
 import socket
 import threading
@@ -36,7 +36,7 @@ def running():
 
 @pytest.fixture
 def server(running, monkeypatch):
-    monkeypatch.setenv("HERD_HTTP_TOKEN", TOKEN)  # read per request, so each test sets its own
+    monkeypatch.setenv("DIVERGE_HTTP_TOKEN", TOKEN)  # read per request, so each test sets its own
     return running
 
 
@@ -61,6 +61,6 @@ def test_rejects_missing_or_wrong_token(server):
 
 
 def test_refuses_when_unconfigured(server, monkeypatch):
-    monkeypatch.delenv("HERD_HTTP_TOKEN")
-    monkeypatch.delenv("HERD_HTTP_ALLOW_OPEN", raising=False)
+    monkeypatch.delenv("DIVERGE_HTTP_TOKEN")
+    monkeypatch.delenv("DIVERGE_HTTP_ALLOW_OPEN", raising=False)
     assert httpx.post(server, json={}).status_code == 503

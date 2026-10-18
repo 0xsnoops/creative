@@ -315,19 +315,19 @@ def test_llm_extractor_uses_the_extractor_model_and_caches(fake_world, monkeypat
         return {"choices": [{"message": {"content": f"```json\n{json.dumps(reply)}\n```"}, "finish_reason": "stop"}],
                 "usage": {"cost": 0.001, "completion_tokens": 10}}
     monkeypatch.setattr(LLM, "_post", fake_post)
-    herd = pipeline.Herd(progress=lambda m: None)
-    herd.cfg["models"]["extractor"] = MODELS[1]
-    extract = strategy.llm_extractor(herd, BIN)
+    session = pipeline.Session(progress=lambda m: None)
+    session.cfg["models"]["extractor"] = MODELS[1]
+    extract = strategy.llm_extractor(session, BIN)
     first = extract(BEST_FIT_LOOP)
     assert first == {"primary_signal": "capacity_values", "secondary_signal": None,
                      "assumptions": ["ties do not matter"], "mechanism_family": "best fit"}
     assert len(seen) == 1 and seen[0]["model"] == MODELS[1]
     prompt = seen[0]["messages"][0]["content"]
     assert BEST_FIT_LOOP in prompt and "capacity_values" in prompt and "Read the CODE" in prompt
-    assert strategy.llm_extractor(herd, BIN)(BEST_FIT_LOOP) == first and len(seen) == 1  # cached
+    assert strategy.llm_extractor(session, BIN)(BEST_FIT_LOOP) == first and len(seen) == 1  # cached
     extract(BEST_FIT_NUMPY)
     assert len(seen) == 2  # different code, different key
 
-    del herd.cfg["models"]["extractor"]
-    strategy.llm_extractor(herd, BIN)(FIRST_FIT)
-    assert seen[-1]["model"] == herd.cfg["models"]["labeler"]
+    del session.cfg["models"]["extractor"]
+    strategy.llm_extractor(session, BIN)(FIRST_FIT)
+    assert seen[-1]["model"] == session.cfg["models"]["labeler"]

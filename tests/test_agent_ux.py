@@ -1,4 +1,4 @@
-"""What a coding agent sees from HERD's MCP server, offline: the operating manual, tool descriptions,
+"""What a coding agent sees from DIVERGE's MCP server, offline: the operating manual, tool descriptions,
 the free diverge_status check, structured verdicts and structured errors. No network, no API, $0."""
 import json
 import re
@@ -156,7 +156,7 @@ def test_every_verdict_maps_to_a_next_action():
 
 
 def test_diverge_escape_returns_structured_verdict_and_next_action(fake_world, monkeypatch):
-    pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), Task.resolve(BIN))
+    pipeline.ensure_map(pipeline.Session(progress=lambda m: None), Task.resolve(BIN))
 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]
@@ -208,7 +208,7 @@ def test_unknown_family_lists_valid_names(fake_world):
 
 # ------------------------------------------------------------------ CLI: demo and preflight
 def test_demo_strategy_loop_makes_no_network_call(no_calls, monkeypatch, capsys):
-    monkeypatch.setattr(pipeline.Herd, "__init__", boom)
+    monkeypatch.setattr(pipeline.Session, "__init__", boom)
     from diverge.__main__ import main
     monkeypatch.setattr(sys, "argv", ["diverge", "demo", "strategy_loop"])
     with pytest.raises(SystemExit) as e:
@@ -232,7 +232,7 @@ def test_preflight_json(fake_world, no_calls, monkeypatch, capsys, offline):
 
 
 def test_diverge_escape_missing_key_is_structured(fake_world, no_network, monkeypatch):
-    pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), Task.resolve(BIN))
+    pipeline.ensure_map(pipeline.Session(progress=lambda m: None), Task.resolve(BIN))
     monkeypatch.setattr(LLM, "_post", REAL_POST)
     for k in SECRETS:
         monkeypatch.delenv(k, raising=False)
