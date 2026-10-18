@@ -42,6 +42,9 @@ def compact(data):
     return json.dumps(data, separators=(",", ":"), default=str)
 
 
+BUILTIN_TASKS = ("online_bin_packing", "cache_eviction")
+
+
 def failure(error, detail, next_action, missing=(), partial=None, can_continue=False):
     """A structured error an agent can act on (never contains key values)."""
     from .demo import OFFLINE_DEMO, REPO
@@ -279,6 +282,9 @@ async def herd_escape(task_description: str, current_solution: str, ctx: Context
     (oldest first). HERD scores them on the dev split, fingerprints their strategies, says whether
     they are one strategy in different code and, when they loop, implements one evidence-backed lever
     and scores it before/after (with counterexamples on tasks that support probes).
+    task_description: a built-in task's exact name (online_bin_packing, cache_eviction; then omit
+    evaluator_cmd) or free text with evaluator_cmd. evaluator_cmd runs sandboxed (no network, no writes
+    outside scratch, no .env, no nested sandbox), so make it self-contained with absolute paths.
     Needs an evaluator (evaluator_cmd, or a built-in task), OPENROUTER_API_KEY, and at least 2 valid
     scored attempts for any verdict but inconclusive. It does not build a herd map: levers come from
     the task's cached overlook study and blind spots (built-in tasks); without them a loop may end in
@@ -305,6 +311,19 @@ async def herd_escape(task_description: str, current_solution: str, ctx: Context
         result = escape_for_agent(herd, task, current_solution, previous_attempts or [], evaluator, k)
         result["attempts"] = evaluator.attempts(codes)
         result["lower_is_better"] = evaluator.lower_is_better
+        if result["attempts"] and not any(a["valid"] for a in result["attempts"]):
+            # Every attempt failed to score: the evaluator (not the strategy) is the problem, so
+            # "get more scored attempts" would send the agent in a loop.
+            first = next((a["error"] for a in result["attempts"] if a["error"]), None) or "no JSON result"
+            builtin = [n for n in BUILTIN_TASKS if n in task_description and n != task_description.strip()]
+            hint = (f" This looks like the built-in task {builtin[0]!r}: pass task_description={builtin[0]!r} "
+                    f"exactly and omit evaluator_cmd." if builtin else "")
+            return failure("evaluator_failed", f"none of the {len(result['attempts'])} attempts scored: {first[:600]}", (
+                "HERD could not score any attempt, so it cannot judge the strategy." + hint + " An evaluator_cmd runs "
+                "inside HERD's sandbox: no network, no writes outside a scratch directory, no reading .env or home "
+                "secrets, and it cannot start another sandbox; use a self-contained command with absolute paths. "
+                "Check it by scoring one file yourself, then call herd_escape again."),
+                ["working evaluator"], can_continue=True)
         out = herd.out_dir(task)
         loaded.update(overlook=read_json(out / "overlook.json"), paraphrase=read_json(out / "paraphrase.json"),
                       families=[*(read_json(out / "blind_spots.json") or []), *(read_json(out / "families.json") or [])])
@@ -334,7 +353,8 @@ class RecordingEvaluator:
         out = []
         for i, code in enumerate(codes):
             r = self._seen.get(f"{hashlib.sha256(code.encode()).hexdigest()[:12]}.py") or {}
-            out.append({"id": f"attempt-{i}", "score": r.get("score"), "valid": r.get("valid")})
+            out.append({"id": f"attempt-{i}", "score": r.get("score"), "valid": r.get("valid"),
+                        "error": (r.get("detail") or {}).get("error") if r and not r.get("valid") else None})
         return out
 
 

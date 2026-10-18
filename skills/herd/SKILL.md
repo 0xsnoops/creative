@@ -38,8 +38,10 @@ repo's `.env`. To see HERD work offline at $0: `uv --directory <herd repo> run p
 | `herd_map`, `blind_spots`, `reality_check` | lower-level research primitives (what models converge on, what they miss, scoring one family). Use only when asked for that research. | paid |
 
 `evaluator_cmd` is run as `<cmd> <candidate.py>`, prints `{"valid": bool, "score": number}` as
-its last JSON line, and needs absolute paths. Registered task names (`online_bin_packing`,
-`cache_eviction`) bring their own prompt and evaluator. Without MCP, the CLI equivalents are
+its last JSON line, and needs absolute paths. It runs inside HERD's sandbox (no network, no writes
+outside a scratch directory, no reading `.env`, no nested sandbox), so it must be self-contained.
+If the task is a registered one (`online_bin_packing`, `cache_eviction`), pass exactly that name as
+`task_description` and omit `evaluator_cmd`: HERD uses its own prompt and evaluator. Without MCP, the CLI equivalents are
 `python -m herd preflight` and `python -m herd escape --task ... --candidate ... --history ... --evaluator "..."`.
 
 ## Act on the verdict
