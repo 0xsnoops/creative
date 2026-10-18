@@ -96,6 +96,8 @@ def main():
     f.add_argument("task")
     pp = sub.add_parser("paraphrase", help="Step 0: does paraphrasing the prompt move the herd map?")
     pp.add_argument("task")
+    ov = sub.add_parser("overlook", help="Step 1: overlooked inputs, assumptions, grid gaps, minority and latent ideas")
+    ov.add_argument("task")
     sub.add_parser("spend", help="show estimated spend so far")
     sub.add_parser("serve", help="run the MCP server on stdio")
     args = parser.parse_args()
@@ -108,6 +110,13 @@ def main():
                                           args.operators.split(",") if args.operators else None,
                                           allow_small_map=args.allow_small_map, n_per_model=args.n)
         print((bench_dir / "bench.md").read_text())
+    elif args.command == "overlook":
+        from .overlook import build
+        result = build(Herd(), Task.resolve(args.task))
+        print(json.dumps({"inputs": [(r["input"], r["share"], r["overlooked"]) for r in result["inputs"]],
+                          "shared_assumptions": [(a["assumption"], a["kind"]) for a in result["assumptions"]["assumptions"]
+                                                 if a["shared"]],
+                          "new_spend_usd": result["new_spend_usd"]}, indent=2))
     elif args.command == "paraphrase":
         from .paraphrase import run as run_paraphrase
         result = run_paraphrase(Herd(), Task.resolve(args.task))
