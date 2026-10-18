@@ -721,3 +721,421 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
     out["admitted"] = [{k: v for k, v in c.items() if k != "code"} for c in out["admitted"]]
     out["spent_usd"] = herd.ledger.spent_this_run
     return out
+
+
+# ================================================================ escape v3
+# Diverge -> critic -> deepen. The failure summary is first stripped of incidental details of the
+# stuck attempts (anchors) while hard task constraints are kept only with a verbatim quote from the
+# task. Each sketch is proposed in its own isolated call on its own lever (no other sketch, no
+# scores, no code visible); a separate critic model scores them, trap / restated sketches are
+# dropped, and only the top few are deepened, implemented (fresh context), admitted and dev-scored.
+ANCHOR_MARKER = "Remove anchoring details"
+ANCHOR_TEMPLATE = ANCHOR_MARKER + """ from a summary of an agent's stuck attempts at the task below.
+
+Task statement:
+<<<
+{task}
+>>>
+
+Summary of the stuck attempts (dev split):
+<<<
+{summary}
+>>>
+
+Rewrite the summary so that a fresh designer is not anchored on how the attempts were built: remove
+parameter values, constants, data structures, variable or function names, and the names of the
+attempts' particular tricks. Keep scores, which dev instances are hardest, and what kind of failure
+was observed, in neutral words.
+Separately list the hard constraints of the task that any solution must respect. For each one,
+copy the exact sentence fragment from the task statement that imposes it (verbatim, no paraphrase);
+leave out anything the task statement does not literally require.
+Reply with only a JSON object:
+{{"summary": "...", "constraints": [{{"constraint": "...", "quote": "exact text from the task"}}]}}"""
+
+SKETCH3_MARKER = "Propose one mechanism"
+SKETCH3_TEMPLATE = """{task}
+
+---
+""" + SKETCH3_MARKER + """ for a fresh solution. A previous line of work got stuck; what is known
+about it is summarised below (its code is deliberately not shown):
+{summary}
+
+Hard requirements of the task (quoted from it):
+{constraints}
+
+Build your mechanism on this one starting point: {lever} ({description}).
+Why this starting point: {why}
+
+Describe a single mechanism in plain language (no code) whose decisions depend on {lever}, so that
+changing {lever} changes which option is chosen. Aim for a genuinely different way of deciding, not
+a re-weighting of a familiar rule. Reply with only a JSON object:
+{{"name": "...", "state": "what is kept across calls, or none", "decision_rule": "how each decision is made",
+"uses_lever": "how the decision depends on {lever}"}}"""
+
+CRITIC_MARKER = "Critique candidate mechanisms"
+CRITIC_TEMPLATE = CRITIC_MARKER + """ for the task below. You are a reviewer, not their author.
+
+Task statement:
+<<<
+{task}
+>>>
+
+The strategy a previous line of work got stuck on: {stuck}
+
+Candidate mechanisms:
+{sketches}
+
+For each candidate give integer scores 0-10: "viability" (can it be implemented correctly within the
+task's interface and rules), "fit" (does it exploit structure this task actually has), "distance" (how
+different its decision signal and rule are from the stuck strategy). Name one concrete "strength" and
+one concrete "trap" (a specific way it would fail or quietly degrade). Set "is_trap" true if the trap
+is likely to make it no better than the stuck strategy or invalid, and "restates_stuck" true if it is
+the stuck strategy re-weighted, re-scaled, re-tuned or renamed. Reply with only a JSON object:
+{{"scores": [{{"index": 0, "viability": 0, "fit": 0, "distance": 0, "strength": "...", "trap": "...",
+"is_trap": false, "restates_stuck": false}}]}}"""
+
+DEEPEN_MARKER = "Work out this mechanism"
+DEEPEN_TEMPLATE = """{task}
+
+---
+""" + DEEPEN_MARKER + """ before it is implemented (no earlier code is shown on purpose):
+Name: {name}
+State kept across calls: {state}
+Decision rule: {decision_rule}
+How the decision depends on {lever}: {uses_lever}
+A reviewer's concern: {trap}
+
+Hard requirements of the task (quoted from it):
+{constraints}
+
+Make the mechanism precise: what exactly is computed at each decision and from which inputs, the
+single biggest risk to its score or validity and how the design avoids it, and the first concrete
+step an implementation should take. Reply with only a JSON object:
+{{"mechanism": "...", "main_risk": "...", "first_step": "..."}}"""
+
+IMPLEMENT3_MARKER = "Implement this worked-out mechanism"
+ADMISSION_FEEDBACK = """
+
+---
+Your previous implementation of this mechanism was rejected before scoring, because a behavioral
+check on fixed decision states found:
+{reasons}
+Write a new implementation in which the decisions really follow the mechanism above and really
+depend on {lever}, so that they differ from the stuck attempts' decisions."""
+
+IMPLEMENT3_TEMPLATE = """{task}
+
+---
+""" + IMPLEMENT3_MARKER + """ (a fresh design; no earlier code is shown on purpose):
+Name: {name}
+State kept across calls: {state}
+Mechanism: {mechanism}
+Main risk to avoid: {main_risk}
+First step: {first_step}
+
+The decisions must materially depend on {lever} ({description}): changing it must change which
+option is chosen.
+
+Hard requirements of the task (quoted from it):
+{constraints}
+
+Write a complete solution that implements this mechanism faithfully, keeping the task's interface
+and rules. Reply with your complete solution in a single Python code block."""
+
+CRITIC_AXES = ("viability", "fit", "distance")
+
+
+def _norm(text):
+    return " ".join(str(text).split())
+
+
+def anchor_strip(llm, model, task, summary, seed=0, max_tokens=4000):
+    """(stripped summary, kept constraints, dropped constraints). Constraints are kept only when
+    their quote occurs verbatim (whitespace-normalised) in the task statement. Raises on failure."""
+    from .llm import ask_json
+    reply = ask_json(llm, model, ANCHOR_TEMPLATE.format(task=task.prompt, summary=summary), max_tokens=max_tokens,
+                     key=f"escape_v3:anchor:{seed}", required=("summary", "constraints"))
+    stripped = reply.get("summary")
+    if not isinstance(stripped, str) or not stripped.strip():
+        raise ValueError("anchor strip returned no summary")
+    prompt, kept, dropped = _norm(task.prompt), [], []
+    for c in reply.get("constraints") or []:
+        if not isinstance(c, dict):
+            continue
+        quote = _norm(c.get("quote") or "")
+        (kept if quote and quote in prompt else dropped).append({"constraint": str(c.get("constraint") or ""),
+                                                                 "quote": quote})
+    return stripped.strip(), kept, dropped
+
+
+def lever_pool(diagnosis, trajectory, overlook, families=None):
+    """Levers for v3 sketches, in order: levers() (overlooked unused inputs, assumptions,
+    minority and blind-spot families), then other inputs the attempts never use, then rarely
+    used overlook inputs (share <= 0.5), rarest first."""
+    pool = [dict(lv) for lv in levers(diagnosis, trajectory, overlook, families)]
+    names = {str(lv["name"]) for lv in pool}
+    unused = unused_inputs(trajectory, overlook)
+    rows = {r["input"]: r for r in (overlook or {}).get("inputs", []) if r.get("input")}
+    share = lambda n: rows.get(n, {}).get("share") if rows.get(n, {}).get("share") is not None else 1.0
+    rare = [n for n in rows if n not in unused and share(n) <= 0.5]
+    for name in sorted(unused, key=lambda n: (share(n), n)) + sorted(rare, key=lambda n: (share(n), n)):
+        if name not in names:
+            names.add(name)
+            pool.append(_lever_v2(name, overlook))
+    return pool
+
+
+def _constraint_lines(kept, overlook):
+    quotes = list(dict.fromkeys([c["quote"] for c in kept] + hard_constraints(overlook)))
+    return "\n".join(f'- "{q}"' for q in quotes) or "- (none recorded beyond the interface and rules above)"
+
+
+def sketch_prompt_v3(task, summary, constraints, lever):
+    description, _ = _lever_text(lever)
+    return SKETCH3_TEMPLATE.format(task=task.prompt, summary=summary, constraints=constraints, lever=lever["name"],
+                                   description=description, why=lever.get("why") or "")
+
+
+def critic_prompt(task, stuck, sketches):
+    lines = "\n".join(f"[{i}] {s.get('name', '')}\n    state: {s.get('state', '')}\n    decision rule: "
+                      f"{s.get('decision_rule', '')}\n    uses {s['lever']}: {s.get('uses_lever', '')}"
+                      for i, s in enumerate(sketches))
+    return CRITIC_TEMPLATE.format(task=task.prompt, stuck=stuck, sketches=lines)
+
+
+def _score(v):
+    try:
+        return max(0.0, min(10.0, float(v)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _critic_model(models):
+    impl = models["implementer"]
+    for m in (models.get("labeler"), models.get("extractor")):
+        if m and m != impl:
+            return m
+    return models.get("labeler") or models.get("extractor") or impl
+
+
+def escape_v3(herd, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
+              n_sketches=5, n_deepen=2, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=True):
+    """Escape v3: anchor-stripped failure summary -> n_sketches isolated sketches, each on its own
+    lever -> critic (a different model) drops traps / restatements and ranks -> deepen the top
+    n_deepen -> implement (fresh context), admit (up to max_resample resamples) -> best on dev.
+    Per-branch failures are logged and skipped."""
+    from .llm import ask_json
+    events = []
+    calls = {"implementer": 0, "extractor": 0, "critic": 0}
+
+    def note(event):
+        events.append(event)
+        if log:
+            log(event)
+
+    def reject(stage, sketch, reason, **extra):
+        out["rejections"].append({"stage": stage, "sketch": sketch, "reasons": [sandbox.redact(str(reason))[:300]],
+                                  **extra})
+        note(out["rejections"][-1])
+
+    attempts = [_attempt(a, i) for i, a in enumerate([*previous_attempts, current_solution])]
+    score_dir = herd.out_dir(task) / "escape_v3" / "attempts"
+    for a in attempts:  # scored on dev (sandboxed) when the score or the per-case detail is missing
+        if a.get("code") and (a.get("score") is None or not a.get("dev_detail")):
+            score_dir.mkdir(parents=True, exist_ok=True)
+            path = score_dir / f"{hashlib.sha256(a['code'].encode()).hexdigest()[:12]}.py"
+            path.write_text(a["code"])
+            result = evaluator(path)
+            a.update(score=result["score"] if result["valid"] else None, valid=result["valid"],
+                     dev_detail=dev_detail(result))
+    current = attempts[-1]
+    report = _analyze(task, attempts, evaluator, extract)
+    diagnosis = diagnose(task, report, overlook)
+    pool = [_lever_v2(lever, overlook)] if lever is not None else lever_pool(diagnosis, report, overlook, families)
+    before = current.get("score")
+    models = herd.cfg["models"]
+    implementer = models["implementer"]
+    extractor = models.get("extractor") or models.get("labeler") or implementer
+    critic = _critic_model(models)
+    out = {"version": 3, "lever": pool[0] if pool else None, "levers": pool, "failure_summary": None,
+           "anchor_strip": {"constraints": [], "dropped": [], "fallback": False, "model": extractor},
+           "sketches": [], "critic": {"model": critic, "scores": []}, "kept_sketches": [], "deepened": [],
+           "rejections": [], "admitted": [], "candidate": None, "candidate_path": None,
+           "evaluation": {"before": before, "after": None, "improved": False, "split": "dev"},
+           "calls": calls, "diagnosis": diagnosis, "analysis": report, "action": diagnosis["action"], "log": events}
+    if not pool:
+        out["failure_summary"] = failure_summary(attempts, diagnosis, evaluator)
+        note({"stage": "lever", "event": "no lever available"})
+        out["spent_usd"] = herd.ledger.spent_this_run
+        return out
+
+    impl_llm = _Counted(herd.llm, calls, "implementer")
+    ext_llm, critic_llm = _Counted(herd.llm, calls, "extractor"), _Counted(herd.llm, calls, "critic")
+    max_tokens = herd.cfg["reality_check"]["max_tokens"]
+
+    # a. anchor strip
+    summary_v2 = failure_summary(attempts, diagnosis, evaluator)
+    try:
+        summary, kept_c, dropped_c = anchor_strip(ext_llm, extractor, task, summary_v2, seed=seed)
+        out["anchor_strip"].update(constraints=kept_c, dropped=dropped_c, original=summary_v2)
+        note({"stage": "anchor_strip", "kept": len(kept_c), "dropped": len(dropped_c)})
+    except BudgetExceeded:
+        raise
+    except Exception as e:
+        summary, kept_c = summary_v2, []
+        out["anchor_strip"].update(fallback=True, error=sandbox.redact(str(e))[:300])
+        note({"stage": "anchor_strip", "event": "fallback to v2 summary", "error": out["anchor_strip"]["error"]})
+    out["failure_summary"] = summary
+    constraints = _constraint_lines(kept_c, overlook)
+
+    # b. diverge: isolated sketches, one lever each
+    prompts = []
+    for i in range(n_sketches):
+        lv = pool[i % len(pool)]
+        prompt = sketch_prompt_v3(task, summary, constraints, lv)
+        prompts.append(prompt)
+        try:
+            s = ask_json(impl_llm, implementer, prompt, max_tokens=max_tokens, key=f"escape_v3:sketch:{seed}:{i}",
+                         temperature=1.0, required=("name", "decision_rule"))
+        except BudgetExceeded:
+            raise
+        except Exception as e:
+            reject("sketch", None, e, index=i, lever=lv["name"])
+            continue
+        out["sketches"].append({k: str(s.get(k) or "") for k in ("name", "state", "decision_rule", "uses_lever")}
+                               | {"index": i, "lever": lv["name"]})
+    out["sketch_prompts"] = prompts
+
+    # c. critic: one call over all sketches, a different model when available
+    sketches = out["sketches"]
+    ranked = []
+    if sketches:
+        try:
+            reply = ask_json(critic_llm, critic, critic_prompt(task, diagnosis["shared_cause"], sketches),
+                             max_tokens=max_tokens, key=f"escape_v3:critic:{seed}", required=("scores",))
+            by_pos = {}
+            for r in reply.get("scores") or []:
+                if isinstance(r, dict) and isinstance(r.get("index"), int) and 0 <= r["index"] < len(sketches):
+                    by_pos[r["index"]] = r
+            for pos, s in enumerate(sketches):
+                r = by_pos.get(pos)
+                if r is None:
+                    reject("critic", s["name"], "critic gave no score", index=s["index"])
+                    continue
+                row = {"index": s["index"], "sketch": s["name"], **{k: _score(r.get(k)) for k in CRITIC_AXES},
+                       "strength": str(r.get("strength") or ""), "trap": str(r.get("trap") or ""),
+                       "is_trap": r.get("is_trap") is True, "restates_stuck": r.get("restates_stuck") is True}
+                row["total"] = sum(row[k] for k in CRITIC_AXES)
+                out["critic"]["scores"].append(row)
+                if row["is_trap"] or row["restates_stuck"]:
+                    why = "restates the stuck strategy" if row["restates_stuck"] else f"trap: {row['trap']}"
+                    reject("critic", s["name"], why, index=s["index"])
+                    continue
+                ranked.append((row["total"], -pos, {**s, "critic": row}))
+        except BudgetExceeded:
+            raise
+        except Exception as e:  # no critique: keep every sketch, in proposal order
+            out["critic"]["error"] = sandbox.redact(str(e))[:300]
+            note({"stage": "critic", "event": "critic failed; sketches kept unranked", "error": out["critic"]["error"]})
+            ranked = [(0.0, -pos, {**s, "critic": None}) for pos, s in enumerate(sketches)]
+    kept = [s for _, _, s in sorted(ranked, key=lambda t: (t[0], t[1]), reverse=True)]
+    out["kept_sketches"] = kept
+
+    # d. deepen the top n_deepen, implement, admit, score on dev
+    levers_by_name = {str(lv["name"]): lv for lv in pool}
+    code_dir = herd.out_dir(task) / "escape_v3"
+    code_dir.mkdir(parents=True, exist_ok=True)
+    stuck_codes = [a["code"] for a in attempts if a.get("code")]
+    impl_prompts = []
+    for s in kept[:n_deepen]:
+        lv = levers_by_name[s["lever"]]
+        description, _ = _lever_text(lv)
+        try:
+            d = ask_json(impl_llm, implementer, DEEPEN_TEMPLATE.format(
+                task=task.prompt, name=s["name"], state=s["state"] or "none", decision_rule=s["decision_rule"],
+                lever=lv["name"], uses_lever=s["uses_lever"], trap=((s.get("critic") or {}).get("trap") or "none given"),
+                constraints=constraints), max_tokens=max_tokens, key=f"escape_v3:deepen:{seed}:{s['index']}",
+                required=("mechanism", "main_risk", "first_step"))
+        except BudgetExceeded:
+            raise
+        except Exception as e:
+            reject("deepen", s["name"], e, index=s["index"])
+            continue
+        deep = {"sketch": s["name"], "index": s["index"], "lever": lv["name"],
+                **{k: str(d.get(k) or "") for k in ("mechanism", "main_risk", "first_step")}}
+        out["deepened"].append(deep)
+        note({"stage": "deepened", "sketch": s["name"], "lever": lv["name"]})
+        impl_prompt = IMPLEMENT3_TEMPLATE.format(task=task.prompt, name=s["name"], state=s["state"] or "none",
+                                                 mechanism=deep["mechanism"], main_risk=deep["main_risk"],
+                                                 first_step=deep["first_step"], lever=lv["name"],
+                                                 description=description, constraints=constraints)
+        impl_prompts.append(impl_prompt)
+        feedback = ""  # P2: why the previous candidate was rejected, so a resample is not blind
+        for attempt in range(max_resample + 1):
+            base = {"sketch": s["name"], "index": s["index"], "attempt": attempt}
+            prompt = impl_prompt + feedback
+            if feedback:
+                impl_prompts.append(prompt)
+            try:
+                entry = impl_llm.chat(implementer, [{"role": "user", "content": prompt}], temperature=1.0,
+                                      max_tokens=max_tokens, sample_idx=f"escape_v3:impl:{seed}:{s['index']}:{attempt}")
+                code = extract_code(message_text(entry), task.entrypoint)
+                if code is None:
+                    raise ValueError("no code in reply")
+            except BudgetExceeded:
+                raise
+            except Exception as e:
+                reject("implement", s["name"], e, index=s["index"], attempt=attempt)
+                continue
+            verdict = _admit(task, code, stuck_codes, lv["name"])
+            if not verdict.get("admitted"):
+                out["rejections"].append({"stage": "admission", **base, "reasons": list(verdict.get("reasons") or []),
+                                          "disagreement": verdict.get("disagreement"),
+                                          "sensitivity": verdict.get("sensitivity"),
+                                          "perturbation": verdict.get("perturbation")})
+                note(out["rejections"][-1])
+                if feedback_on_reject:
+                    feedback = ADMISSION_FEEDBACK.format(reasons="\n".join(
+                        f"- {r}" for r in (verdict.get("reasons") or ["not admitted"])), lever=lv["name"])
+                continue
+            path = code_dir / f"{slug(str(lv['name']))}-{seed}-{s['index']}-{attempt}.py"
+            path.write_text(code)
+            try:
+                result = evaluator(path)  # dev split only
+            except BudgetExceeded:
+                raise
+            except Exception as e:
+                reject("evaluate", s["name"], e, index=s["index"], attempt=attempt)
+                break
+            error = (result.get("detail") or {}).get("error")
+            admitted = {**base, "lever": lv["name"], "path": str(path), "valid": result["valid"],
+                        "score": result["score"] if result["valid"] else None,
+                        "disagreement": verdict.get("disagreement"), "sensitivity": verdict.get("sensitivity"),
+                        "error": sandbox.redact(str(error))[:500] if error else None, "code": code}
+            out["admitted"].append(admitted)
+            note({"stage": "admitted", **{k: v for k, v in admitted.items() if k != "code"}})
+            break
+    out["implementation_prompts"] = impl_prompts
+
+    valid = [c for c in out["admitted"] if c["valid"] and c["score"] is not None]
+    if valid:
+        top = evaluator.best([c["score"] for c in valid])
+        best = next(c for c in valid if c["score"] == top)
+        out.update(candidate=best["code"], candidate_path=best["path"], lever=levers_by_name[best["lever"]])
+        out["evaluation"] = {"before": before, "after": best["score"],
+                             "improved": before is None or evaluator.beats(best["score"], before), "split": "dev"}
+    out["admitted"] = [{k: v for k, v in c.items() if k != "code"} for c in out["admitted"]]
+    out["spent_usd"] = herd.ledger.spent_this_run
+    return out
+
+
+MODES = {"v1": escape, "v2": escape_v2, "v3": escape_v3}
+DEFAULT_MODE = "v2"
+
+
+def run_escape(mode=DEFAULT_MODE, *args, **kwargs):
+    """Run escape version `mode` ("v1", "v2" or "v3"); keyword arguments the chosen version does
+    not take (e.g. lever/seed for v1, n_sketches for v2) are dropped."""
+    fn = MODES[mode]
+    params = inspect.signature(fn).parameters
+    return fn(*args, **{k: v for k, v in kwargs.items() if k in params})
