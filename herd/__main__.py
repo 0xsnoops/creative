@@ -94,6 +94,8 @@ def main():
     b.add_argument("--allow-small-map", action="store_true", help="run blind-spot operators on a smaller map")
     f = sub.add_parser("fingerprints", help="behavioral fingerprints of a task's map samples (bin packing)")
     f.add_argument("task")
+    pp = sub.add_parser("paraphrase", help="Step 0: does paraphrasing the prompt move the herd map?")
+    pp.add_argument("task")
     sub.add_parser("spend", help="show estimated spend so far")
     sub.add_parser("serve", help="run the MCP server on stdio")
     args = parser.parse_args()
@@ -106,6 +108,10 @@ def main():
                                           args.operators.split(",") if args.operators else None,
                                           allow_small_map=args.allow_small_map, n_per_model=args.n)
         print((bench_dir / "bench.md").read_text())
+    elif args.command == "paraphrase":
+        from .paraphrase import run as run_paraphrase
+        result = run_paraphrase(Herd(), Task.resolve(args.task))
+        print(json.dumps({k: v for k, v in result.items() if not k.endswith("distributions")}, indent=2))
     elif args.command == "fingerprints":
         fingerprints_cmd(args.task)
     elif args.command == "spend":
