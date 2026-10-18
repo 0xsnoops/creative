@@ -35,8 +35,10 @@ reality_check:
 bench:
   budget_usd_per_operator: 0.5  # every operator gets the same budget per repeat
   repeats: 3                    # each repeat uses a different seed (separate cache keys)
-  max_candidates: 30            # per operator per repeat
-  operators: [plain, verbalized, adhd_frames, blind_spot, blind_spot_contrast, blind_spot_contrast_random,
+  max_candidates: 12            # per operator per repeat (docs/PREREGISTRATION.md)
+  # The preregistered cache_eviction set. hot, verbalized and transplant still exist and run with
+  # --operators, but are not in the Phase 2 benchmark (see docs/PREREGISTRATION.md).
+  operators: [plain, adhd_frames, blind_spot, blind_spot_contrast, blind_spot_contrast_random,
               blind_spot_feedback, blind_spot_feedback_sham, literature_all, literature_random]
   hot_temperatures: [2.0, 1.6, 1.3]  # tried highest first; falls back to 1.0
   hot_calibration_samples: 2         # a temperature passes if at least half are valid code

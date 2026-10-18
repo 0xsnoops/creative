@@ -196,9 +196,11 @@ def test_mcp_budget_cap(fake_world):
 
 def test_bench_operators_at_equal_budget(fake_world):
     from herd.bench import run_bench
-    table, verdict, bench_dir = run_bench("online_bin_packing", budget_usd=0.25, repeats=2,
+    # Explicit operators: this test checks these operators' behavior, independent of config.yaml.
+    operators = ["plain", "hot", "verbalized", "blind_spot", "literature_all", "transplant"]
+    table, verdict, bench_dir = run_bench("online_bin_packing", budget_usd=0.25, repeats=2, operators=operators,
                                           progress=lambda m: None, allow_small_map=True)
-    assert set(table) == {"plain", "hot", "verbalized", "blind_spot", "literature_all", "transplant"}
+    assert set(table) == set(operators)
     data = json.loads((bench_dir / "bench.json").read_text())
     for r in data["per_run"]:
         assert 0 < r["spent_usd"] <= 0.25 and r["n_candidates"] > 0
@@ -225,7 +227,8 @@ def test_bench_operators_at_equal_budget(fake_world):
     assert (bench_dir / "bench.png").stat().st_size > 10_000 and "## Verdict" in (bench_dir / "bench.md").read_text()
 
     calls = dict(fake_world)
-    table_again, _, _ = run_bench("online_bin_packing", budget_usd=0.25, repeats=2, progress=lambda m: None, allow_small_map=True)
+    table_again, _, _ = run_bench("online_bin_packing", budget_usd=0.25, repeats=2, operators=operators,
+                                  progress=lambda m: None, allow_small_map=True)
     assert fake_world == calls  # all cached
     assert table_again == table  # cached reruns are billed the same, so they stop in the same place
 
