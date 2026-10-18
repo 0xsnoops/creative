@@ -11,7 +11,8 @@ def test_model_ids_and_role_mapping():
     assert anthropic_model_id("google/gemini-4-argon") is None
     m = anthropic_only_models({"samplers": ["openai/x", "anthropic/claude-opus-5.5"], "implementer": "google/g",
                                "extractor": "anthropic/claude-haiku-5.5", "labeler": "anthropic/claude-opus-5.5"})
-    assert m["samplers"] == ["anthropic/claude-opus-5.5"] and m["implementer"].startswith("anthropic/")
+    assert m["samplers"] == ["openai/x", "anthropic/claude-opus-5.5"]  # unchanged: keys the cached maps
+    assert m["implementer"].startswith("anthropic/")
     assert all(str(v).startswith("anthropic/") for k, v in m.items() if k != "samplers")
 
 

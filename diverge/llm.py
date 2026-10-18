@@ -26,9 +26,14 @@ ANTHROPIC_DEFAULTS = {"samplers": ["anthropic/claude-sonnet-5.5", "anthropic/cla
 
 
 def anthropic_only_models(models):
-    """The configured models with every non-Anthropic role replaced by a Claude model."""
+    """The configured models with every single-model role (implementer, extractor, labeler) replaced
+    by a Claude model when it is not one. The samplers list is left as configured: it only builds new
+    consensus maps and keys the cached ones, so changing it would trigger a rebuild; a non-Claude
+    sampler call fails before any network call."""
     out = dict(models)
     for role, default in ANTHROPIC_DEFAULTS.items():
+        if role == "samplers":
+            continue
         value = models.get(role)
         if isinstance(value, list):
             kept = [m for m in value if m.startswith("anthropic/")]
