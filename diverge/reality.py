@@ -28,6 +28,23 @@ Background: {source_summary}
 Implement this approach faithfully and make it as strong as you can within the family.
 Reply with your complete solution in a single Python code block."""
 
+# Hybrid-allowed variant (blind_spot_hybrid and friends). The family is the core mechanism, but
+# borrowing from other mechanisms is welcome; the task interface stays as the task states it.
+# IMPLEMENT_TEMPLATE itself is untouched so that cached runs replay byte for byte.
+HYBRID_TEMPLATE = """{task}
+
+---
+Build your solution around this family of approaches:
+
+Family: {family}
+Mechanism: {mechanism}
+Background: {source_summary}
+
+Make this family the core mechanism of your solution. You may add components from other mechanisms (a second signal, a small auxiliary structure, an admission or tie-break rule borrowed from elsewhere) wherever they make the solution stronger: a hybrid is welcome as long as the family above stays at its heart. Keep the task's interface exactly as the task states it.
+Reply with your complete solution in a single Python code block."""
+
+HYBRID_MARKER = "Make this family the core mechanism"
+
 
 def dev_detail(result):
     """Evaluator detail worth keeping from a dev run: per-instance results for valid code, the
@@ -109,6 +126,18 @@ def implementation_prompt(task, family, extra=""):
         marker = "Implement this approach faithfully"
         head, tail = prompt.rsplit(marker, 1)
         prompt = f"{head}{extra.strip()}\n\n{marker}{tail}"
+    return prompt
+
+
+def hybrid_prompt(task, family, extra=""):
+    """HYBRID_TEMPLATE filled in the same way as implementation_prompt; extra goes right before
+    the final instruction."""
+    prompt = HYBRID_TEMPLATE.format(task=task.prompt, family=family["family"],
+                                    mechanism=family["one_line_mechanism"],
+                                    source_summary=family["source_summary"])
+    if extra:
+        head, tail = prompt.rsplit(HYBRID_MARKER, 1)
+        prompt = f"{head}{extra.strip()}\n\n{HYBRID_MARKER}{tail}"
     return prompt
 
 

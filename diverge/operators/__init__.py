@@ -128,8 +128,8 @@ def run_jobs(ctx, jobs):
 
 
 def registry():
-    from . import (adhd_frames, blind_spot, blind_spot_contrast, blind_spot_feedback, hot, literature_all,
-                   literature_random, plain, transplant, verbalized)
+    from . import (adhd_frames, blind_spot, blind_spot_contrast, blind_spot_directions, blind_spot_feedback,
+                   blind_spot_hybrid, hot, literature_all, literature_random, plain, transplant, verbalized)
     return {"plain": plain.jobs, "hot": hot.jobs, "verbalized": verbalized.jobs,
             "blind_spot": blind_spot.jobs, "literature_all": literature_all.jobs,
             "literature_random": literature_random.jobs, "transplant": transplant.jobs,
@@ -137,6 +137,9 @@ def registry():
             "blind_spot_contrast_random": blind_spot_contrast.random_jobs,
             "blind_spot_feedback": blind_spot_feedback.jobs,
             "blind_spot_feedback_sham": blind_spot_feedback.sham_jobs,
+            "blind_spot_hybrid": blind_spot_hybrid.jobs,
+            "blind_spot_directions": blind_spot_directions.jobs,
+            "blind_spot_directions_hybrid": blind_spot_directions.hybrid_jobs,
             "adhd_frames": adhd_frames.jobs}
 
 
