@@ -21,7 +21,8 @@ plateau.at_reference is True. The numbers in that text come from result["plateau
 from .trajectory import STALL
 
 EPS = 0.005
-RESCUE_FACT = "preliminary rescue test: 0/3 such states rescued by any method"
+RESCUE_FACT = ("preliminary rescue tests, n = 4: in round 1 no method beat a best-fit plateau; in round 2 "
+               "fresh-context escape pipelines did, on 2 of 3 such states")
 APPLIES_TO = ("escape", "repair")
 
 
@@ -81,9 +82,16 @@ def evidence_item(result, verdict):
     p = result["plateau"]
     relation = "equals" if p["gap"] == 0 else f"matches (within {p['eps']:.1%})"
     return {"claim": f"best attempt {_num(p['best_attempt'])} {relation} the best known baseline {p['reference']} "
-                     f"{_num(p['reference_score'])} on {p['split']}; more variations of this framing rarely help "
-                     f"({RESCUE_FACT})",
+                     f"{_num(p['reference_score'])} on {p['split']}",
             "class": "MEASURED", "detail": {"gap": p["gap"], "eps": p["eps"]}}
+
+
+def hypothesis_item(result, verdict):
+    """The inference drawn from the plateau, kept separate from the measurement: HYPOTHESIZED."""
+    if not applies(result, verdict):
+        return None
+    return {"claim": f"more local variations of this framing are unlikely to beat it; a fresh-context escape or a "
+                     f"reframing is the better bet ({RESCUE_FACT})", "class": "HYPOTHESIZED"}
 
 
 def action_extension(result, verdict):
