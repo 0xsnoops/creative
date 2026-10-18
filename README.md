@@ -8,20 +8,69 @@ strategy worth testing.
 
 > Different code isn't always different thinking.
 
+Program-search systems ask a different core question from HERD. This is not a ranking, and
+HERD has not been compared against them:
+
 | | Core question |
 |---|---|
-| ADHD | Can I generate more non-obvious ideas? |
 | AlphaEvolve | Can I iteratively evolve this program to score better? |
 | ShinkaEvolve | Can I explore and evolve programs more efficiently? |
 | **HERD** | **Am I actually exploring new strategies, and what should I try when I'm not?** |
 
-How it works, for a task with an evaluator:
+## Measured so far
+
+The only measured numbers are in `docs/RESULTS.md` (protocols: `docs/PREREGISTRATION.md`,
+`docs/PREREGISTRATION-overlook.md`). Any other number in this README is illustrative.
+
+**Herd maps (N=20 samples per model, 5 models).**
+
+| task | valid samples | top 3 families | share held by the top 3 |
+|---|---|---|---|
+| online_bin_packing | 95 / 100 | Tight-fit-or-spacious gap avoidance; Best Fit; Sum-of-Squares gap-count balancing | 62% |
+| cache_eviction | 76 / 100 | W-TinyLFU (sketch frequency duel); 2Q / S3-FIFO (probationary queue + ghosts); LFU | 75% |
+
+**Paraphrase test: the herd is partly a prompt effect.** Rewording the task prompt (3
+meaning-preserving paraphrases, 2 models, 5 samples each) moved the herd map more than
+resampling the original prompt did, on both tasks: mean total variation distance 0.51 vs at
+most 0.40 between original-prompt groups for bin packing, and 0.35 vs at most 0.10 for cache
+eviction (where W-TinyLFU went from 45% to 67% of samples). Groups are small (10 samples), so
+only large shifts can be detected. Read every herd-based claim as "what models converge on for
+this wording". Details: `herd paraphrase <task>`.
+
+**Live strategy-loop runs: preliminary, 1 run each.** These used online_bin_packing and cost $0.62
+in total. Each is a real trajectory from the implementer (Gemini 4 Argon) with dev-score feedback.
+Scores are % excess bins, as dev / held-out; lower is better.
+
+| trajectory | HERD verdict | strategy vs code similarity | best attempt | fresh_start |
+|---|---|---|---|---|
+| open revisions, 3.66 → 0.30 | keep | 0.30 vs 0.21 | 0.299 / 0.258 | 0.279 / 0.248 |
+| "keep the approach, tune it", 3.66 → 0.36 | keep | 0.29 vs 0.42 | 0.359 / 0.537 | 1.376 / 1.409 |
+| 4 more tuning revisions, stalled 0.66 → 1.85 (`herd demo strategy_loop`) | repair, not a loop (below the 0.7 threshold) | 0.45 vs 0.64 | 0.658 / 0.953 | 0.628 / 0.834 |
+
+Baselines: best fit 4.15 / 3.98, first fit 4.54 / 4.31.
+
+HERD never returned `escape` in these runs, so no escape candidate was generated.
+
+On the stalled window, the lever HERD would have tried was `n_open_bins`. It is used by 5 of 95
+herd samples: 2 from DeepSeek and 1 each from Gemini, Llama and GPT-6.1. I implemented it anyway as
+an ablation, at the same budget as fresh_start. It scored 1.096 / 0.973 and lost to fresh_start.
+
+These runs are no evidence either way about escape vs fresh_start at scale. They show one weakness:
+strategy similarity partly depends on how the extractor model describes each attempt, so tuning
+revisions of the same code can measure as different strategies.
+
+Operator benchmarks: started, stopped, no results yet.
+
+## How it works
+
+For a task with an evaluator:
 
 1. **Strategy fingerprints** (`herd/strategy.py`): what each attempt decides from (inputs it
    actually uses, found by static analysis), the state it keeps, its primary signal, its
    assumptions, and where it is weak on dev data.
-2. **Loop detection** (`herd/trajectory.py`): compares attempts by strategy, not code ("code
-   28% similar, strategy 91% similar") and flags a loop when progress has stalled.
+2. **Loop detection** (`herd/trajectory.py`): compares attempts by strategy, not code (an
+   illustrative output: "code 28% similar, strategy 91% similar") and flags a loop when
+   progress has stalled.
 3. **The herd map and what it overlooks** (`herd/overlook.py`): from many models' samples,
    inputs the task allows but the herd never uses, assumptions every common solution shares
    although the task does not require them, unoccupied component combinations, and
@@ -30,14 +79,6 @@ How it works, for a task with an evaluator:
    strategy, or stop repairing and switch to one evidence-backed lever.
 5. **Strategy counterexamples** (`herd/counterexample.py`): tiny cases where all your attempts
    make the same decision and the alternative does not.
-
-**Is the herd real? Partly a prompt effect.** Rewording the task prompt (3 meaning-preserving
-paraphrases, 2 models, 5 samples each) moved the herd map more than resampling the original
-prompt did, on both tasks: mean total variation distance 0.51 vs at most 0.40 between
-original-prompt groups for bin packing, and 0.35 vs at most 0.10 for cache eviction (where one
-family went from 45% to 67% of samples). Groups are small (10 samples), so this only detects
-large shifts, but every herd-based claim here should be read as "what models converge on for
-this wording". Details: `herd paraphrase <task>`, `docs/PREREGISTRATION-overlook.md`.
 
 The original pipeline below (herd map, blind spots, operator benchmark) is the measurement
 foundation the escape workflow builds on.
@@ -52,10 +93,61 @@ EXA_API_KEY=...
 EOF
 ```
 
-Models, sample counts and the hard dollar cap (`budget_usd`, currently $25) are in
+Models, sample counts and the hard dollar cap (`budget_usd`, currently $28) are in
 `config.yaml`. Every LLM and Exa response is cached in `cache/*.jsonl`, keyed by a hash
 of the request, so reruns are free and reproducible. The cap counts everything in the
 cache, and an uncached call is refused if its worst-case cost could cross the cap.
+
+Before any run that may spend money:
+
+```sh
+uv run python -m herd preflight
+```
+
+It prints the budget remaining under the cap, whether the API keys are present and whether
+the configured models are available, and exits 1 if less than $1 remains or a key is missing.
+
+## Escaping a strategy loop
+
+```sh
+uv run python -m herd demo strategy_loop     # replay a recorded run offline: no API calls, $0
+uv run python -m herd demo strategy_loop_unconstrained   # the same, for the run without the same-approach instruction
+uv run python -m herd escape --task cache_eviction --candidate current.py --history attempts/ \
+    [--evaluator "python /abs/path/eval.py"] [--higher-is-better] [--budget 2]
+```
+
+`demo strategy_loop` prints the same text every time: an agent's attempts
+(`fixtures/trajectories/strategy_loop.json`) and what escape and a fresh-start baseline
+produced on them (`fixtures/runs/strategy_loop.json`). It is one recorded run, not a
+benchmark; see [Measured so far](#measured-so-far). When the verdict is not `escape`, escape
+produces no candidate, so its row in the results table shows `-`.
+
+`escape` takes the current solution and a directory of earlier attempts (sorted by name, oldest
+first), and an evaluator (a registered task's built-in one, or `--evaluator`). The MCP tool
+`herd_escape` takes the same inputs as code. Output starts with one line,
+`VERDICT: keep|repair|escape|escalate|inconclusive`, followed by JSON:
+
+- `lever`: the one thing to change;
+- `next_experiment`: `hypothesis`, `success_threshold`, `failure_threshold`;
+- `evidence`: a list of `{claim, class}`, where class is `MEASURED`, `SOURCE_BACKED` or
+  `HYPOTHESIZED` (reasoning that has not been tested);
+- `scope_note`: herd shares describe this prompt wording (see the paraphrase test above).
+
+`keep` means continue the current strategy; `repair` means fix it without switching; `escape`
+means run `next_experiment` and judge it by its thresholds; `escalate` means a person should
+decide (no legal alternative under the task's rules, or a contradictory evaluator);
+`inconclusive` means score at least one attempt first.
+
+### Claude Code skill and `/herd` command
+
+- `skills/herd/SKILL.md` is a Claude Code skill that runs this workflow: preflight, then
+  `herd_escape` (with a trajectory and an evaluator) or `herd_check` (with only a planned
+  approach), then acts on the verdict and reports evidence by class. To make it available,
+  copy or symlink `skills/herd` into `~/.claude/skills/` (or a project's `.claude/skills/`).
+  It uses the MCP server below; without it, only the escape path works (through the CLI).
+- `.claude/commands/herd.md` adds `/herd <your situation>` when Claude Code runs in this repo;
+  it tells the agent to follow the skill. To use it in another repo, copy it into that repo's
+  `.claude/commands/` and point it at the skill's path.
 
 ## The experiment (CLI)
 
@@ -72,9 +164,9 @@ shared prompt template and score them. Outputs go to `results/<task>/`.
 `labels_audit.csv` holds 20 random labels for a human to spot-check.
 
 A blind spot is a sourced family with an observed share under 2%. With few samples that
-only means "rarely or never seen", so each one is reported as a count ("0 of 25 labeled
-samples"), with per-model counts and a 95% upper bound on its true share (0 of 25 still
-allows up to 11%). These are shares of model samples, not of real-world solutions.
+only means "rarely or never seen", so each one is reported as a count (for example, "0 of 25
+labeled samples"), with per-model counts and a 95% upper bound on its true share (in that
+illustrative case, 0 of 25 still allows up to 11%). These are shares of model samples, not of real-world solutions.
 
 Every task has two fixed sets of instances. All scoring and selection use the **dev** set;
 a family's selected implementation is then scored once on the **held-out** set, and
@@ -116,7 +208,7 @@ them use the same implementer model, implementation prompt template and evaluato
 | `blind_spot_contrast_random` | control: the same wording and count, listing random non-herd families |
 | `blind_spot_feedback` | blind spots, round by round; each family's next attempt sees its previous dev outcome (redacted error, or dev score vs the best baseline and its weakest dev case, plus the code). Never held-out |
 | `blind_spot_feedback_sham` | control: the same note structure, taken from a different family's attempt |
-| `adhd_frames` | [ADHD](https://github.com/UditAkhourii/adhd)'s 5 frames per round (4 engineering + 1 wild) with its divergent prompts; each idea is implemented and evaluated. Frames and prompts copied verbatim (MIT, see `herd/operators/ADHD_LICENSE`); ADHD's critic/cluster/deepen stages are not used |
+| `adhd_frames` | a baseline using [ADHD](https://github.com/UditAkhourii/adhd)'s published frames: 5 frames per round (4 engineering + 1 wild) with ADHD's divergent prompts; each idea is implemented and evaluated. Frames and prompts are copied verbatim with credit to the ADHD contributors under the MIT License (full text in `herd/operators/ADHD_LICENSE`). ADHD's critic, cluster and deepen stages are not used, so this baseline uses ADHD's frames, not ADHD as a whole |
 | `transplant` | Exa search for mechanisms from biology, logistics, markets, physics and networking; the labeler restates each as a structural rule in the problem's own terms; sources are kept |
 
 `bench` runs every operator at the same budget for several seeded repeats, then labels all
@@ -153,7 +245,7 @@ says "did better in every repeat" only when the ranges across repeats do not ove
 Fairness rules: each operator's budget is measured from zero, separately from the global
 cap, and the benchmark refuses to start if the global cap cannot fund every operator in
 full (operator budgets plus a labeling allowance). Planning costs (searches, the
-verbalized-sampling call, hot's calibration, ADHD's divergent calls) count against the
+verbalized-sampling call, hot's calibration, the adhd_frames baseline's divergent calls) count against the
 operator. Labeling the candidates is measurement and billed to no operator.
 A failure while one operator plans ends only that operator's
 run and is noted in the report; a budget stop during labeling keeps the generation results. Cache hits are billed at their original cost inside a
@@ -177,6 +269,7 @@ that, calls are served from `results/` and return immediately.
 | `blind_spots` | `task_description`, `budget_usd=5` | sourced families rarely or never observed: count of n samples, per-model counts, 95% upper bound on share, mechanism, source URLs |
 | `reality_check` | `task_description`, `family`, `evaluator_cmd`, `k=3`, `lower_is_better`, `baseline_files`, `contrast=false`, `budget_usd=3` | best code, dev best and median, `final_score` (held-out), invalid count and errors, baseline comparison, the herd families it was compared against |
 | `herd_check` | `task_description`, `my_approach`, `evaluator_cmd`, `k=3`, `lower_is_better`, `contrast=false`, `budget_usd=5` | the family of `my_approach`, its share and rank, and a `verdict` |
+| `herd_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=1`, `budget_usd=2` | a `VERDICT:` line, then JSON with `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
 
 - `task_description` is the task as you would give it to an agent; it is sent to the
   sampler models verbatim. A registered task name (`online_bin_packing`, `cache_eviction`)
@@ -206,8 +299,9 @@ that, calls are served from `results/` and return immediately.
 
 ### Example: Claude Code calls `herd_check` mid-task
 
-*The calls and response fields are the real interface. Values in `<angle brackets>` are
-placeholders, not experimental results.*
+*Illustrative transcript, not a recorded session. The calls and response fields are the real
+interface; values in `<angle brackets>` are placeholders and the progress counts are made up.
+None of it is an experimental result.*
 
 To make Claude Code consult HERD by itself, add a line like this to your project's `CLAUDE.md`:
 

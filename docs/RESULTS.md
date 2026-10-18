@@ -4,12 +4,13 @@ Only measured numbers are recorded here. The raw data (`results/`, `cache/`, tra
 gitignored and kept locally. Protocols: `docs/PREREGISTRATION.md` (operator benchmark) and
 `docs/PREREGISTRATION-overlook.md` (paraphrase test and overlook).
 
-Total spent through HERD so far: **$11.21** (cap $28):
+Total spent through HERD so far: **$11.84** (cap $28):
 - $0.50 smoke test
 - $6.16 for the two N=20 herd maps
 - $0.44 lost to a benchmark bug, since fixed
 - about $1.5 for the first, partial benchmark repeat
 - $3.07 for the paraphrase test and overlook
+- $0.62 for the live strategy-loop runs
 
 The outline-only model review cost $0.69 separately.
 
@@ -149,9 +150,35 @@ LRU scores 0.6752 and FIFO 0.7097. With one repeat of 4–8 candidates each, thi
 the operators. Resume with `scripts/run_benches.py`, which replays completed calls from the
 cache at no cost.
 
+## Live strategy-loop runs (preliminary, 1 run each)
+
+Scores are % excess bins, as dev / held-out; lower is better.
+
+| trajectory | HERD verdict | strategy vs code similarity | best attempt | fresh_start |
+|---|---|---|---|---|
+| open revisions, 3.66 → 0.30 | keep | 0.30 vs 0.21 | 0.299 / 0.258 | 0.279 / 0.248 |
+| "keep the approach, tune it", 3.66 → 0.36 | keep | 0.29 vs 0.42 | 0.359 / 0.537 | 1.376 / 1.409 |
+| 4 more tuning revisions, stalled 0.66 → 1.85 (`herd demo strategy_loop`) | repair, not a loop (below the 0.7 threshold) | 0.45 vs 0.64 | 0.658 / 0.953 | 0.628 / 0.834 |
+
+Baselines: best fit 4.15 / 3.98, first fit 4.54 / 4.31.
+
+HERD never returned `escape` in these runs, so no escape candidate was generated.
+
+On the stalled window, the lever HERD would have tried was `n_open_bins`. It is used by 5 of 95
+herd samples: 2 from DeepSeek and 1 each from Gemini, Llama and GPT-6.1. I implemented it anyway as
+an ablation, at the same budget as fresh_start. It scored 1.096 / 0.973 and lost to fresh_start.
+
+These runs are no evidence either way about escape vs fresh_start at scale. They show one weakness:
+strategy similarity partly depends on how the extractor model describes each attempt, so tuning
+revisions of the same code can measure as different strategies.
+
+Fixtures: `fixtures/trajectories/` and `fixtures/runs/`, as `strategy_loop`,
+`strategy_loop_tune` and `strategy_loop_unconstrained`. Reproduce with
+`scripts/strategy_loop_run.py --mode open|tune|plateau` and `scripts/forced_escape.py`; cached
+calls replay at no cost. Replay with `herd demo <fixture>`.
+
 ## Not yet measured
 
-- A live end-to-end `herd escape` run on a real looping agent. So far it is tested offline only,
-  with fake models plus the real sandboxed evaluator.
-- Whether escape beats "continue", "be creative" or a fresh model at an equal budget. This is
-  the agent-recovery benchmark.
+- An `escape` verdict on a live trajectory. It never triggered in the three runs above.
+- Whether escape beats "continue", "be creative" or a fresh model at an equal budget. This is the
+  agent-recovery benchmark.
