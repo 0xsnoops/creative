@@ -1,8 +1,10 @@
 """HERD as an MCP server for coding agents. Every tool returns compact JSON, streams
 progress notifications, and is capped by its own budget_usd (and the config's global cap)."""
 import asyncio
+import hashlib
 import json
 import threading
+from pathlib import Path
 
 import anyio
 from mcp.server.mcpserver import Context, MCPServer
@@ -181,13 +183,47 @@ async def herd_escape(task_description: str, current_solution: str, ctx: Context
     alternative and scores it on the dev split (before/after), with tiny counterexamples where
     your attempts all decide alike and the alternative does not. Needs an evaluator: a
     registered task or evaluator_cmd."""
+    from .contract import render
+    from .pipeline import read_json
+    loaded = {}
+
     def work(herd):
         task = Task.resolve(task_description)
         if not evaluator_cmd and not task.evaluator:
             return {"error": "evaluator_required", "detail": "pass evaluator_cmd or use a registered task"}
-        evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
-        return escape_for_agent(herd, task, current_solution, previous_attempts or [], evaluator, k)
-    return await run_tool(ctx, budget_usd, work)
+        evaluator = RecordingEvaluator(Evaluator(task, evaluator_cmd or None, lower_is_better))
+        codes = [*(previous_attempts or []), current_solution]
+        result = escape_for_agent(herd, task, current_solution, previous_attempts or [], evaluator, k)
+        result["attempts"] = evaluator.attempts(codes)
+        result["lower_is_better"] = evaluator.lower_is_better
+        out = herd.out_dir(task)
+        loaded.update(overlook=read_json(out / "overlook.json"), paraphrase=read_json(out / "paraphrase.json"),
+                      families=[*(read_json(out / "blind_spots.json") or []), *(read_json(out / "families.json") or [])])
+        return result
+    return render(json.loads(await run_tool(ctx, budget_usd, work)), **loaded)
+
+
+class RecordingEvaluator:
+    """An Evaluator that remembers each dev result by file name, so herd_escape can report the
+    attempts' own scores (escape() scores them at escape/attempts/<sha256(code)[:12]>.py)."""
+
+    def __init__(self, evaluator):
+        self._evaluator, self._seen = evaluator, {}
+
+    def __getattr__(self, name):
+        return getattr(self._evaluator, name)
+
+    def __call__(self, path, *args, **kwargs):
+        result = self._evaluator(path, *args, **kwargs)
+        self._seen[Path(path).name] = result
+        return result
+
+    def attempts(self, codes):
+        out = []
+        for i, code in enumerate(codes):
+            r = self._seen.get(f"{hashlib.sha256(code.encode()).hexdigest()[:12]}.py") or {}
+            out.append({"id": f"attempt-{i}", "score": r.get("score"), "valid": r.get("valid")})
+        return out
 
 
 def serve():

@@ -1,0 +1,682 @@
+{
+  "fixture": "strategy_loop_tune",
+  "task": "online_bin_packing",
+  "generated_at": "2026-10-18T05:03:01-0700",
+  "commit": "e2b5db7ed2c59b0047e9e9e8cec71f5f295bd215",
+  "preliminary": true,
+  "n_runs": 1,
+  "budget_usd_each": 1.5,
+  "baselines": {
+    "dev": {
+      "best_fit": 4.1462299627331465,
+      "first_fit": 4.544901821472337
+    },
+    "heldout": {
+      "best_fit": 3.9794316556558647,
+      "first_fit": 4.306712949023714
+    }
+  },
+  "best_attempt": {
+    "id": "attempt-4",
+    "dev_score": 0.3586088300961806,
+    "heldout_score": 0.5369208040890902
+  },
+  "escape": {
+    "result": {
+      "loop_detected": false,
+      "strategy_similarity": 0.28979860035622446,
+      "code_similarity": 0.42008876029258574,
+      "shared_strategy": "all 4 attempts decide using item, capacity_values, item_distribution and bin_capacity",
+      "shared_assumptions": [],
+      "herd_prevalence": 0.4,
+      "overlooked_levers": [
+        {
+          "type": "unused_signal",
+          "name": "n_open_bins",
+          "detail": {
+            "description": "how many feasible bins are offered (len(capacities))",
+            "share": 0.053,
+            "used_by": 5,
+            "decided": 95,
+            "used_by_models": {
+              "deepseek/deepseek-v4-pro-0813": 2,
+              "google/gemini-4-argon": 1,
+              "meta-llama/llama-4-maverick": 1,
+              "openai/gpt-6.1-sol": 1
+            },
+            "evidence": [
+              {
+                "sample_id": "deepseek_deepseek-v4-pro-0813-003",
+                "model": "deepseek/deepseek-v4-pro-0813",
+                "evidence": "number of bins enters a score at line 18"
+              },
+              {
+                "sample_id": "deepseek_deepseek-v4-pro-0813-004",
+                "model": "deepseek/deepseek-v4-pro-0813",
+                "evidence": "number of bins enters a score at line 73"
+              },
+              {
+                "sample_id": "google_gemini-4-argon-014",
+                "model": "google/gemini-4-argon",
+                "evidence": "number of bins enters a score at line 79"
+              }
+            ]
+          },
+          "mechanism": "Build the decision rule around n_open_bins (how many feasible bins are offered (len(capacities))), so that different values of it change which option is chosen.",
+          "why": "n_open_bins is used by 5/95 herd samples (5%); none of your 4 attempts use it"
+        },
+        {
+          "type": "minority_mechanism",
+          "name": "Worst Fit / Almost-Any-Fit variants",
+          "detail": {
+            "models": [
+              "meta-llama/llama-4-maverick"
+            ],
+            "absent_from": [
+              "anthropic/claude-sonnet-5.5",
+              "deepseek/deepseek-v4-pro-0813",
+              "google/gemini-4-argon",
+              "openai/gpt-6.1-sol"
+            ],
+            "count": 13
+          },
+          "mechanism": "Implement the Worst Fit / Almost-Any-Fit variants approach, which only meta-llama/llama-4-maverick produced.",
+          "why": "produced by 1/5 sampler models (13 samples)"
+        },
+        {
+          "type": "minority_mechanism",
+          "name": "Distribution-learning profile/pattern packing",
+          "detail": {
+            "models": [
+              "anthropic/claude-sonnet-5.5"
+            ],
+            "absent_from": [
+              "deepseek/deepseek-v4-pro-0813",
+              "google/gemini-4-argon",
+              "meta-llama/llama-4-maverick",
+              "openai/gpt-6.1-sol"
+            ],
+            "count": 6
+          },
+          "mechanism": "Implement the Distribution-learning profile/pattern packing approach, which only anthropic/claude-sonnet-5.5 produced.",
+          "why": "produced by 1/5 sampler models (6 samples)"
+        },
+        {
+          "type": "minority_mechanism",
+          "name": "emergent:piecewise-residual-band-scoring",
+          "detail": {
+            "models": [
+              "deepseek/deepseek-v4-pro-0813"
+            ],
+            "absent_from": [
+              "anthropic/claude-sonnet-5.5",
+              "google/gemini-4-argon",
+              "meta-llama/llama-4-maverick",
+              "openai/gpt-6.1-sol"
+            ],
+            "count": 2
+          },
+          "mechanism": "Implement the emergent:piecewise-residual-band-scoring approach, which only deepseek/deepseek-v4-pro-0813 produced.",
+          "why": "produced by 1/5 sampler models (2 samples)"
+        }
+      ],
+      "recommended_switch": {
+        "mechanism": "Build the decision rule around n_open_bins (how many feasible bins are offered (len(capacities))), so that different values of it change which option is chosen.",
+        "why": "n_open_bins is used by 5/95 herd samples (5%); none of your 4 attempts use it"
+      },
+      "candidate": null,
+      "candidate_path": null,
+      "candidates": [],
+      "evaluation": {
+        "before": 0.3586088300961806,
+        "after": null,
+        "improved": false,
+        "split": "dev"
+      },
+      "action": "continue",
+      "diagnosis": {
+        "action": "continue",
+        "repairability": "high",
+        "failure": "none yet: the best attempt is 90.2% better than the first",
+        "shared_cause": "all 4 attempts decide using item, capacity_values, item_distribution and bin_capacity",
+        "target_properties": [
+          "use an input the attempts never use: n_open_bins",
+          "use an input the attempts never use: bin_order",
+          "use an input the attempts never use: new_bin_slot"
+        ],
+        "herd_prevalence": 0.4,
+        "evidence": {
+          "n": 4,
+          "loop_score": 0.1739,
+          "loop_detected": false,
+          "strategy_similarity": 0.28979860035622446,
+          "code_similarity": 0.42008876029258574,
+          "progress": {
+            "first": 3.6587826069374536,
+            "best": 0.3586088300961806,
+            "relative_improvement": 0.9019868440895562
+          },
+          "shared": {
+            "inputs_used": [
+              "item",
+              "capacity_values",
+              "item_distribution",
+              "bin_capacity"
+            ],
+            "inputs_unused": [
+              "bin_order",
+              "new_bin_slot",
+              "n_open_bins"
+            ],
+            "state_persistent": null,
+            "primary_signal": null,
+            "mechanism_family": null,
+            "assumptions": [],
+            "weak_regimes": []
+          },
+          "herd_prevalence": {
+            "marginals": {
+              "does not use n_open_bins": 0.947,
+              "does not use bin_order": 0.642,
+              "does not use new_bin_slot": 0.4,
+              "uses item_distribution": 0.695,
+              "uses bin_capacity": 0.821,
+              "uses item": 1.0,
+              "uses capacity_values": 1.0
+            },
+            "bounds": [
+              0.0,
+              0.4
+            ],
+            "herd_samples": 95
+          },
+          "task": "online_bin_packing"
+        },
+        "reasons": [
+          "4/4 attempts use inputs item, capacity_values, item_distribution, bin_capacity",
+          "4/4 attempts ignore inputs bin_order, new_bin_slot, n_open_bins",
+          "mean pairwise strategy similarity 0.29 against code similarity 0.42",
+          "best score 0.3586 vs first 3.659: 90.2% better (improving)",
+          "the best attempt is 90.2% better than the first (>= 2%): keep going"
+        ]
+      },
+      "reasons": [
+        "4/4 attempts use inputs item, capacity_values, item_distribution, bin_capacity",
+        "4/4 attempts ignore inputs bin_order, new_bin_slot, n_open_bins",
+        "mean pairwise strategy similarity 0.29 against code similarity 0.42",
+        "best score 0.3586 vs first 3.659: 90.2% better (improving)",
+        "the best attempt is 90.2% better than the first (>= 2%): keep going"
+      ],
+      "herd_stability": {
+        "verdict": "partly a prompt effect",
+        "paraphrase_tvd": 0.508,
+        "resampling_tvd_max": 0.4
+      },
+      "attempts": [
+        {
+          "id": "attempt-1",
+          "score": 3.6587826069374536,
+          "valid": true
+        },
+        {
+          "id": "attempt-2",
+          "score": 1.0859392374492447,
+          "valid": true
+        },
+        {
+          "id": "attempt-3",
+          "score": 0.4883294109154834,
+          "valid": true
+        },
+        {
+          "id": "attempt-4",
+          "score": 0.3586088300961806,
+          "valid": true
+        }
+      ],
+      "lower_is_better": true
+    },
+    "contract": "VERDICT: keep\n{\n  \"lever\": {\n    \"type\": \"unused_signal\",\n    \"name\": \"n_open_bins\",\n    \"mechanism\": \"Build the decision rule around n_open_bins (how many feasible bins are offered (len(capacities))), so that different values of it change which option is chosen.\",\n    \"why\": \"n_open_bins is used by 5/95 herd samples (5%); none of your 4 attempts use it\"\n  },\n  \"next_experiment\": {\n    \"hypothesis\": \"Making decisions depend on n_open_bins will beat the best attempt's dev score 0.358609.\",\n    \"success_threshold\": \"dev score <= 0.355023 (lower is better) and valid\",\n    \"failure_threshold\": \"dev score no better than 0.358609 after 3 candidates, or invalid\"\n  },\n  \"evidence\": [\n    {\n      \"claim\": \"mean pairwise strategy similarity 0.29 against code similarity 0.42\",\n      \"class\": \"MEASURED\"\n    },\n    {\n      \"claim\": \"attempt dev scores: attempt-1=3.65878, attempt-2=1.08594, attempt-3=0.488329, attempt-4=0.358609\",\n      \"class\": \"MEASURED\"\n    },\n    {\n      \"claim\": \"4/4 attempts use inputs item, capacity_values, item_distribution, bin_capacity\",\n      \"class\": \"MEASURED\"\n    },\n    {\n      \"claim\": \"4/4 attempts ignore inputs bin_order, new_bin_slot, n_open_bins\",\n      \"class\": \"MEASURED\"\n    },\n    {\n      \"claim\": \"best score 0.3586 vs first 3.659: 90.2% better (improving)\",\n      \"class\": \"MEASURED\"\n    },\n    {\n      \"claim\": \"the best attempt is 90.2% better than the first (>= 2%): keep going\",\n      \"class\": \"MEASURED\"\n    },\n    {\n      \"claim\": \"at most 40% of herd samples share the attempts' input profile\",\n      \"class\": \"MEASURED\"\n    },\n    {\n      \"claim\": \"n_open_bins used by 5/95 herd samples\",\n      \"class\": \"MEASURED\",\n      \"detail\": {\n        \"used_by_models\": {\n          \"deepseek/deepseek-v4-pro-0813\": 2,\n          \"google/gemini-4-argon\": 1,\n          \"meta-llama/llama-4-maverick\": 1,\n          \"openai/gpt-6.1-sol\": 1\n        }\n      }\n    },\n    {\n      \"claim\": \"Expected effect: Build the decision rule around n_open_bins (how many feasible bins are offered (len(capacities))), so that different values of it change which option is chosen.\",\n      \"class\": \"HYPOTHESIZED\",\n      \"detail\": \"the recommended mechanism; untested until a candidate is scored\"\n    }\n  ],\n  \"scope_note\": \"Herd shares are for this prompt wording: rewording moved the map (paraphrase TVD 0.51 vs at most 0.40 between resamples; verdict: partly a prompt effect).\",\n  \"candidate_path\": null\n}",
+    "candidate_code": null,
+    "dev_score": null,
+    "heldout_score": null,
+    "cost_usd": 0.0023,
+    "calls": null
+  },
+  "fresh_start": {
+    "prompt": "# Online bin packing heuristic\n\nWrite a Python heuristic for **online bin packing**.\n\nItems arrive one at a time and must each be placed in a bin immediately, without\nknowing future items. Every bin has capacity 100. Item sizes are integers in\n[1, 100], drawn independently from a Weibull distribution (shape k=3, scale 45),\nrounded and clipped to [1, 100]. Each test instance has 5,000 items.\n\nYour goal is to use as few bins as possible. Your heuristic is scored by the\naverage percentage of excess bins over the lower bound `ceil(sum(items) / 100)`\nacross several instances; lower is better.\n\n## Interface\n\nDefine a function:\n\n```python\ndef priority(item: int, capacities: list[int]) -> list[float]:\n    ...\n```\n\n- `item` is the size of the arriving item.\n- `capacities` holds the remaining capacity of every currently open bin that can\n  fit the item, in the order the bins were opened. The last entry is always 100\n  and represents opening a new, empty bin.\n- Return one score per entry of `capacities`. The item goes into the bin with the\n  highest score (ties go to the earliest bin).\n\nThe function is called once per item. Module-level state (e.g. statistics of\npast items) is allowed; your module is freshly loaded for each instance. You may\nuse the Python 3.11 standard library and numpy. The full evaluation (25,000 calls) must\nfinish within 60 seconds.\n\nReply with your complete solution in a single Python code block.\n\n\n---\nEarlier attempts at this task and their scores on the development instances (% excess bins,\nlower is better):\nAttempt 1 (dev score 3.6587826069374536):\n```python\nimport math\nimport numpy as np\n\n# Precompute a scoring matrix for (item, remaining_capacity)\n# Item sizes are in [1, 100], remaining capacities are in [1, 100].\n# The distribution is Weibull(k=3, scale=45).\n# Mean is ~40.2, mode is ~39.3, std is ~14.6.\n# Most items are between 20 and 60. Very few items are < 15.\n\ndef _build_score_matrix():\n    # Calculate probabilities of each item size from Weibull(3, 45)\n    # P(X = k) for k in 1..100\n    probs = np.zeros(101)\n    for k in range(1, 101):\n        # Rounded to nearest integer means integrating from k-0.5 to k+0.5\n        low = max(0.0, k - 0.5)\n        high = k + 0.5 if k < 100 else float('inf')\n        p_low = 1.0 - math.exp(-((low / 45.0) ** 3))\n        p_high = 1.0 - math.exp(-((high / 45.0) ** 3))\n        probs[k] = p_high - p_low\n    \n    # Value of a remaining capacity `rem` (0 to 100)\n    # Ideally, `rem` is 0 (bin completely full).\n    # If `rem` is between 1 and 18, it's very hard to fill because small items are rare.\n    # If `rem` is around 35-50, it's very easy to fill with a single common item.\n    \n    # Compute 2-item reachability probabilities to evaluate how \"fillable\" a gap is\n    probs2 = np.zeros(101)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs2[i + j] += probs[i] * probs[j]\n\n    # Define desirability of leaving a residual capacity `r`\n    res_value = np.zeros(101)\n    res_value[0] = 100.0  # Perfect fit is always best\n    \n    for r in range(1, 101):\n        # Single item fill probability + two item fill probability\n        fillability = probs[r] * 1.5 + probs2[r] * 0.5\n        \n        # Penalize dead zones (1 to 22) heavily, since items < 20 are rare (~8% total)\n        if r <= 12:\n            dead_penalty = -30.0 + (r * 0.5)\n        elif r <= 24:\n            dead_penalty = -20.0 + (r - 12) * 1.5\n        else:\n            dead_penalty = 0.0\n            \n        # Slight preference for smaller residuals if they are still fillable (Best-Fit tendency)\n        bf_bonus = (100 - r) * 0.08\n        \n        res_value[r] = fillability * 80.0 + dead_penalty + bf_bonus\n\n    # Build the 101x101 score matrix: score_matrix[item, cap]\n    matrix = np.full((101, 101), -1e9, dtype=np.float64)\n    \n    for item in range(1, 101):\n        for cap in range(item, 101):\n            rem = cap - item\n            \n            if cap == 100:\n                # Score for opening a new bin\n                # We should open a new bin rather than creating an unfillable dead space (rem in 1..16),\n                # unless the item itself is small.\n                if item >= 50:\n                    # Large items naturally start new bins well, leaving 30..50 space\n                    matrix[item, cap] = res_value[rem] - 4.0\n                elif item >= 30:\n                    # Medium items: okay to open a new bin if existing bins only offer bad residuals\n                    matrix[item, cap] = res_value[rem] - 6.0\n                else:\n                    # Small items: try very hard not to open a new bin, pack into existing ones\n                    matrix[item, cap] = res_value[rem] - 18.0\n            else:\n                # Score for placing in an existing bin\n                # Bonus for using fuller bins (Best-Fit backbone)\n                tightness = (100 - cap) * 0.05\n                matrix[item, cap] = res_value[rem] + tightness\n\n    return matrix\n\nSCORE_MATRIX = _build_score_matrix()\n\ndef priority(item: int, capacities: list[int]) -> list[float]:\n    # Lookup precomputed scores for this item across all available bin capacities\n    row = SCORE_MATRIX[item]\n    return [float(row[c]) for c in capacities]\n\n```\n\nAttempt 2 (dev score 1.0859392374492447):\n```python\nimport math\nimport numpy as np\n\n# Precompute a scoring matrix for (item, remaining_capacity)\n# Item sizes are in [1, 100], remaining capacities are in [1, 100].\n# Distribution: Weibull(shape=3, scale=45), rounded and clipped to [1, 100].\n\ndef _build_score_matrix():\n    # Exact probabilities of each item size from Weibull(3, 45)\n    probs = np.zeros(101)\n    for k in range(1, 101):\n        low = 0.0 if k == 1 else k - 0.5\n        high = float('inf') if k == 100 else k + 0.5\n        p_low = 1.0 - math.exp(-((low / 45.0) ** 3))\n        p_high = 1.0 - math.exp(-((high / 45.0) ** 3))\n        probs[k] = p_high - p_low\n\n    # 2-item and 3-item exact convolution probabilities\n    probs2 = np.zeros(101)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs2[i + j] += probs[i] * probs[j]\n\n    probs3 = np.zeros(101)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs3[i + j] += probs2[i] * probs[j]\n\n    # Probability that at least one single item can fit into capacity r\n    # (i.e. P(X <= r))\n    cdf = np.cumsum(probs)\n\n    # Expected best single-item fill for a capacity r\n    # If an item <= r arrives, how well does it fill r?\n    expected_fill = np.zeros(101)\n    for r in range(1, 101):\n        # Weight towards items that leave either 0 or another fillable gap (30..50)\n        val = 0.0\n        for x in range(1, r + 1):\n            rem = r - x\n            if rem == 0:\n                v = 1.0\n            elif rem <= 15:\n                v = 0.05 * (rem / 15.0)\n            else:\n                v = 0.35 + 0.55 * (probs[rem] / 0.0265)\n            val += probs[x] * v\n        expected_fill[r] = val\n\n    # Define the potential value V[r] of having a bin with remaining capacity r\n    res_value = np.zeros(101)\n    res_value[0] = 120.0  # Perfect fit (0 waste) is the ultimate goal\n\n    for r in range(1, 101):\n        # Direct exact-match potential (1, 2, or 3 items summing exactly to r)\n        exact_match = (probs[r] * 2.2 + probs2[r] * 1.1 + probs3[r] * 0.4) * 100.0\n\n        # Dead-zone penalty: small capacities (1..22) have very low probability of ever being filled\n        # because P(X <= 15) is only ~3.5%\n        if r <= 14:\n            dead_penalty = -38.0 + r * 0.7\n        elif r <= 25:\n            dead_penalty = -28.2 + (r - 14) * 2.35\n        elif r <= 32:\n            dead_penalty = -2.35 + (r - 25) * 0.335\n        else:\n            dead_penalty = 0.0\n\n        # Best-Fit tendency: prefer tighter packing (smaller r) when fillability is similar\n        bf_bonus = (100 - r) * 0.14\n\n        # Combine components into state value\n        res_value[r] = exact_match + expected_fill[r] * 28.0 + dead_penalty + bf_bonus\n\n    # Build the 101x101 score matrix: score_matrix[item, cap]\n    # Marginal gain of transition: V[cap - item] - alpha * V[cap]\n    # Subtracting a fraction of V[cap] prevents destroying \"golden\" capacities (e.g. ~40)\n    # when a slightly less valuable capacity can take the item instead.\n    matrix = np.full((101, 101), -1e9, dtype=np.float64)\n\n    for item in range(1, 101):\n        for cap in range(item, 101):\n            rem = cap - item\n\n            if cap == 100:\n                # Score for opening a new bin\n                # Tuned threshold: only open a new bin if all existing valid bins\n                # would transition into a terrible dead-zone state.\n                if item >= 52:\n                    open_penalty = 6.5\n                elif item >= 36:\n                    open_penalty = 8.0 + (52 - item) * 0.15\n                elif item >= 22:\n                    open_penalty = 10.4 + (36 - item) * 0.55\n                else:\n                    # Small items are precious for filling gaps; strongly avoid new bins\n                    open_penalty = 24.0 + (22 - item) * 0.8\n\n                matrix[item, cap] = res_value[rem] - open_penalty\n            else:\n                # Opportunity cost of consuming existing capacity `cap`\n                # Especially protect capacities around 35-48 which can be closed by a single common item\n                opportunity_cost = 0.22 * (probs[cap] * 100.0) + 0.08 * expected_fill[cap] * 28.0\n\n                # Slight extra boost for exact fits or near-exact fits on very full bins\n                tightness = (100 - cap) * 0.06\n\n                # If the item is very small (<= 18), reward using it to rescue bins already in the dead zone\n                rescue_bonus = 0.0\n                if item <= 20 and cap <= 28:\n                    rescue_bonus = 12.0 + (28 - cap) * 0.5\n\n                matrix[item, cap] = res_value[rem] - opportunity_cost + tightness + rescue_bonus\n\n    return matrix\n\nSCORE_MATRIX = _build_score_matrix()\n\ndef priority(item: int, capacities: list[int]) -> list[float]:\n    row = SCORE_MATRIX[item]\n    return [float(row[c]) for c in capacities]\n\n```\n\nAttempt 3 (dev score 0.4883294109154834):\n```python\nimport math\nimport numpy as np\n\n# Precompute a dynamic scoring matrix and a slight endgame adjustment\n# Item sizes are in [1, 100], remaining capacities are in [1, 100].\n# Distribution: Weibull(shape=3, scale=45), rounded and clipped to [1, 100].\n\nN_ITEMS = 5000\n_step = 0\n\ndef _build_matrices():\n    # Exact probabilities of each item size from Weibull(3, 45)\n    probs = np.zeros(101)\n    for k in range(1, 101):\n        low = 0.0 if k == 1 else k - 0.5\n        high = float('inf') if k == 100 else k + 0.5\n        p_low = 1.0 - math.exp(-((low / 45.0) ** 3))\n        p_high = 1.0 - math.exp(-((high / 45.0) ** 3))\n        probs[k] = p_high - p_low\n\n    # 2-item and 3-item exact convolution probabilities\n    probs2 = np.zeros(101)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs2[i + j] += probs[i] * probs[j]\n\n    probs3 = np.zeros(101)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs3[i + j] += probs2[i] * probs[j]\n\n    # Expected best single-item fill for a capacity r\n    # Self-consistent multi-step evaluation of remaining capacity r\n    expected_fill = np.zeros(101)\n    for r in range(1, 101):\n        val = 0.0\n        for x in range(1, r + 1):\n            rem = r - x\n            if rem == 0:\n                v = 1.15\n            elif rem <= 15:\n                v = 0.03 * (rem / 15.0)\n            elif rem <= 24:\n                v = 0.03 + 0.27 * ((rem - 15) / 9.0)\n            else:\n                v = 0.30 + 0.65 * ((probs[rem] + 0.45 * probs2[rem]) / 0.028)\n            val += probs[x] * v\n        expected_fill[r] = val\n\n    # Define the potential value V[r] of having a bin with remaining capacity r\n    res_value = np.zeros(101)\n    res_value[0] = 135.0  # Perfect fit (0 waste)\n\n    for r in range(1, 101):\n        # Direct exact-match potential (1, 2, or 3 items summing exactly to r)\n        exact_match = (probs[r] * 2.55 + probs2[r] * 1.25 + probs3[r] * 0.45) * 100.0\n\n        # Smooth dead-zone penalty: small capacities (1..25) are very hard to fill\n        # because P(X <= 18) is only ~6.1%, and leaving r in 1..18 is essentially pure waste.\n        if r <= 15:\n            dead_penalty = -43.0 + r * 0.70\n        elif r <= 26:\n            dead_penalty = -32.5 + (r - 15) * 2.55\n        elif r <= 33:\n            dead_penalty = -4.45 + (r - 26) * 0.635\n        else:\n            dead_penalty = 0.0\n\n        # Best-Fit tendency: prefer tighter packing (smaller r) when fillability is similar\n        # Notice that waste of a dead bin is r, so smaller r within the dead zone is also less total waste\n        bf_bonus = (100 - r) * 0.16\n\n        res_value[r] = exact_match + expected_fill[r] * 30.0 + dead_penalty + bf_bonus\n\n    # Build the 101x101 score matrices: main and endgame\n    matrix = np.full((101, 101), -1e9, dtype=np.float64)\n    endgame_matrix = np.full((101, 101), -1e9, dtype=np.float64)\n\n    for item in range(1, 101):\n        for cap in range(item, 101):\n            rem = cap - item\n\n            if cap == 100:\n                # Score for opening a new bin\n                if item >= 54:\n                    open_penalty = 5.2\n                elif item >= 36:\n                    open_penalty = 6.4 + (54 - item) * 0.16\n                elif item >= 22:\n                    open_penalty = 9.28 + (36 - item) * 0.65\n                else:\n                    open_penalty = 18.38 + (22 - item) * 1.10\n\n                matrix[item, cap] = res_value[rem] - open_penalty\n                # In endgame, strongly discourage opening new bins for medium/small items\n                endgame_matrix[item, cap] = res_value[rem] - open_penalty - 14.0\n            else:\n                # Opportunity cost of consuming existing capacity `cap`\n                # Protect capacities around 32-52 which can be closed by a single common item\n                opportunity_cost = (\n                    0.30 * (probs[cap] * 100.0)\n                    + 0.12 * (probs2[cap] * 100.0)\n                    + 0.10 * expected_fill[cap] * 30.0\n                )\n\n                # Slight extra boost for tighter fits on already full bins\n                tightness = (100 - cap) * 0.065\n\n                # If the item is small (<= 22), reward using it to rescue bins already in the dead zone\n                rescue_bonus = 0.0\n                if item <= 22 and cap <= 30:\n                    rescue_bonus = 14.5 + (30 - cap) * 0.55\n\n                # Penalty for using a scarce small item on a large open bin when it doesn't close it\n                scarce_waste = 0.0\n                if item <= 20 and cap >= 55:\n                    scarce_waste = (21 - item) * 0.35\n\n                score = res_value[rem] - opportunity_cost + tightness + rescue_bonus - scarce_waste\n                matrix[item, cap] = score\n\n                # Endgame score leans much closer to pure Best-Fit to avoid opening new bins at the end\n                endgame_score = score + (100 - rem) * 0.28 - (0.5 * dead_penalty if rem <= 26 else 0.0)\n                endgame_matrix[item, cap] = endgame_score\n\n    return matrix, endgame_matrix\n\nSCORE_MATRIX, ENDGAME_MATRIX = _build_matrices()\n\ndef priority(item: int, capacities: list[int]) -> list[float]:\n    global _step\n    _step += 1\n    if _step <= 4780:\n        row = SCORE_MATRIX[item]\n    else:\n        row = ENDGAME_MATRIX[item]\n    return [float(row[c]) for c in capacities]\n\n```\n\nAttempt 4 (dev score 0.3586088300961806):\n```python\nimport math\nimport numpy as np\n\n# Precompute dynamic scoring matrices with multi-phase endgame adjustments\n# Item sizes are in [1, 100], remaining capacities are in [1, 100].\n# Distribution: Weibull(shape=3, scale=45), rounded and clipped to [1, 100].\n\nN_ITEMS = 5000\n_step = 0\n\ndef _build_matrices():\n    # Exact probabilities of each item size from Weibull(3, 45)\n    probs = np.zeros(101)\n    for k in range(1, 101):\n        low = 0.0 if k == 1 else k - 0.5\n        high = float('inf') if k == 100 else k + 0.5\n        p_low = 1.0 - math.exp(-((low / 45.0) ** 3))\n        p_high = 1.0 - math.exp(-((high / 45.0) ** 3))\n        probs[k] = p_high - p_low\n\n    # 2-item and 3-item exact convolution probabilities\n    probs2 = np.zeros(101)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs2[i + j] += probs[i] * probs[j]\n\n    probs3 = np.zeros(101)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs3[i + j] += probs2[i] * probs[j]\n\n    # Expected best single-item fill for a capacity r\n    # Self-consistent multi-step evaluation of remaining capacity r\n    expected_fill = np.zeros(101)\n    for r in range(1, 101):\n        val = 0.0\n        for x in range(1, r + 1):\n            rem = r - x\n            if rem == 0:\n                v = 1.20\n            elif rem <= 15:\n                v = 0.02 * (rem / 15.0)\n            elif rem <= 24:\n                v = 0.02 + 0.28 * ((rem - 15) / 9.0)\n            else:\n                v = 0.30 + 0.68 * ((probs[rem] + 0.45 * probs2[rem]) / 0.028)\n            val += probs[x] * v\n        expected_fill[r] = val\n\n    # Define the potential value V[r] of having a bin with remaining capacity r\n    res_value = np.zeros(101)\n    dead_penalties = np.zeros(101)\n    res_value[0] = 140.0  # Perfect fit (0 waste)\n\n    for r in range(1, 101):\n        # Direct exact-match potential (1, 2, or 3 items summing exactly to r)\n        exact_match = (probs[r] * 2.65 + probs2[r] * 1.30 + probs3[r] * 0.45) * 100.0\n\n        # Smooth dead-zone penalty: small capacities (1..26) are very hard to fill\n        # Note that within the dead zone, smaller r means less wasted space if never filled,\n        # while larger r (>= 16) starts having a small chance of being filled.\n        if r <= 14:\n            dead_penalty = -45.0 - r * 0.35\n        elif r <= 26:\n            dead_penalty = -49.9 + (r - 14) * 3.80\n        elif r <= 33:\n            dead_penalty = -4.3 + (r - 26) * 0.614\n        else:\n            dead_penalty = 0.0\n\n        dead_penalties[r] = dead_penalty\n\n        # Best-Fit tendency: prefer tighter packing (smaller r) when fillability is similar\n        bf_bonus = (100 - r) * 0.165\n\n        res_value[r] = exact_match + expected_fill[r] * 31.0 + dead_penalty + bf_bonus\n\n    # Build the 101x101 score matrices: main, late-game, and final endgame\n    matrix = np.full((101, 101), -1e9, dtype=np.float64)\n    late_matrix = np.full((101, 101), -1e9, dtype=np.float64)\n    endgame_matrix = np.full((101, 101), -1e9, dtype=np.float64)\n\n    for item in range(1, 101):\n        for cap in range(item, 101):\n            rem = cap - item\n\n            if cap == 100:\n                # Score for opening a new bin\n                if item >= 54:\n                    open_penalty = 5.0\n                elif item >= 36:\n                    open_penalty = 6.2 + (54 - item) * 0.17\n                elif item >= 22:\n                    open_penalty = 9.26 + (36 - item) * 0.68\n                else:\n                    open_penalty = 18.78 + (22 - item) * 1.15\n\n                base_open = res_value[rem] - open_penalty\n                matrix[item, cap] = base_open\n                late_matrix[item, cap] = base_open - 6.5\n                endgame_matrix[item, cap] = base_open - 22.0\n            else:\n                # Opportunity cost of consuming existing capacity `cap`\n                # Protect capacities around 32-52 which can be closed by a single common item\n                opportunity_cost = (\n                    0.34 * (probs[cap] * 100.0)\n                    + 0.14 * (probs2[cap] * 100.0)\n                    + 0.11 * expected_fill[cap] * 31.0\n                )\n\n                # Slight extra boost for tighter fits on already full bins\n                tightness = (100 - cap) * 0.065\n\n                # If the item is small (<= 23), reward using it to rescue bins already in the dead zone\n                rescue_bonus = 0.0\n                if item <= 23 and cap <= 31:\n                    rescue_bonus = 15.5 + (31 - cap) * 0.60\n\n                # Penalty for using a scarce small item on a large open bin when it doesn't close it\n                scarce_waste = 0.0\n                if item <= 21 and cap >= 52:\n                    scarce_waste = (22 - item) * 0.40\n\n                score = res_value[rem] - opportunity_cost + tightness + rescue_bonus - scarce_waste\n                matrix[item, cap] = score\n\n                # Late game (items 4600..4850): start relaxing dead-zone avoidance and tightening\n                late_score = (\n                    score\n                    + (100 - rem) * 0.14\n                    - (0.35 * dead_penalties[rem] if 0 < rem <= 26 else 0.0)\n                )\n                late_matrix[item, cap] = late_score\n\n                # Endgame (items 4851..5000): lean strongly toward Best-Fit to avoid opening new bins\n                endgame_score = (\n                    score\n                    + (100 - rem) * 0.38\n                    - (0.75 * dead_penalties[rem] if 0 < rem <= 26 else 0.0)\n                )\n                endgame_matrix[item, cap] = endgame_score\n\n    return matrix.tolist(), late_matrix.tolist(), endgame_matrix.tolist()\n\nSCORE_MATRIX, LATE_MATRIX, ENDGAME_MATRIX = _build_matrices()\n\ndef priority(item: int, capacities: list[int]) -> list[float]:\n    global _step\n    _step += 1\n    if _step <= 4620:\n        row = SCORE_MATRIX[item]\n    elif _step <= 4860:\n        row = LATE_MATRIX[item]\n    else:\n        row = ENDGAME_MATRIX[item]\n    return [row[c] for c in capacities]\n\n```\n\nThese attempts have stalled. Try a different strategy. Reply with your complete solution in a\nsingle Python code block.",
+    "candidates": [
+      {
+        "code": "import math\nimport numpy as np\n\n# Online bin packing heuristic using Value Iteration / Dynamic Programming\n# and active inventory-based target matching (Sum-of-Squares / Profile control).\n#\n# Instead of a static scoring table that is blind to the currently open bins,\n# this heuristic:\n# 1. Solves a Bellman-like fixed point equation for the expected waste V[c] of a\n#    bin with remaining capacity c under the exact Weibull(3, 45) distribution.\n# 2. Tracks the exact count of open bins for each remaining capacity c in [1..99]\n#    (or reads it directly from `capacities`), and dynamically adjusts the marginal\n#    value of creating vs. consuming capacity c based on whether capacity c is currently\n#    over-represented or under-represented relative to the expected future arrivals!\n\nN_ITEMS = 5000\n_step = 0\n\ndef _compute_distribution_and_dp():\n    # Exact probabilities of each item size from Weibull(3, 45), rounded and clipped to [1, 100]\n    probs = np.zeros(101, dtype=np.float64)\n    for k in range(1, 101):\n        low = 0.0 if k == 1 else k - 0.5\n        high = float('inf') if k == 100 else k + 0.5\n        p_low = 1.0 - math.exp(-((low / 45.0) ** 3))\n        p_high = 1.0 - math.exp(-((high / 45.0) ** 3))\n        probs[k] = p_high - p_low\n\n    # 2-item and 3-item convolutions\n    probs2 = np.zeros(101, dtype=np.float64)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs2[i + j] += probs[i] * probs[j]\n\n    probs3 = np.zeros(101, dtype=np.float64)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs3[i + j] += probs2[i] * probs[j]\n\n    # Total arrival rate of single or multi-item combinations that can exactly fill capacity c\n    # Given an item arrival stream, how \"demanded\" is capacity c?\n    # A bin of capacity c can be closed in 1 step by item c, or transitioned by item x < c to c - x.\n    demand = probs + 0.55 * probs2 + 0.20 * probs3\n\n    # Compute the intrinsic value V[c] (expected useful fill out of c, or negative expected waste)\n    # via backward induction from c = 0 to 100.\n    # For c = 0, waste = 0 -> value = 0.\n    # For c > 0, if it is never touched again, waste is c (value = -c).\n    # If an item x <= c arrives, it transitions to c - x, gaining x + V[c - x] - V[c].\n    V = np.zeros(101, dtype=np.float64)\n    V[0] = 0.0\n\n    # We iteratively refine V[c] (expected negative waste of a bin of remaining capacity c)\n    # In steady state, an open bin of capacity c competes for items <= c.\n    for c in range(1, 101):\n        # Probability of getting an exact match is probs[c]\n        # Probability of getting a smaller item x < c that is actually worth placing in c\n        # (i.e. leaves a good remainder)\n        p_exact = probs[c]\n        p_two = probs2[c]\n        p_three = probs3[c]\n\n        # Base expected waste if left in dead zone vs fillable zone\n        # Calculate expected value of best transitions from c\n        trans_val = 0.0\n        trans_prob = 0.0\n        for x in range(1, c):\n            rem = c - x\n            # Would we willingly transition c -> rem?\n            # Only if V[rem] is significantly better than -c (or if rem is not a terrible dead zone)\n            if V[rem] > -c + 2.0:\n                w = probs[x] * math.exp(0.18 * (V[rem] + c))\n                trans_val += w * V[rem]\n                trans_prob += w\n\n        avg_trans = (trans_val / trans_prob) if trans_prob > 0 else -c\n\n        # Effective fill probability over the bin's lifetime\n        # Bins with high exact-match or 2-item match probability have very low expected waste\n        fill_score = p_exact * 42.0 + p_two * 22.0 + p_three * 8.0 + trans_prob * 4.5\n        # Survival / unfillability factor\n        unfilled_prob = math.exp(-fill_score)\n\n        # Expected waste is combination of being stranded (-c) vs successfully transitioning/filling\n        expected_waste = unfilled_prob * (-c) + (1.0 - unfilled_prob) * (\n            0.65 * 0.0 + 0.35 * max(-c, avg_trans)\n        )\n\n        # Additional penalty for capacities in [1..19] where items are extremely scarce\n        # and each item used here could have rescued an even tighter bin\n        if c <= 16:\n            expected_waste -= 4.5 * (1.0 - c / 20.0)\n        elif c <= 25:\n            expected_waste -= 2.5 * ((26 - c) / 10.0)\n\n        V[c] = expected_waste\n\n    # Target ideal inventory profile: how many bins of capacity c can the remaining stream support?\n    # Primarily proportional to `probs[c] + 0.35 * probs2[c]`\n    target_profile = probs * 1.15 + probs2 * 0.40 + probs3 * 0.10\n\n    return probs, probs2, probs3, V, target_profile\n\n\nPROBS, PROBS2, PROBS3, V_STATE, TARGET_PROFILE = _compute_distribution_and_dp()\n\n# Precompute base transition matrix (item, cap) -> base score\n# In the DP formulation, placing `item` into `cap` (leaving `rem = cap - item`):\n#   Before action: we have `cap` (expected value V[cap])\n#   After action:  we have `rem` (expected value V[rem])\n#   If cap == 100: we open a new bin, so prior value is V[100] (which is small waste, ~ -0.5)\n#   Net gain in expected waste reduction: V[rem] - alpha * V[cap]\ndef _build_base_tables():\n    base_existing = np.full((101, 101), -1e9, dtype=np.float64)\n    base_new = np.zeros(101, dtype=np.float64)\n\n    for item in range(1, 101):\n        # Score for opening a new bin (cap = 100, rem = 100 - item)\n        rem_new = 100 - item\n        # Opening a new bin creates capacity `rem_new`, plus incurs a fixed shadow price for a new bin\n        if item >= 55:\n            shadow_cost = 1.65\n        elif item >= 38:\n            shadow_cost = 1.85 + (55 - item) * 0.055\n        elif item >= 24:\n            shadow_cost = 2.785 + (38 - item) * 0.22\n        else:\n            shadow_cost = 5.865 + (24 - item) * 0.55\n\n        base_new[item] = V_STATE[rem_new] - shadow_cost\n\n        for cap in range(item, 100):\n            rem = cap - item\n            if rem == 0:\n                # Exact fit! Eliminates all potential waste of `cap`\n                # Prefer closing larger/harder capacities or capacities with fewer alternatives,\n                # but basically any exact fit is top priority.\n                # Tie-break: close bins where V_STATE[cap] is worse (more negative) first!\n                base_existing[item, cap] = 15.0 - 0.35 * V_STATE[cap]\n            else:\n                # Net DP value change: V[rem] - discount * V[cap]\n                # If V[cap] is very close to 0 (e.g. cap=40, easy to fill in 1 step),\n                # destroying it has an opportunity cost.\n                # If V[cap] is very negative (e.g. cap=25, hard to fill), rescuing it to rem=5\n                # gives a massive positive jump: V[5] (-7) - V[25] (-18) = +11!\n                opp_weight = 0.72 if cap <= 60 else 0.55\n                dp_gain = V_STATE[rem] - opp_weight * V_STATE[cap]\n\n                # Bonus for tighter packing (Best-Fit tie-breaker)\n                tightness = (100 - cap) * 0.012 + (100 - rem) * 0.018\n\n                # Penalty for wasting a scarce small item (<= 20) on a large gap (>= 50)\n                scarce_penalty = 0.0\n                if item <= 20 and cap >= 48:\n                    scarce_penalty = (21 - item) * 0.16\n\n                base_existing[item, cap] = dp_gain + tightness - scarce_penalty\n\n    return base_existing.tolist(), base_new.tolist(), TARGET_PROFILE.tolist(), V_STATE.tolist()\n\nBASE_EXISTING, BASE_NEW, TARGET_PROF_LIST, V_LIST = _build_base_tables()\n\n\ndef priority(item: int, capacities: list[int]) -> list[float]:\n    global _step\n    _step += 1\n    rem_items = N_ITEMS - _step\n\n    # Count current open bins by capacity (excluding the last entry which is the new bin 100)\n    counts = [0] * 101\n    n_open = len(capacities) - 1\n    for i in range(n_open):\n        counts[capacities[i]] += 1\n\n    # Endgame phase multiplier: as remaining items -> 0, future arrival probabilities vanish\n    # so V[rem] approaches -rem (pure Best-Fit) and opening new bins must be heavily penalized.\n    if rem_items < 450:\n        # Smoothly ramp endgame pressure from 0.0 (at 450 items left) to 1.0 (at 0 items left)\n        endgame = (450 - rem_items) / 450.0\n        endgame_sq = endgame * endgame\n    else:\n        endgame = 0.0\n        endgame_sq = 0.0\n\n    # Horizon scale for target inventory of each capacity:\n    # Look ahead over a window of ~min(rem_items, 600) items to judge congestion of capacity `c`\n    horizon = rem_items if rem_items < 650 else 650\n\n    row_existing = BASE_EXISTING[item]\n    scores = [0.0] * len(capacities)\n\n    for idx in range(n_open):\n        cap = capacities[idx]\n        rem = cap - item\n\n        if rem == 0:\n            # Exact fit is always highest priority; slight preference for rescuing congested capacities\n            scores[idx] = row_existing[cap] + 0.15 * counts[cap]\n            continue\n\n        s = row_existing[cap]\n\n        # Dynamic inventory congestion control (Sum-of-Squares / Profile matching):\n        # 1. If we already have too many bins of capacity `rem` relative to what the horizon can absorb,\n        #    penalize creating another `rem`.\n        expected_demand_rem = TARGET_PROF_LIST[rem] * horizon\n        excess_rem = counts[rem] - expected_demand_rem\n        if excess_rem > 0.0:\n            s -= min(6.0, excess_rem * 0.65)\n        elif counts[rem] == 0 and rem >= 30 and rem <= 52 and horizon > 100:\n            # Slight bonus for having at least one bin at a high-probability exact-match capacity\n            s += 0.45\n\n        # 2. If we have an excess of `cap`, reward consuming it (reducing its congestion)\n        expected_demand_cap = TARGET_PROF_LIST[cap] * horizon\n        excess_cap = counts[cap] - 1 - expected_demand_cap\n        if excess_cap > 0.0:\n            s += min(4.0, excess_cap * 0.45)\n\n        # 3. Endgame continuous interpolation toward Best-Fit\n        if endgame > 0.0:\n            # In endgame, dead-zone avoidance relaxes and we want minimum residual `rem`\n            bf_pull = -0.18 * rem - 0.45 * V_LIST[rem]\n            s += endgame_sq * bf_pull\n\n        scores[idx] = s\n\n    # Score for the last entry (opening a new bin, cap == 100)\n    rem_new = 100 - item\n    s_new = BASE_NEW[item]\n\n    # Congestion adjustment for the capacity `rem_new` created by opening a new bin\n    expected_demand_new = TARGET_PROF_LIST[rem_new] * horizon\n    excess_new = counts[rem_new] - expected_demand_new\n    if excess_new > 0.0:\n        s_new -= min(6.5, excess_new * 0.70)\n    elif counts[rem_new] == 0 and 32 <= rem_new <= 52 and horizon > 100:\n        s_new += 0.40\n\n    # If total open bins are already piling up in the endgame, strongly discourage new bins\n    if endgame > 0.0:\n        s_new -= endgame_sq * 12.0 + endgame * 2.5\n\n    scores[n_open] = s_new\n    return scores\n",
+        "dev_score": 1.375528524587123,
+        "valid": true,
+        "error": null
+      },
+      {
+        "code": "import math\nimport numpy as np\n\n# Online Bin Packing via Fluid Relaxation / Shadow Prices + Inventory-Aware Control.\n#\n# Instead of a static scoring matrix, we:\n# 1. Compute the exact item distribution P(X = s) for Weibull(3, 45).\n# 2. Solve for the self-consistent Markov value function V[c] (the expected wasted space\n#    of a bin with remaining capacity c) via Bellman value iteration over the fluid limit.\n# 3. Maintain a live count of open bins in each capacity state c in [1..99], comparing\n#    the current profile of open capacities against the ideal target profile needed to\n#    absorb future items. If we have an excess of bins with capacity `rem = c - item`,\n#    we penalize creating another one; if we have a shortage of bins with capacity `rem`\n#    (e.g. around the mode 38-45), we reward creating it.\n\nN_ITEMS = 5000\n\ndef _compute_probs():\n    probs = np.zeros(101, dtype=np.float64)\n    for k in range(1, 101):\n        low = 0.0 if k == 1 else k - 0.5\n        high = float('inf') if k == 100 else k + 0.5\n        p_low = 1.0 - math.exp(-((low / 45.0) ** 3))\n        p_high = 1.0 - math.exp(-((high / 45.0) ** 3))\n        probs[k] = p_high - p_low\n    return probs\n\nPROBS = _compute_probs()\nMEAN_SIZE = float(np.sum(np.arange(101) * PROBS))\n\ndef _solve_bellman_values(probs):\n    # We want V[c] = expected effective fill value of a bin with remaining capacity c.\n    # V[0] = 100.0 (zero waste, full bin).\n    # For a bin of capacity c, if we wait for an item of size x <= c that matches well,\n    # it transitions to c - x.\n    # Because we have many bins open simultaneously, each arriving item x is routed\n    # to the bin where it produces the highest marginal gain V[c - x] - V[c].\n    \n    # Convolutions for exact multi-item completions\n    probs2 = np.zeros(101)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs2[i + j] += probs[i] * probs[j]\n\n    probs3 = np.zeros(101)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs3[i + j] += probs2[i] * probs[j]\n\n    # Initialize V[c] using exact match probabilities and waste baseline\n    V = np.zeros(101, dtype=np.float64)\n    V[0] = 100.0\n    for c in range(1, 101):\n        # Baseline if never filled again: we already filled (100 - c) of the bin\n        base = 100.0 - c\n        V[c] = base\n\n    # Iterative policy evaluation with soft-max routing choice over horizon\n    # A bin at capacity c will sit in the pool and selectively accept items x <= c\n    # that give a positive gain over its current value V[c].\n    for _ in range(60):\n        V_new = np.zeros(101, dtype=np.float64)\n        V_new[0] = 100.0\n        for c in range(1, 101):\n            base = 100.0 - c\n            # Rate of beneficial arrivals x <= c\n            # In a large pool, a bin at capacity c primarily gets matched with items x\n            # where V[c - x] is high (especially x == c, or c - x in [35..50]).\n            total_rate = 0.0\n            expected_next = 0.0\n            for x in range(1, c + 1):\n                rem = c - x\n                # Weight preference for using x on c:\n                # Exact match (rem == 0) is highest priority in the pool\n                if rem == 0:\n                    w = 18.0\n                elif rem >= 32:\n                    w = 3.5 * (1.0 + 15.0 * probs[rem] + 8.0 * probs2[rem])\n                elif rem >= 22:\n                    w = 0.8 * (1.0 + 10.0 * probs[rem])\n                else:\n                    # Very reluctant to transition into dead zone unless x is tiny\n                    w = 0.04 if x > 18 else 0.6\n\n                rate = probs[x] * w\n                if V[rem] > base:\n                    total_rate += rate\n                    expected_next += rate * V[rem]\n\n            # Survival/fill probability before end of instance depends on total_rate\n            # Effective pool competition factor lambda_pool ~ 0.045\n            fill_prob = total_rate / (total_rate + 0.038)\n            val = (1.0 - fill_prob) * base + fill_prob * (expected_next / (total_rate + 1e-12))\n\n            # Direct bonus for 1, 2, 3 item exact packability\n            exact_bonus = (probs[c] * 42.0 + probs2[c] * 18.0 + probs3[c] * 6.0)\n            V_new[c] = 0.65 * val + 0.35 * (base + exact_bonus)\n\n        V = V_new\n\n    return V, probs2, probs3\n\nV_STATE, PROBS2, PROBS3 = _solve_bellman_values(PROBS)\n\n# Target steady-state open bin distribution:\n# Most large items (50..65) leave residuals in 35..50, which are directly consumed by items in 35..50.\n# We want to maintain a healthy buffer of capacities in [32..55] to catch medium items as exact fits,\n# while keeping capacities in [1..25] as close to zero as possible.\nTARGET_SHARE = np.zeros(101, dtype=np.float64)\nfor c in range(1, 100):\n    if c >= 25:\n        TARGET_SHARE[c] = PROBS[c] * 1.4 + PROBS2[c] * 0.6\n    else:\n        TARGET_SHARE[c] = PROBS[c] * 0.2\nTARGET_SHARE /= (np.sum(TARGET_SHARE) + 1e-12)\n\ndef _build_base_matrix():\n    matrix = np.full((101, 101), -1e9, dtype=np.float64)\n    for item in range(1, 101):\n        for cap in range(item, 101):\n            rem = cap - item\n            if cap == 100:\n                # Opening a new bin starts at cap=100 (baseline value ~ V_STATE[100] - open_cost)\n                # Marginal change is V_STATE[100 - item] - threshold\n                if item >= 54:\n                    cost = 93.8\n                elif item >= 36:\n                    cost = 94.6 + (54 - item) * 0.14\n                elif item >= 22:\n                    cost = 97.12 + (36 - item) * 0.48\n                else:\n                    cost = 103.84 + (22 - item) * 0.85\n                matrix[item, cap] = V_STATE[rem] - cost\n            else:\n                # Marginal gain of placing `item` into `cap`:\n                # We gain V_STATE[rem] and lose V_STATE[cap] (discounted by how replaceable `cap` is)\n                # Exact fit (rem == 0) gets an extra boost to lock in 0 waste immediately\n                exact_boost = 16.5 if rem == 0 else 0.0\n\n                # Dead-zone cliff penalty for creating unfillable residuals 1..23\n                dead_pen = 0.0\n                if 0 < rem <= 15:\n                    dead_pen = -19.5 - rem * 0.25\n                elif 15 < rem <= 26:\n                    dead_pen = -23.25 + (rem - 15) * 2.10\n\n                # Opportunity cost of destroying capacity `cap`\n                opp_cost = 0.82 * V_STATE[cap] + 18.0 * PROBS[cap] + 6.0 * PROBS2[cap]\n\n                # Rescue bonus: using a scarce small item (<= 23) to improve or close a small gap\n                rescue = 0.0\n                if item <= 23 and cap <= 31:\n                    rescue = 9.5 + (31 - cap) * 0.35\n\n                # Scarce small item preservation: don't waste small items on big capacities\n                waste_small = 0.0\n                if item <= 21 and cap >= 50:\n                    waste_small = (22 - item) * 0.32\n\n                # Slight Best-Fit tie-breaker\n                bf = (100 - cap) * 0.045\n\n                matrix[item, cap] = (\n                    V_STATE[rem]\n                    - opp_cost\n                    + exact_boost\n                    + dead_pen\n                    + rescue\n                    - waste_small\n                    + bf\n                )\n    return matrix\n\nBASE_MATRIX = _build_base_matrix()\n\n# Track live state across the 5,000 items\n_step = 0\n_bin_counts = np.zeros(101, dtype=np.int32)\n_total_open_bins = 0\n\ndef priority(item: int, capacities: list[int]) -> list[float]:\n    global _step, _total_open_bins\n    _step += 1\n    items_left = N_ITEMS - _step\n\n    base_row = BASE_MATRIX[item]\n\n    # Dynamic adjustments based on current inventory of open bin capacities and remaining horizon\n    # Compute capacity congestion adjustment for each possible `cap` in 1..100\n    adj = np.zeros(101, dtype=np.float64)\n\n    # 1. Inventory balance control (active during main phase)\n    if items_left > 150 and _total_open_bins > 10:\n        # Expected number of future direct single-item hits for each capacity c\n        # If we already have more bins at capacity `rem` than are likely to be filled in the\n        # near term (or if `rem` is congested), penalize creating more `rem`.\n        # Conversely, if we have a surplus of `cap`, reduce the opportunity cost of using `cap`.\n        scale = min(400.0, float(items_left))\n        for c in range(1, 100):\n            cnt = _bin_counts[c]\n            expected_demand = scale * (PROBS[c] + 0.35 * PROBS2[c])\n            # Surplus of capacity c\n            surplus = cnt - expected_demand\n            if surplus > 0:\n                # We have too many bins at capacity c: encourage consuming c\n                adj[c] += min(4.5, surplus * 0.55)\n            else:\n                # Shortage of capacity c: slightly protect c if it's in the golden zone [33..52]\n                if 33 <= c <= 52 and cnt == 0:\n                    adj[c] -= 1.2\n\n        for cap in range(item, 101):\n            rem = cap - item\n            if rem > 0:\n                cnt_rem = _bin_counts[rem]\n                expected_rem_demand = scale * (PROBS[rem] + 0.35 * PROBS2[rem])\n                if cnt_rem > expected_rem_demand + 1.0:\n                    # Penalize piling up identical residuals that exceed future item arrival rate\n                    adj[cap] -= min(6.0, (cnt_rem - expected_rem_demand) * 0.65)\n                elif 35 <= rem <= 48 and cnt_rem < expected_rem_demand * 0.5:\n                    # Reward creating a golden residual when our buffer is depleted\n                    adj[cap] += 1.4\n\n    # 2. Continuous endgame horizon transition (last 450 items)\n    if items_left < 450:\n        # urgency goes from 0.0 (at 450 items left) to 1.0 (at 0 items left)\n        urgency = ((450.0 - items_left) / 450.0) ** 1.6\n        # Penalize opening a new bin increasingly hard\n        adj[100] -= urgency * 24.0\n        for cap in range(item, 100):\n            rem = cap - item\n            # Shift toward Best-Fit (minimize remaining slack in already open bins)\n            adj[cap] += urgency * (100 - rem) * 0.32\n            # Relax the dead-zone avoidance since there is little time left to wait for rare small items\n            if 0 < rem <= 26:\n                dead_relax = 18.0 if rem <= 15 else 18.0 * (26 - rem) / 11.0\n                adj[cap] += urgency * 0.80 * dead_relax\n            # Strongly reward using a bin that already has high fill\n            if cap <= 60:\n                adj[cap] += urgency * 3.5\n\n    # Score all candidate bins and simultaneously find the winning bin to update our state tracker\n    scores = [float(base_row[c] + adj[c]) for c in capacities]\n\n    # Identify chosen bin (highest score, earliest tie-break) to keep _bin_counts accurate\n    best_idx = 0\n    best_score = scores[0]\n    for i in range(1, len(scores)):\n        s = scores[i]\n        if s > best_score:\n            best_score = s\n            best_idx = i\n\n    chosen_cap = capacities[best_idx]\n    new_rem = chosen_cap - item\n    if chosen_cap < 100:\n        if _bin_counts[chosen_cap] > 0:\n            _bin_counts[chosen_cap] -= 1\n        if new_rem == 0:\n            _total_open_bins = max(0, _total_open_bins - 1)\n    else:\n        if new_rem > 0:\n            _total_open_bins += 1\n\n    if new_rem > 0:\n        _bin_counts[new_rem] += 1\n\n    return scores\n",
+        "dev_score": 3.1195912105261243,
+        "valid": true,
+        "error": null
+      }
+    ],
+    "candidate_code": "import math\nimport numpy as np\n\n# Online bin packing heuristic using Value Iteration / Dynamic Programming\n# and active inventory-based target matching (Sum-of-Squares / Profile control).\n#\n# Instead of a static scoring table that is blind to the currently open bins,\n# this heuristic:\n# 1. Solves a Bellman-like fixed point equation for the expected waste V[c] of a\n#    bin with remaining capacity c under the exact Weibull(3, 45) distribution.\n# 2. Tracks the exact count of open bins for each remaining capacity c in [1..99]\n#    (or reads it directly from `capacities`), and dynamically adjusts the marginal\n#    value of creating vs. consuming capacity c based on whether capacity c is currently\n#    over-represented or under-represented relative to the expected future arrivals!\n\nN_ITEMS = 5000\n_step = 0\n\ndef _compute_distribution_and_dp():\n    # Exact probabilities of each item size from Weibull(3, 45), rounded and clipped to [1, 100]\n    probs = np.zeros(101, dtype=np.float64)\n    for k in range(1, 101):\n        low = 0.0 if k == 1 else k - 0.5\n        high = float('inf') if k == 100 else k + 0.5\n        p_low = 1.0 - math.exp(-((low / 45.0) ** 3))\n        p_high = 1.0 - math.exp(-((high / 45.0) ** 3))\n        probs[k] = p_high - p_low\n\n    # 2-item and 3-item convolutions\n    probs2 = np.zeros(101, dtype=np.float64)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs2[i + j] += probs[i] * probs[j]\n\n    probs3 = np.zeros(101, dtype=np.float64)\n    for i in range(1, 101):\n        for j in range(1, 101 - i):\n            probs3[i + j] += probs2[i] * probs[j]\n\n    # Total arrival rate of single or multi-item combinations that can exactly fill capacity c\n    # Given an item arrival stream, how \"demanded\" is capacity c?\n    # A bin of capacity c can be closed in 1 step by item c, or transitioned by item x < c to c - x.\n    demand = probs + 0.55 * probs2 + 0.20 * probs3\n\n    # Compute the intrinsic value V[c] (expected useful fill out of c, or negative expected waste)\n    # via backward induction from c = 0 to 100.\n    # For c = 0, waste = 0 -> value = 0.\n    # For c > 0, if it is never touched again, waste is c (value = -c).\n    # If an item x <= c arrives, it transitions to c - x, gaining x + V[c - x] - V[c].\n    V = np.zeros(101, dtype=np.float64)\n    V[0] = 0.0\n\n    # We iteratively refine V[c] (expected negative waste of a bin of remaining capacity c)\n    # In steady state, an open bin of capacity c competes for items <= c.\n    for c in range(1, 101):\n        # Probability of getting an exact match is probs[c]\n        # Probability of getting a smaller item x < c that is actually worth placing in c\n        # (i.e. leaves a good remainder)\n        p_exact = probs[c]\n        p_two = probs2[c]\n        p_three = probs3[c]\n\n        # Base expected waste if left in dead zone vs fillable zone\n        # Calculate expected value of best transitions from c\n        trans_val = 0.0\n        trans_prob = 0.0\n        for x in range(1, c):\n            rem = c - x\n            # Would we willingly transition c -> rem?\n            # Only if V[rem] is significantly better than -c (or if rem is not a terrible dead zone)\n            if V[rem] > -c + 2.0:\n                w = probs[x] * math.exp(0.18 * (V[rem] + c))\n                trans_val += w * V[rem]\n                trans_prob += w\n\n        avg_trans = (trans_val / trans_prob) if trans_prob > 0 else -c\n\n        # Effective fill probability over the bin's lifetime\n        # Bins with high exact-match or 2-item match probability have very low expected waste\n        fill_score = p_exact * 42.0 + p_two * 22.0 + p_three * 8.0 + trans_prob * 4.5\n        # Survival / unfillability factor\n        unfilled_prob = math.exp(-fill_score)\n\n        # Expected waste is combination of being stranded (-c) vs successfully transitioning/filling\n        expected_waste = unfilled_prob * (-c) + (1.0 - unfilled_prob) * (\n            0.65 * 0.0 + 0.35 * max(-c, avg_trans)\n        )\n\n        # Additional penalty for capacities in [1..19] where items are extremely scarce\n        # and each item used here could have rescued an even tighter bin\n        if c <= 16:\n            expected_waste -= 4.5 * (1.0 - c / 20.0)\n        elif c <= 25:\n            expected_waste -= 2.5 * ((26 - c) / 10.0)\n\n        V[c] = expected_waste\n\n    # Target ideal inventory profile: how many bins of capacity c can the remaining stream support?\n    # Primarily proportional to `probs[c] + 0.35 * probs2[c]`\n    target_profile = probs * 1.15 + probs2 * 0.40 + probs3 * 0.10\n\n    return probs, probs2, probs3, V, target_profile\n\n\nPROBS, PROBS2, PROBS3, V_STATE, TARGET_PROFILE = _compute_distribution_and_dp()\n\n# Precompute base transition matrix (item, cap) -> base score\n# In the DP formulation, placing `item` into `cap` (leaving `rem = cap - item`):\n#   Before action: we have `cap` (expected value V[cap])\n#   After action:  we have `rem` (expected value V[rem])\n#   If cap == 100: we open a new bin, so prior value is V[100] (which is small waste, ~ -0.5)\n#   Net gain in expected waste reduction: V[rem] - alpha * V[cap]\ndef _build_base_tables():\n    base_existing = np.full((101, 101), -1e9, dtype=np.float64)\n    base_new = np.zeros(101, dtype=np.float64)\n\n    for item in range(1, 101):\n        # Score for opening a new bin (cap = 100, rem = 100 - item)\n        rem_new = 100 - item\n        # Opening a new bin creates capacity `rem_new`, plus incurs a fixed shadow price for a new bin\n        if item >= 55:\n            shadow_cost = 1.65\n        elif item >= 38:\n            shadow_cost = 1.85 + (55 - item) * 0.055\n        elif item >= 24:\n            shadow_cost = 2.785 + (38 - item) * 0.22\n        else:\n            shadow_cost = 5.865 + (24 - item) * 0.55\n\n        base_new[item] = V_STATE[rem_new] - shadow_cost\n\n        for cap in range(item, 100):\n            rem = cap - item\n            if rem == 0:\n                # Exact fit! Eliminates all potential waste of `cap`\n                # Prefer closing larger/harder capacities or capacities with fewer alternatives,\n                # but basically any exact fit is top priority.\n                # Tie-break: close bins where V_STATE[cap] is worse (more negative) first!\n                base_existing[item, cap] = 15.0 - 0.35 * V_STATE[cap]\n            else:\n                # Net DP value change: V[rem] - discount * V[cap]\n                # If V[cap] is very close to 0 (e.g. cap=40, easy to fill in 1 step),\n                # destroying it has an opportunity cost.\n                # If V[cap] is very negative (e.g. cap=25, hard to fill), rescuing it to rem=5\n                # gives a massive positive jump: V[5] (-7) - V[25] (-18) = +11!\n                opp_weight = 0.72 if cap <= 60 else 0.55\n                dp_gain = V_STATE[rem] - opp_weight * V_STATE[cap]\n\n                # Bonus for tighter packing (Best-Fit tie-breaker)\n                tightness = (100 - cap) * 0.012 + (100 - rem) * 0.018\n\n                # Penalty for wasting a scarce small item (<= 20) on a large gap (>= 50)\n                scarce_penalty = 0.0\n                if item <= 20 and cap >= 48:\n                    scarce_penalty = (21 - item) * 0.16\n\n                base_existing[item, cap] = dp_gain + tightness - scarce_penalty\n\n    return base_existing.tolist(), base_new.tolist(), TARGET_PROFILE.tolist(), V_STATE.tolist()\n\nBASE_EXISTING, BASE_NEW, TARGET_PROF_LIST, V_LIST = _build_base_tables()\n\n\ndef priority(item: int, capacities: list[int]) -> list[float]:\n    global _step\n    _step += 1\n    rem_items = N_ITEMS - _step\n\n    # Count current open bins by capacity (excluding the last entry which is the new bin 100)\n    counts = [0] * 101\n    n_open = len(capacities) - 1\n    for i in range(n_open):\n        counts[capacities[i]] += 1\n\n    # Endgame phase multiplier: as remaining items -> 0, future arrival probabilities vanish\n    # so V[rem] approaches -rem (pure Best-Fit) and opening new bins must be heavily penalized.\n    if rem_items < 450:\n        # Smoothly ramp endgame pressure from 0.0 (at 450 items left) to 1.0 (at 0 items left)\n        endgame = (450 - rem_items) / 450.0\n        endgame_sq = endgame * endgame\n    else:\n        endgame = 0.0\n        endgame_sq = 0.0\n\n    # Horizon scale for target inventory of each capacity:\n    # Look ahead over a window of ~min(rem_items, 600) items to judge congestion of capacity `c`\n    horizon = rem_items if rem_items < 650 else 650\n\n    row_existing = BASE_EXISTING[item]\n    scores = [0.0] * len(capacities)\n\n    for idx in range(n_open):\n        cap = capacities[idx]\n        rem = cap - item\n\n        if rem == 0:\n            # Exact fit is always highest priority; slight preference for rescuing congested capacities\n            scores[idx] = row_existing[cap] + 0.15 * counts[cap]\n            continue\n\n        s = row_existing[cap]\n\n        # Dynamic inventory congestion control (Sum-of-Squares / Profile matching):\n        # 1. If we already have too many bins of capacity `rem` relative to what the horizon can absorb,\n        #    penalize creating another `rem`.\n        expected_demand_rem = TARGET_PROF_LIST[rem] * horizon\n        excess_rem = counts[rem] - expected_demand_rem\n        if excess_rem > 0.0:\n            s -= min(6.0, excess_rem * 0.65)\n        elif counts[rem] == 0 and rem >= 30 and rem <= 52 and horizon > 100:\n            # Slight bonus for having at least one bin at a high-probability exact-match capacity\n            s += 0.45\n\n        # 2. If we have an excess of `cap`, reward consuming it (reducing its congestion)\n        expected_demand_cap = TARGET_PROF_LIST[cap] * horizon\n        excess_cap = counts[cap] - 1 - expected_demand_cap\n        if excess_cap > 0.0:\n            s += min(4.0, excess_cap * 0.45)\n\n        # 3. Endgame continuous interpolation toward Best-Fit\n        if endgame > 0.0:\n            # In endgame, dead-zone avoidance relaxes and we want minimum residual `rem`\n            bf_pull = -0.18 * rem - 0.45 * V_LIST[rem]\n            s += endgame_sq * bf_pull\n\n        scores[idx] = s\n\n    # Score for the last entry (opening a new bin, cap == 100)\n    rem_new = 100 - item\n    s_new = BASE_NEW[item]\n\n    # Congestion adjustment for the capacity `rem_new` created by opening a new bin\n    expected_demand_new = TARGET_PROF_LIST[rem_new] * horizon\n    excess_new = counts[rem_new] - expected_demand_new\n    if excess_new > 0.0:\n        s_new -= min(6.5, excess_new * 0.70)\n    elif counts[rem_new] == 0 and 32 <= rem_new <= 52 and horizon > 100:\n        s_new += 0.40\n\n    # If total open bins are already piling up in the endgame, strongly discourage new bins\n    if endgame > 0.0:\n        s_new -= endgame_sq * 12.0 + endgame * 2.5\n\n    scores[n_open] = s_new\n    return scores\n",
+    "dev_score": 1.375528524587123,
+    "heldout_score": 1.4090702630931333,
+    "cost_usd": 0.09,
+    "calls": 2
+  },
+  "trajectory_cost_usd": 0.0724,
+  "overlook_excerpt": {
+    "inputs": [
+      {
+        "input": "n_open_bins",
+        "description": "how many feasible bins are offered (len(capacities))",
+        "used_by": 5,
+        "decided": 95,
+        "undecided": 0,
+        "share": 0.053,
+        "overlooked": true,
+        "used_by_models": {
+          "deepseek/deepseek-v4-pro-0813": 2,
+          "google/gemini-4-argon": 1,
+          "meta-llama/llama-4-maverick": 1,
+          "openai/gpt-6.1-sol": 1
+        },
+        "methods": {
+          "static": 95
+        },
+        "evidence": [
+          {
+            "sample_id": "deepseek_deepseek-v4-pro-0813-003",
+            "model": "deepseek/deepseek-v4-pro-0813",
+            "evidence": "number of bins enters a score at line 18"
+          },
+          {
+            "sample_id": "deepseek_deepseek-v4-pro-0813-004",
+            "model": "deepseek/deepseek-v4-pro-0813",
+            "evidence": "number of bins enters a score at line 73"
+          },
+          {
+            "sample_id": "google_gemini-4-argon-014",
+            "model": "google/gemini-4-argon",
+            "evidence": "number of bins enters a score at line 79"
+          },
+          {
+            "sample_id": "meta-llama_llama-4-maverick-007",
+            "model": "meta-llama/llama-4-maverick",
+            "evidence": "number of bins enters a score at line 11"
+          },
+          {
+            "sample_id": "openai_gpt-6.1-sol-003",
+            "model": "openai/gpt-6.1-sol",
+            "evidence": "number of bins enters a score at line 48"
+          }
+        ]
+      },
+      {
+        "input": "bin_order",
+        "description": "a bin's position in the list, i.e. when it was opened (bin age)",
+        "used_by": 34,
+        "decided": 95,
+        "undecided": 0,
+        "share": 0.358,
+        "overlooked": false,
+        "used_by_models": {
+          "anthropic/claude-sonnet-5.5": 7,
+          "deepseek/deepseek-v4-pro-0813": 11,
+          "google/gemini-4-argon": 2,
+          "meta-llama/llama-4-maverick": 4,
+          "openai/gpt-6.1-sol": 10
+        },
+        "methods": {
+          "static": 95
+        },
+        "evidence": [
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-001",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "bin position used at lines [49, 54]"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-003",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "bin position used at lines [4]"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-004",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "bin position used at lines [35]"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-013",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "bin position used at lines [57, 59]"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-014",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "bin position used at lines [8]"
+          }
+        ]
+      },
+      {
+        "input": "history",
+        "description": "module-level state carried across calls (past items, counts, statistics)",
+        "used_by": 38,
+        "decided": 95,
+        "undecided": 0,
+        "share": 0.4,
+        "overlooked": false,
+        "used_by_models": {
+          "anthropic/claude-sonnet-5.5": 4,
+          "deepseek/deepseek-v4-pro-0813": 9,
+          "google/gemini-4-argon": 6,
+          "openai/gpt-6.1-sol": 19
+        },
+        "methods": {
+          "static": 95
+        },
+        "evidence": [
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-011",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "state carried across calls: ['_counts']"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-013",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "state carried across calls: ['_W']"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-015",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "state carried across calls: ['_W', '_counts', '_n']"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-017",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "state carried across calls: ['_W']"
+          },
+          {
+            "sample_id": "deepseek_deepseek-v4-pro-0813-003",
+            "model": "deepseek/deepseek-v4-pro-0813",
+            "evidence": "state carried across calls: ['item_history', 'mean_item_size']"
+          }
+        ]
+      },
+      {
+        "input": "new_bin_slot",
+        "description": "the last entry is the option of opening a new, empty bin",
+        "used_by": 57,
+        "decided": 95,
+        "undecided": 0,
+        "share": 0.6,
+        "overlooked": false,
+        "used_by_models": {
+          "anthropic/claude-sonnet-5.5": 5,
+          "deepseek/deepseek-v4-pro-0813": 17,
+          "google/gemini-4-argon": 7,
+          "meta-llama/llama-4-maverick": 16,
+          "openai/gpt-6.1-sol": 12
+        },
+        "methods": {
+          "static": 95
+        },
+        "evidence": [
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-003",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "new-bin entry treated specially at lines [9]"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-004",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "new-bin entry treated specially at lines [37]"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-014",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "new-bin entry treated specially at lines [10]"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-015",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "new-bin entry treated specially at lines [57]"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-019",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "new-bin entry treated specially at lines [49]"
+          }
+        ]
+      },
+      {
+        "input": "item_distribution",
+        "description": "the stated item-size distribution, Weibull(k=3, scale=45)",
+        "used_by": 66,
+        "decided": 95,
+        "undecided": 0,
+        "share": 0.695,
+        "overlooked": false,
+        "used_by_models": {
+          "anthropic/claude-sonnet-5.5": 16,
+          "deepseek/deepseek-v4-pro-0813": 15,
+          "google/gemini-4-argon": 18,
+          "openai/gpt-6.1-sol": 17
+        },
+        "methods": {
+          "static": 95
+        },
+        "evidence": [
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-000",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the Weibull parameters or name appear in the code"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-001",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the Weibull parameters or name appear in the code"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-004",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the Weibull parameters or name appear in the code"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-006",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the Weibull parameters or name appear in the code"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-007",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the Weibull parameters or name appear in the code"
+          }
+        ]
+      },
+      {
+        "input": "bin_capacity",
+        "description": "the bin capacity, 100",
+        "used_by": 78,
+        "decided": 95,
+        "undecided": 0,
+        "share": 0.821,
+        "overlooked": false,
+        "used_by_models": {
+          "anthropic/claude-sonnet-5.5": 18,
+          "deepseek/deepseek-v4-pro-0813": 17,
+          "google/gemini-4-argon": 18,
+          "meta-llama/llama-4-maverick": 6,
+          "openai/gpt-6.1-sol": 19
+        },
+        "methods": {
+          "static": 95
+        },
+        "evidence": [
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-000",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the capacity constant 100 appears in the code"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-001",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the capacity constant 100 appears in the code"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-003",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the capacity constant 100 appears in the code"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-004",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the capacity constant 100 appears in the code"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-006",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "the capacity constant 100 appears in the code"
+          }
+        ]
+      },
+      {
+        "input": "item",
+        "description": "size of the arriving item",
+        "used_by": 95,
+        "decided": 95,
+        "undecided": 0,
+        "share": 1.0,
+        "overlooked": false,
+        "used_by_models": {
+          "anthropic/claude-sonnet-5.5": 20,
+          "deepseek/deepseek-v4-pro-0813": 19,
+          "google/gemini-4-argon": 18,
+          "meta-llama/llama-4-maverick": 18,
+          "openai/gpt-6.1-sol": 20
+        },
+        "methods": {
+          "static": 95
+        },
+        "evidence": [
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-000",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "item flows into the scores"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-001",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "item flows into the scores"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-002",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "item flows into the scores"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-003",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "item flows into the scores"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-004",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "item flows into the scores"
+          }
+        ]
+      },
+      {
+        "input": "capacity_values",
+        "description": "remaining capacity of each feasible bin",
+        "used_by": 95,
+        "decided": 95,
+        "undecided": 0,
+        "share": 1.0,
+        "overlooked": false,
+        "used_by_models": {
+          "anthropic/claude-sonnet-5.5": 20,
+          "deepseek/deepseek-v4-pro-0813": 19,
+          "google/gemini-4-argon": 18,
+          "meta-llama/llama-4-maverick": 18,
+          "openai/gpt-6.1-sol": 20
+        },
+        "methods": {
+          "static": 95
+        },
+        "evidence": [
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-000",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "capacities read at line 32"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-001",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "capacities read at line 49"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-002",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "capacities read at line 6"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-003",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "capacities read at line 4"
+          },
+          {
+            "sample_id": "anthropic_claude-sonnet-5.5-004",
+            "model": "anthropic/claude-sonnet-5.5",
+            "evidence": "capacities read at line 35"
+          }
+        ]
+      }
+    ],
+    "assumptions": [
+      {
+        "assumption": "Ties are assumed to be harmless and are resolved by the argmax/position order, with no use of the bin's opening order or age as a meaningful signal.",
+        "kind": "hard",
+        "prompt_quote": "The item goes into the bin with the\n  highest score (ties go to the earliest bin).",
+        "shared": true,
+        "held_by": 12,
+        "checked": 12,
+        "evidence": [
+          {
+            "sample_id": "deepseek_deepseek-v4-pro-0813-003",
+            "evidence": "Ties resolved by list position; no use of bin opening order or age."
+          },
+          {
+            "sample_id": "deepseek_deepseek-v4-pro-0813-009",
+            "evidence": "No age-based tie-breaking; ties left to argmax/position."
+          },
+          {
+            "sample_id": "deepseek_deepseek-v4-pro-0813-010",
+            "evidence": "No age-based tie-breaking; ties resolved by position."
+          },
+          {
+            "sample_id": "deepseek_deepseek-v4-pro-0813-011",
+            "evidence": "No age-based tie-breaking; equal scores resolved by position."
+          }
+        ],
+        "proposer_evidence": [
+          {
+            "sample_id": "deepseek_deepseek-v4-pro-0813-011",
+            "lines": "24-45"
+          },
+          {
+            "sample_id": "openai_gpt-6.1-sol-001",
+            "lines": "57-60"
+          }
+        ]
+      }
+    ]
+  },
+  "paraphrase": {
+    "verdict": "partly a prompt effect",
+    "mean_P": 0.508,
+    "max_R": 0.4,
+    "mean_R": 0.25
+  }
+}

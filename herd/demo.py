@@ -1,0 +1,240 @@
+"""Deterministic demo and preflight check.
+
+`python -m herd demo <name>` replays a recorded run: fixtures/trajectories/<name>.json (the agent's
+attempts) and fixtures/runs/<name>.json (what escape and a fresh-start baseline produced on them,
+recorded once with real API calls). The demo itself makes no API or network calls, never builds a
+Herd or a client, adds no timestamps and uses no randomness, so the same files print the same text.
+
+`python -m herd preflight` checks budget, API keys and model slugs before a live run."""
+import os
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+MIN_REMAINING_USD = 1.0
+
+
+def _load(path):
+    import json
+    return json.loads(Path(path).read_text())
+
+
+def _fmt(v, digits=4):
+    return "-" if v is None else f"{v:.{digits}f}"
+
+
+def _pct(v):
+    return "-" if v is None else f"{v:.0%}"
+
+
+def code_summary(code, width=72):
+    """One line: size and the first return expression (or the first def line)."""
+    lines = [l.strip() for l in (code or "").splitlines() if l.strip() and not l.strip().startswith("#")]
+    if not lines:
+        return "(no code)"
+    key = next((l for l in lines if l.startswith("return ")), None) or next(
+        (l for l in lines if l.startswith("def ")), lines[0])
+    key = key if len(key) <= width else key[:width - 3] + "..."
+    return f"{len(lines)} lines; {key}"
+
+
+def _first_line(text):
+    text = (text or "").strip()
+    return text.splitlines()[0] if text else "(no feedback)"
+
+
+def comparison(escape_score, fresh_score):
+    """Honest one-line comparison on held-out (lower is better)."""
+    if escape_score is None or fresh_score is None:
+        missing = [n for n, s in (("escape", escape_score), ("fresh_start", fresh_score)) if s is None]
+        return f"cannot compare on held-out: no held-out score for {' and '.join(missing)}"
+    diff = round(fresh_score - escape_score, 4)
+    tail = f"({_fmt(escape_score)} vs {_fmt(fresh_score)} % excess bins; lower is better)"
+    if diff == 0:
+        return f"escape tied fresh_start on held-out {tail}"
+    word = "beat" if diff > 0 else "lost to"
+    return f"escape {word} fresh_start on held-out by {abs(diff):.4f} points {tail}"
+
+
+def _missing_run_help(name, root):
+    scripts = sorted(p.name for p in (Path(root) / "scripts").glob("*.py")
+                     if any(w in p.name for w in ("fixture", "demo", "record")))
+    how = (f"run scripts/{scripts[0]} for {name}" if scripts else
+           "run the escape tool and the fresh-start baseline on the fixture once (this is the only "
+           "step that calls the API) and save the result there")
+    return (f"no recorded run for {name!r}: fixtures/runs/{name}.json is missing.\n"
+            f"To create it, {how}. Needs OPENROUTER_API_KEY and budget; check with `python -m herd preflight`.")
+
+
+def run(name, root=REPO, out=print):
+    """Print the recorded demo for fixture `name`. Returns 0, or 1 when a file is missing."""
+    root = Path(root)
+    traj_path, run_path = root / "fixtures" / "trajectories" / f"{name}.json", root / "fixtures" / "runs" / f"{name}.json"
+    if not traj_path.exists():
+        out(f"no fixture {name!r}: {traj_path.relative_to(root)} is missing")
+        return 1
+    if not run_path.exists():
+        out(_missing_run_help(name, root))
+        return 1
+    traj, rec = _load(traj_path), _load(run_path)
+    esc, fresh = rec.get("escape") or {}, rec.get("fresh_start") or {}
+    result = esc.get("result") or {}
+
+    out(f"HERD demo: {name}  (task: {rec.get('task') or traj.get('task')})")
+    out(f"recorded run: commit {rec.get('commit')}, {rec.get('n_runs')} run(s), "
+        f"budget ${rec.get('budget_usd_each', 0):.2f} each; replayed offline, no API calls")
+    if traj.get("how_generated"):
+        out(f"attempts: {traj['how_generated']}")
+
+    out("\n== 1. The agent's attempts (dev score, lower is better) ==")
+    for a in traj.get("attempts", []):
+        out(f"  {a.get('id')}  dev {_fmt(a.get('dev_score'))}  [{a.get('source')}]")
+        out(f"      feedback: {_first_line(a.get('feedback'))}")
+        out(f"      code: {code_summary(a.get('code'))}")
+
+    out("\n== 2. Loop diagnosis ==")
+    out(f"  strategy similarity {_fmt2(result.get('strategy_similarity'))} vs code similarity "
+        f"{_fmt2(result.get('code_similarity'))}")
+    out(f"  loop detected: {result.get('loop_detected')}   action: {result.get('action')}")
+    if result.get("shared_strategy"):
+        out(f"  shared strategy: {result['shared_strategy']}")
+    for reason in result.get("reasons") or []:
+        out(f"  - {reason}")
+
+    out("\n== 3. Herd evidence ==")
+    excerpt = rec.get("overlook_excerpt") or {}
+    for r in excerpt.get("inputs") or []:
+        flag = "  [overlooked]" if r.get("overlooked") else ""
+        out(f"  {r.get('input')}: used by {r.get('used_by')}/{r.get('decided')} herd samples "
+            f"({_pct(r.get('share'))}){flag}")
+    assumptions = excerpt.get("assumptions") or []
+    if isinstance(assumptions, dict):
+        assumptions = assumptions.get("assumptions") or []
+    for a in assumptions:
+        if isinstance(a, dict):
+            held = f", held by {a['held_by']}/{a['checked']}" if a.get("held_by") is not None else ""
+            out(f"  assumption: {a.get('assumption')} ({a.get('kind')}{held})")
+        else:
+            out(f"  assumption: {a}")
+    out(f"  herd prevalence of the attempts' strategy profile: {result.get('herd_prevalence')}")
+    for lever in result.get("overlooked_levers") or []:
+        out(f"  lever [{lever.get('type')}] {lever.get('name')}: {lever.get('why')}")
+
+    out("\n== 4. Scope of the herd claims ==")
+    para = rec.get("paraphrase")
+    if para:
+        out(f"  paraphrase test: {para.get('verdict')} (mean paraphrase TVD {para.get('mean_P')} vs "
+            f"max resampling TVD {para.get('max_R')}); read herd shares as 'what models converge on "
+            f"for this wording'")
+    else:
+        out("  no paraphrase test recorded; herd shares hold for this exact prompt wording only")
+
+    text = esc.get("contract")
+    if not text:
+        try:
+            from . import contract
+            text = contract.render(result)
+        except ImportError:
+            text = "(herd.contract is not available and the run file has no recorded contract)"
+    verdict = text.splitlines()[0].replace("VERDICT:", "").strip() if text.startswith("VERDICT:") else None
+    switch = result.get("recommended_switch") or {}
+    if verdict == "escape":
+        out("\n== 5. Escape lever ==")
+        out(f"  switch to: {switch.get('mechanism')}")
+    else:
+        out(f"\n== 5. Lever (not applied: verdict {verdict}) ==")
+        out(f"  option if progress stalls: {switch.get('mechanism')}")
+    out(f"  why: {switch.get('why')}")
+
+    out("\n== 6. Contract (what the agent receives) ==")
+    out(text)
+
+    out("\n== 7. Results (% excess bins, lower is better) ==")
+    base = rec.get("baselines") or {}
+    best = rec.get("best_attempt") or {}
+    rows = [(f"best attempt ({best.get('id')})", best.get("dev_score"), best.get("heldout_score"), ""),
+            ("escape candidate", esc.get("dev_score"), esc.get("heldout_score"),
+             f"${esc.get('cost_usd', 0):.4f} / {esc.get('calls') or 0} calls"),
+            ("fresh_start candidate", fresh.get("dev_score"), fresh.get("heldout_score"),
+             f"${fresh.get('cost_usd', 0):.4f} / {fresh.get('calls') or 0} calls")]
+    forced = rec.get("forced_escape")
+    if forced:
+        rows.append((f"forced escape ({forced.get('lever')})*", forced.get("dev_score"), forced.get("heldout_score"),
+                     f"${forced.get('cost_usd', 0):.4f} / {forced.get('calls') or 0} calls"))
+    for b in ("best_fit", "first_fit"):
+        rows.append((b, (base.get("dev") or {}).get(b), (base.get("heldout") or {}).get(b), ""))
+    out(f"  {'':24} {'dev':>9} {'held-out':>9}  cost")
+    for label, dev, held, cost in rows:
+        out(f"  {label:24} {_fmt(dev):>9} {_fmt(held):>9}  {cost}".rstrip())
+
+    out(f"\nPRELIMINARY: {rec.get('n_runs', 1)} run")
+    if verdict is not None and verdict != "escape":
+        out(f"no escape candidate: verdict {verdict}, so HERD did not switch strategy and there is nothing to "
+            f"compare with fresh_start")
+    else:
+        out(comparison(esc.get("heldout_score"), fresh.get("heldout_score")))
+    if forced:
+        out(f"* {forced.get('note')}. Forced escape vs fresh_start: "
+            + comparison(forced.get("heldout_score"), fresh.get("heldout_score")).replace("escape", "forced escape", 1))
+    return 0
+
+
+def _fmt2(x):
+    return f"{x:.2f}" if isinstance(x, (int, float)) else str(x)
+
+
+def _configured_models(cfg):
+    m = cfg["models"]
+    return list(dict.fromkeys([*m["samplers"], m["labeler"], m["implementer"], m["extractor"]]))
+
+
+def _live_model_ids(timeout=10):
+    """Live OpenRouter /models ids, or None when the network or the endpoint fails."""
+    try:
+        import httpx
+        r = httpx.get("https://openrouter.ai/api/v1/models", timeout=timeout)
+        r.raise_for_status()
+        return {m["id"] for m in r.json()["data"]}
+    except Exception:
+        return None
+
+
+def preflight(herd=None, out=print, live=True, env=None):
+    """Budget, keys and model slugs before a live run. Returns 1 when remaining budget is under
+    $1 or OPENROUTER_API_KEY is missing, else 0. Never prints key values."""
+    if herd is None:
+        from .pipeline import Herd
+        herd = Herd(progress=lambda m: None)
+    env = os.environ if env is None else env
+    ok = True
+    ledger = herd.ledger
+    remaining = ledger.global_cap - ledger.total_spent
+    out(f"spend ${ledger.total_spent:.4f} of cap ${ledger.global_cap:.2f}; remaining ${remaining:.4f}")
+    if remaining < MIN_REMAINING_USD:
+        out(f"FAIL remaining budget is under ${MIN_REMAINING_USD:.2f}")
+        ok = False
+    for key, required in (("OPENROUTER_API_KEY", True), ("EXA_API_KEY", False)):
+        present = bool(env.get(key))
+        out(f"{key}: {'set' if present else 'NOT set'}")
+        if required and not present:
+            out(f"FAIL {key} is required")
+            ok = False
+
+    models = _configured_models(herd.cfg)
+    catalog_path = REPO / herd.cfg["paths"]["cache"] / "openrouter_models.json"
+    if catalog_path.exists():
+        cached = {m["id"] for m in _load(catalog_path)["data"]}
+        missing = [m for m in models if m not in cached]
+        out(f"cached catalog: {len(models) - len(missing)}/{len(models)} configured models present"
+            + (f"; WARN missing {missing}" if missing else ""))
+    else:
+        out(f"cached catalog: WARN {catalog_path.relative_to(REPO)} not found")
+    if live:
+        ids = _live_model_ids()
+        if ids is None:
+            out("live catalog: unavailable (network or endpoint failed); skipped")
+        else:
+            missing = [m for m in models if m not in ids]
+            out(f"live catalog: {len(models) - len(missing)}/{len(models)} configured models present"
+                + (f"; WARN missing {missing}" if missing else ""))
+    out("preflight OK" if ok else "preflight FAILED")
+    return 0 if ok else 1
