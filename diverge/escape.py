@@ -583,10 +583,12 @@ def _admit(task, code, stuck_codes, lever_name):
 
 
 def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
-              k_sketches=3, max_resample=2, seed=0, log=None, extract=None):
+              k_sketches=3, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=False):
     """Escape v2: failure summary + one lever + agreement counterexample -> k mechanism sketches
     (fresh context, no code) -> keep sketches that use the lever and differ from the stuck
-    strategy -> implement each, admit (resampling up to max_resample times) -> best on dev."""
+    strategy -> implement each, admit (resampling up to max_resample times) -> best on dev.
+    feedback_on_reject=True appends the admission reasons to each resample prompt (as v3 does);
+    the default keeps v2's prompts and cache keys unchanged."""
     from .llm import ask_json
     events, calls = [], {"implementer": 0, "extractor": 0}
 
@@ -673,10 +675,14 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
     for s in kept:
         impl_prompt = implementation_prompt_v2(task, s, chosen, overlook)
         prompts.append(impl_prompt)
+        feedback = ""  # opt-in: why the previous candidate was rejected, so a resample is not blind
         for attempt in range(max_resample + 1):
             base = {"stage": "admission", "sketch": s.get("name"), "attempt": attempt}
+            prompt = impl_prompt + feedback
+            if feedback:
+                prompts.append(prompt)
             try:
-                entry = impl_llm.chat(implementer, [{"role": "user", "content": impl_prompt}], temperature=1.0,
+                entry = impl_llm.chat(implementer, [{"role": "user", "content": prompt}], temperature=1.0,
                                       max_tokens=herd.cfg["reality_check"]["max_tokens"],
                                       sample_idx=f"escape_v2:impl:{seed}:{s['index']}:{attempt}")
             except BudgetExceeded:
@@ -697,6 +703,9 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
                                           "sensitivity": verdict.get("sensitivity"),
                                           "perturbation": verdict.get("perturbation")})
                 note(out["rejections"][-1])
+                if feedback_on_reject:
+                    feedback = ADMISSION_FEEDBACK.format(reasons="\n".join(
+                        f"- {r}" for r in (verdict.get("reasons") or ["not admitted"])), lever=chosen["name"])
                 continue
             path = code_dir / f"{slug(chosen['name'])}-{seed}-{s['index']}-{attempt}.py"
             path.write_text(code)

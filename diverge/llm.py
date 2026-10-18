@@ -44,10 +44,20 @@ def anthropic_only_models(models):
 
 
 def anthropic_model_id(slug):
-    """'anthropic/claude-haiku-5.5' -> 'claude-haiku-5-5'; None for a non-Anthropic slug."""
-    if not slug.startswith("anthropic/"):
+    """'anthropic/claude-haiku-5.5' -> 'claude-haiku-5-5'; None for anything but an anthropic/claude-* slug."""
+    if not slug.startswith("anthropic/claude-"):
         return None
     return slug.split("/", 1)[1].replace(".", "-")
+
+
+# Catalog used in anthropic mode when cache/openrouter_models.json is absent, so a cold start never
+# contacts OpenRouter. Same shape as OpenRouter's listing; prices are USD per token.
+ANTHROPIC_CATALOG = {
+    slug: {"id": slug, "name": slug, "pricing": {"prompt": prompt, "completion": completion},
+           "top_provider": {"max_completion_tokens": 64000}}
+    for slug, prompt, completion in [("anthropic/claude-haiku-5.5", "0.0000001", "0.0000005"),
+                                     ("anthropic/claude-sonnet-5.5", "0.000002", "0.00001"),
+                                     ("anthropic/claude-opus-5.5", "0.000004", "0.00002")]}
 COMPLETION_MARGIN = 1.25
 MIN_SHRUNK_TOKENS = 4000  # implementer replies use ~2k tokens; smaller budgets are refused as before
 
@@ -125,9 +135,13 @@ class Ledger:
 
 
 def load_model_catalog(cache_dir):
-    """OpenRouter's /models listing, saved on first use so pricing stays fixed across reruns."""
+    """OpenRouter's /models listing, saved on first use so pricing stays fixed across reruns.
+    In anthropic mode the cached listing is used when present, else the built-in ANTHROPIC_CATALOG:
+    OpenRouter is never contacted."""
     path = Path(cache_dir) / "openrouter_models.json"
     if not path.exists():
+        if provider() == "anthropic":
+            return {k: dict(v) for k, v in ANTHROPIC_CATALOG.items()}
         path.parent.mkdir(parents=True, exist_ok=True)
         response = httpx.get(f"{OPENROUTER}/models", timeout=60)
         response.raise_for_status()
@@ -239,7 +253,7 @@ def _anthropic_post(self, body, attempts=4):
     (choices[0].message.content, finish_reason, usage with cost) so the rest of DIVERGE is unchanged."""
     model = anthropic_model_id(body["model"])
     if model is None:
-        raise RuntimeError(f"{body['model']}: DIVERGE_PROVIDER=anthropic only serves anthropic/* models "
+        raise RuntimeError(f"{body['model']}: DIVERGE_PROVIDER=anthropic only serves anthropic/claude-* models "
                            "(OpenRouter is disabled); configure a Claude model instead")
     system = "\n\n".join(m["content"] for m in body["messages"] if m["role"] == "system")
     # Current Claude models reject a non-default temperature ("deprecated for this model"), so it is

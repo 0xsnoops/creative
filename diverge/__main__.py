@@ -145,7 +145,8 @@ def main():
     es.add_argument("--budget", type=float, default=2.0, help="USD this run may spend")
     dm = sub.add_parser("demo", help="replay a recorded escape run offline (no API calls)")
     dm.add_argument("fixture", help="name under fixtures/trajectories and fixtures/runs, e.g. strategy_loop")
-    pf = sub.add_parser("preflight", help="check budget, API keys and model slugs before a live run")
+    pf = sub.add_parser("preflight", help="check budget, API keys and model slugs before a live run "
+                        "(exit code reflects live readiness, also with --offline; the offline demo needs no keys)")
     pf.add_argument("--json", action="store_true", help="print the readiness dict (as diverge_status returns it)")
     pf.add_argument("--offline", action="store_true", help="skip the live model catalog check (no network)")
     sub.add_parser("spend", help="show estimated spend so far")
