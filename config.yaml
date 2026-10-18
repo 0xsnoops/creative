@@ -1,4 +1,4 @@
-# HERD blind-spot experiment configuration.
+# DIVERGE blind-spot experiment configuration.
 # Model slugs were chosen from OpenRouter's /models endpoint (fetched 2026-10-18).
 
 budget_usd: 28.0            # hard cap on estimated total spend (all cached responses count):
@@ -13,7 +13,7 @@ models:
     - deepseek/deepseek-v4-pro-0813
   labeler: anthropic/claude-opus-5.5
   implementer: google/gemini-4-argon   # must accept temperature, for the "hot" operator
-  extractor: anthropic/claude-haiku-5.5  # cheap reader of herd code (overlook audit); never generates solutions
+  extractor: anthropic/claude-haiku-5.5  # cheap reader of consensus code (overlook audit); never generates solutions
 
 sampling:
   n_per_model: 5            # plumbing check; then 20, then 100
