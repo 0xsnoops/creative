@@ -246,7 +246,10 @@ def readiness(herd=None, env=None, live=False, root=REPO):
     env = os.environ if env is None else env
     remaining = cap - spent
     requirements, missing = {}, []
-    for name, key, required, used_for in KEYS:
+    keys = KEYS
+    if str(env.get("DIVERGE_PROVIDER", "")).lower() == "anthropic":  # OpenRouter disabled
+        keys = (("anthropic", "ANTHROPIC_API_KEY", True, "every model call, sent to the Anthropic API"),) + KEYS[1:]
+    for name, key, required, used_for in keys:
         present = bool(env.get(key))
         requirements[name] = {"env": key, "status": "configured" if present else
                               ("missing" if required else "missing (optional)"),
@@ -265,8 +268,9 @@ def readiness(herd=None, env=None, live=False, root=REPO):
     if live_ok:
         action = (f"DIVERGE is configured. Call {PRIMARY_TOOL} yourself when attempts stall (see when_to_call); "
                   f"diverge_check before choosing a strategy.")
-    elif "OPENROUTER_API_KEY" in missing:
-        action = ("Live DIVERGE calls need OPENROUTER_API_KEY, which only the user can provide (in .env); ask them, and "
+    elif any(k in missing for k in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")):
+        needed = "ANTHROPIC_API_KEY" if "ANTHROPIC_API_KEY" in missing else "OPENROUTER_API_KEY"
+        action = (f"Live DIVERGE calls need {needed}, which only the user can provide (in .env); ask them, and "
                   "never invent or guess a credential. Until then, " +
                   (f"run the offline demo ({OFFLINE_DEMO_COMMAND}, no API calls)." if demo_ok else
                    "continue without DIVERGE."))

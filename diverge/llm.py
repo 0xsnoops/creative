@@ -11,6 +11,38 @@ import httpx
 from .cache import request_key
 
 OPENROUTER = "https://openrouter.ai/api/v1"
+ANTHROPIC = "https://api.anthropic.com/v1/messages"
+# DIVERGE_PROVIDER=anthropic sends every call to the Anthropic API with ANTHROPIC_API_KEY and never
+# to OpenRouter. Model slugs stay "anthropic/claude-..." so cached replies and prices still apply.
+
+
+def provider():
+    return os.environ.get("DIVERGE_PROVIDER", "openrouter").strip().lower()
+
+
+ANTHROPIC_DEFAULTS = {"samplers": ["anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5"],
+                      "implementer": "anthropic/claude-sonnet-5.5", "extractor": "anthropic/claude-haiku-5.5",
+                      "labeler": "anthropic/claude-opus-5.5"}
+
+
+def anthropic_only_models(models):
+    """The configured models with every non-Anthropic role replaced by a Claude model."""
+    out = dict(models)
+    for role, default in ANTHROPIC_DEFAULTS.items():
+        value = models.get(role)
+        if isinstance(value, list):
+            kept = [m for m in value if m.startswith("anthropic/")]
+            out[role] = kept or default
+        elif value is None or not str(value).startswith("anthropic/"):
+            out[role] = default
+    return out
+
+
+def anthropic_model_id(slug):
+    """'anthropic/claude-haiku-5.5' -> 'claude-haiku-5-5'; None for a non-Anthropic slug."""
+    if not slug.startswith("anthropic/"):
+        return None
+    return slug.split("/", 1)[1].replace(".", "-")
 COMPLETION_MARGIN = 1.25
 MIN_SHRUNK_TOKENS = 4000  # implementer replies use ~2k tokens; smaller budgets are refused as before
 
@@ -177,6 +209,8 @@ class LLM:
         return {**entry, "cached": False}
 
     def _post(self, body, attempts=4):
+        if provider() == "anthropic":
+            return self._post_anthropic(body, attempts)
         headers = {"Authorization": f"Bearer {require_env('OPENROUTER_API_KEY')}"}
         error = None
         for attempt in range(attempts):
@@ -193,6 +227,47 @@ class LLM:
                 error = f"{type(e).__name__}: {e}"
             time.sleep(5 * 2 ** attempt)
         raise RuntimeError(f"{body['model']}: {error}")
+
+
+def _anthropic_post(self, body, attempts=4):
+    """The same call through the Anthropic Messages API, returned in the OpenRouter response shape
+    (choices[0].message.content, finish_reason, usage with cost) so the rest of DIVERGE is unchanged."""
+    model = anthropic_model_id(body["model"])
+    if model is None:
+        raise RuntimeError(f"{body['model']}: DIVERGE_PROVIDER=anthropic only serves anthropic/* models "
+                           "(OpenRouter is disabled); configure a Claude model instead")
+    system = "\n\n".join(m["content"] for m in body["messages"] if m["role"] == "system")
+    request = {"model": model, "max_tokens": body["max_tokens"], "temperature": min(body.get("temperature", 1.0), 1.0),
+               "messages": [m for m in body["messages"] if m["role"] != "system"]}
+    if system:
+        request["system"] = system
+    headers = {"x-api-key": require_env("ANTHROPIC_API_KEY"), "anthropic-version": "2023-06-01",
+               "content-type": "application/json"}
+    info = self.catalog.get(body["model"], {}).get("pricing", {})
+    error = None
+    for attempt in range(attempts):
+        try:
+            r = httpx.post(ANTHROPIC, headers=headers, json=request, timeout=900)
+            data = r.json()
+            if r.status_code == 200 and data.get("content") is not None:
+                text = "".join(c.get("text", "") for c in data["content"] if c.get("type") == "text")
+                usage = data.get("usage") or {}
+                tokens_in, tokens_out = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+                cost = tokens_in * float(info.get("prompt", 0)) + tokens_out * float(info.get("completion", 0))
+                return {"choices": [{"message": {"content": text},
+                                     "finish_reason": "length" if data.get("stop_reason") == "max_tokens" else "stop"}],
+                        "usage": {"prompt_tokens": tokens_in, "completion_tokens": tokens_out, "cost": cost},
+                        "provider": "anthropic", "model": data.get("model")}
+            error = f"HTTP {r.status_code}: {json.dumps(data.get('error', data))[:500]}"
+            if r.status_code in (400, 401, 403, 404):
+                break
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
+            error = f"{type(e).__name__}: {e}"
+        time.sleep(5 * 2 ** attempt)
+    raise RuntimeError(f"{body['model']} (anthropic): {error}")
+
+
+LLM._post_anthropic = _anthropic_post
 
 
 def message_text(entry):

@@ -78,6 +78,9 @@ class Herd:
     def __init__(self, budget_usd=None, progress=print, bill_cached=False):
         load_env()
         self.cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
+        from .llm import anthropic_only_models, provider
+        if provider() == "anthropic":  # OpenRouter disabled: every role uses a Claude model
+            self.cfg["models"] = anthropic_only_models(self.cfg["models"])
         cache_dir = ROOT / self.cfg["paths"]["cache"]
         llm_cache, exa_cache = shared_cache(cache_dir / "llm.jsonl"), shared_cache(cache_dir / "exa.jsonl")
         spent = llm_cache.total_cost() + exa_cache.total_cost()
