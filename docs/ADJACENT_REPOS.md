@@ -53,8 +53,23 @@ change, P2.
   - Per-instance gaps in the summary change cache keys.
 - **Rejected on scope:** archives and parent selection.
 
-### jeremyguez/novel-associations-agent and the packaging sweep
-See the appendix (Research E) if it finished in time.
+### jeremyguez/novel-associations-agent and the packaging sweep (Research E)
+- **Novelty verification:**
+  - It expands synonyms and aliases before searching the literature.
+  - Its citations are limited to retrieved sources, and it picks the less-novel verdict when unsure.
+  - It cross-checks with a second, non-LLM source.
+- **DIVERGE already has** the retrieved-sources-only rule and the evidence classes.
+- **A bug it exposed in ours:** `overlook.mentions()` ignores words of 3 characters or fewer, so
+  acronym-named approaches (ARC, LFU, 2Q) can never be verified by Exa. This is a follow-up.
+- **Packaging lessons we applied now (bug fixes, not features):**
+  - `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`), plus `.claude/skills/diverge`, so agents working in
+    this repo also see the skill (GEPA does this).
+  - Fixed stale `herd_*` / "approve the `herd` server" wording in the skill and the `/diverge`
+    command after the rename.
+- **Later:**
+  - An evaluator setup helper (Shinka's setup skill).
+  - A `.claude-plugin` marketplace install (GEPA).
+  - "Do not use when…" phrases in the skill trigger (ADHD).
 
 ## Positioning
 ADHD generates from different frames. Verbalized Sampling samples the tails. Reflexion learns

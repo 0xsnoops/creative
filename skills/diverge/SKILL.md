@@ -18,15 +18,15 @@ DIVERGE repo); treat its output as one well-founded experiment, not a guaranteed
 
 ## Setup (once per project)
 
-If the `herd_*` MCP tools are missing, onboard yourself from the DIVERGE repo (no human needed):
+If the `diverge_*` MCP tools (e.g. `diverge_status`) are missing, onboard yourself from the DIVERGE repo (no human needed):
 
 ```sh
-uv --directory <herd repo> run python -m diverge onboard --client claude --target <project> --json
+uv --directory <diverge repo> run python -m diverge onboard --client claude --target <project> --json
 ```
 
-Then follow its `next_steps` (reload the client and approve the `herd` MCP server). Never
+Then follow its `next_steps` (reload the client and approve the `diverge` MCP server). Never
 invent an API key: if one is missing, ask the user to set `OPENROUTER_API_KEY` in the DIVERGE
-repo's `.env`. To see DIVERGE work offline at $0: `uv --directory <herd repo> run python -m diverge demo strategy_loop`.
+repo's `.env`. To see DIVERGE work offline at $0: `uv --directory <diverge repo> run python -m diverge demo strategy_loop`.
 
 ## Tools
 

@@ -3,11 +3,11 @@ description: Check whether you are stuck in a strategy loop and get one tested n
 argument-hint: "[task, evaluator command, current solution and earlier attempts, or planned approach]"
 ---
 
-Follow the `herd` skill (`.claude/skills/diverge/SKILL.md`, or `skills/diverge/SKILL.md` in the DIVERGE
+Follow the `diverge` skill (`.claude/skills/diverge/SKILL.md`, or `skills/diverge/SKILL.md` in the DIVERGE
 repo; read it first) for the user's situation below.
 
 1. Call `diverge_status` (zero cost). If DIVERGE is not ready, stop and say what is missing. If the
-   `herd_*` tools are absent, run `python -m diverge onboard --client claude --target <this project> --json`
+   `diverge_*` tools (e.g. `diverge_status`) are absent, run `python -m diverge onboard --client claude --target <this project> --json`
    from the DIVERGE repo and follow its `next_steps`.
 2. From the situation and the conversation, collect the task description, the evaluator
    (command or registered task name), the current solution and earlier attempts, or the planned
