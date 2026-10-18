@@ -30,11 +30,15 @@ _caches, _task_locks = {}, defaultdict(threading.Lock)
 
 
 def load_env():
-    """Read KEY=VALUE lines from .env without overriding the real environment."""
-    path = ROOT / ".env"
-    if path.exists():
+    """Read KEY=VALUE lines from .env, and from the private file named by DIVERGE_ENV_FILE (lines may
+    start with "export "), without overriding the real environment."""
+    paths = [ROOT / ".env"] + ([Path(os.environ["DIVERGE_ENV_FILE"])] if os.environ.get("DIVERGE_ENV_FILE") else [])
+    for path in paths:
+        if not path.exists():
+            continue
         for line in path.read_text().splitlines():
-            if "=" in line and not line.lstrip().startswith("#"):
+            line = line.strip().removeprefix("export ").strip()
+            if "=" in line and not line.startswith("#"):
                 key, value = line.split("=", 1)
                 os.environ.setdefault(key.strip(), value.strip().strip("'\""))
 
@@ -78,12 +82,17 @@ class Herd:
     def __init__(self, budget_usd=None, progress=print, bill_cached=False):
         load_env()
         self.cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
+        from .llm import anthropic_only_models, provider
+        if provider() == "anthropic":  # OpenRouter disabled: every role uses a Claude model
+            self.cfg["models"] = anthropic_only_models(self.cfg["models"])
         cache_dir = ROOT / self.cfg["paths"]["cache"]
         llm_cache, exa_cache = shared_cache(cache_dir / "llm.jsonl"), shared_cache(cache_dir / "exa.jsonl")
         spent = llm_cache.total_cost() + exa_cache.total_cost()
         self.ledger = Ledger(self.cfg["budget_usd"], spent, budget_usd, bill_cached)
-        # HERD_TRACE_DIR set: every model and search call is also appended to <dir>/calls.jsonl.
-        self.trace_dir = Path(os.environ["HERD_TRACE_DIR"]) if os.environ.get("HERD_TRACE_DIR") else None
+        # DIVERGE_TRACE_DIR (legacy name: HERD_TRACE_DIR) set: every model and search call is also
+        # appended to <dir>/calls.jsonl.
+        trace = os.environ.get("DIVERGE_TRACE_DIR") or os.environ.get("HERD_TRACE_DIR")
+        self.trace_dir = Path(trace) if trace else None
         tracer = shared_tracer(self.trace_dir) if self.trace_dir else None
         self.llm = LLM(llm_cache, load_model_catalog(cache_dir), self.ledger, tracer)
         self.exa = Exa(exa_cache, self.ledger, self.cfg["exa"]["cost_per_search_usd"], tracer)

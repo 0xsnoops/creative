@@ -22,6 +22,7 @@ Writes results/rescue/{trajectories,arms,summary}.json.
 """
 import hashlib
 import json
+import os
 import random
 import sys
 import time
@@ -37,8 +38,14 @@ from diverge.task import Task  # noqa: E402
 
 TASK = "online_bin_packing"
 MODEL = "meta-llama/llama-4-maverick"  # cheapest configured sampler; its best herd samples are exactly best fit
+if os.environ.get("DIVERGE_PROVIDER", "").lower() == "anthropic":  # OpenRouter disabled: arms use Claude Haiku
+    MODEL = "anthropic/claude-haiku-5.5"
 N_ATTEMPTS, EPS, K = 6, 0.01, 3
 TRAJ_BUDGET, ARM_BUDGET = 0.30, 0.40
+# --round R (default 1): R > 1 reruns every arm on the same stuck states with fresh generation
+# seeds (new sample tags), writing arms-r<R>.json; round 2 adds the herd_escape_v3 arm.
+ROUND = int(sys.argv[sys.argv.index("--round") + 1]) if "--round" in sys.argv else 1
+SUFFIX = "" if ROUND == 1 else f":r{ROUND}"
 OUT = ROOT / "results" / "rescue"
 
 REVISE = """{task}
@@ -143,7 +150,7 @@ def plain_arm(name, prompt, state, task, evaluator):
     cands = []
     for i in range(K):
         try:
-            code, result = implement(herd, prompt, f"rescue:{name}:{state['run']}:{i}", evaluator, task)
+            code, result = implement(herd, prompt, f"rescue:{name}:{state['run']}:{i}{SUFFIX}", evaluator, task)
         except BudgetExceeded:
             break
         cands.append({"code": code, "dev_score": result["score"], "valid": result["valid"]})
@@ -154,19 +161,27 @@ def plain_arm(name, prompt, state, task, evaluator):
             "implementer_calls": len(cands)}
 
 
-def escape_arm(name, state, task, evaluator, overlook, lever=None):
-    from diverge.escape import escape_v2
+def escape_arm(name, state, task, evaluator, overlook, lever=None, version=2):
+    from diverge.escape import escape_v2, escape_v3, escape_v4
     herd = with_model(Herd(budget_usd=ARM_BUDGET, progress=lambda m: None))
     attempts = [{"id": a["id"], "code": a["code"], "score": a["dev_score"], "valid": a["valid"],
                  "dev_detail": a["dev_detail"]} for a in state["attempts"]]
     try:
-        res = escape_v2(herd, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
-                        k_sketches=K, max_resample=2, seed=state["run"])
+        seed = state["run"] + 1000 * (ROUND - 1)
+        if version == 4:  # sketches -> rubric critic -> deepen top 2 -> implement (+1 repair) -> evolve top 2 once
+            res = escape_v4(herd, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
+                            n_sketches=5, n_deepen=2, max_resample=2, n_parents=2, seed=seed)
+        elif version == 3:  # 5 isolated sketches -> critic -> deepen top 2; at most 2 scored + resamples
+            res = escape_v3(herd, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
+                            n_sketches=5, n_deepen=2, max_resample=2, seed=seed)
+        else:
+            res = escape_v2(herd, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
+                            k_sketches=K, max_resample=2, seed=seed)
     except BudgetExceeded as e:
         return {"arm": name, "code": None, "dev_score": None, "error": f"budget: {e}",
                 "cost_usd": round(herd.ledger.new_spend, 4)}
     keep = {k: res.get(k) for k in ("lever", "failure_summary", "counterexample", "sketches", "kept_sketches",
-                                    "rejections", "admitted", "calls")}
+                                    "rejections", "admitted", "calls", "critic", "deepened", "anchor_strip", "repairs", "evolve")}
     return {"arm": name, "code": res.get("candidate"), "dev_score": (res.get("evaluation") or {}).get("after"),
             "cost_usd": round(herd.ledger.new_spend, 4), **keep}
 
@@ -202,7 +217,9 @@ def main():
 
     overlook = read_json(ROOT / "results" / TASK / "overlook.json")
     used = [r["input"] for r in overlook["inputs"] if (r.get("share") or 0) >= 0.5]
-    arms_path = OUT / "arms.json"
+    # --only ARM: run just that arm (same round seeds) into its own file, e.g. the exploratory v4 arm.
+    ONLY = sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else None
+    arms_path = OUT / ("arms.json" if ROUND == 1 else f"arms-r{ROUND}.json" if not ONLY else f"arms-r{ROUND}-{ONLY}.json")
     arms = read_json(arms_path, {}) or {}
     for key, t in trajs.items():
         if not t["stuck"] or key in arms:
@@ -211,12 +228,18 @@ def main():
         best = min(scored, key=lambda a: a["dev_score"])
         listing = "\n\n".join(f"Attempt {i + 1} (dev score {a['dev_score']}):\n```python\n{a['code']}\n```"
                               for i, a in enumerate(t["attempts"]))
-        rng = random.Random(1000 + t["run"])
-        results = [plain_arm("fresh_start", FRESH.format(task=task.prompt, summary=failure_summary(t["attempts"])),
+        rng = random.Random(1000 + t["run"] + 7919 * (ROUND - 1))
+        if ONLY == "herd_escape_v4":
+            results = [escape_arm("herd_escape_v4", t, task, evaluator, overlook, version=4)]
+        else:
+            results = None
+        results = results or [plain_arm("fresh_start", FRESH.format(task=task.prompt, summary=failure_summary(t["attempts"])),
                              t, task, evaluator),
                    plain_arm("try_different", DIFFERENT.format(task=task.prompt, attempts=listing), t, task, evaluator),
                    escape_arm("random_lever", t, task, evaluator, overlook, lever=rng.choice(used)),
                    escape_arm("herd_escape", t, task, evaluator, overlook)]
+        if ROUND > 1 and not ONLY:
+            results.append(escape_arm("herd_escape_v3", t, task, evaluator, overlook, version=3))
         stuck_held = heldout(evaluator, best["code"])
         for a in results:
             a["heldout_score"] = heldout(evaluator, a.get("code"))
@@ -229,7 +252,7 @@ def main():
               + "; ".join(f"{a['arm']} {a['heldout_score']} rescued={a['rescued']} ${a['cost_usd']}" for a in results),
               flush=True)
 
-    names = ["fresh_start", "try_different", "random_lever", "herd_escape"]
+    names = [ONLY] if ONLY else ["fresh_start", "try_different", "random_lever", "herd_escape"] + (["herd_escape_v3"] if ROUND > 1 else [])
     summary = {"preliminary": True, "model": MODEL, "n_trajectories": len(trajs),
                "n_stuck": sum(t["stuck"] for t in trajs.values()), "k_per_arm": K, "arm_budget_usd": ARM_BUDGET,
                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -238,7 +261,7 @@ def main():
                                "cost_usd": round(sum(a["cost_usd"] for s in arms.values() for a in s["arms"]
                                                      if a["arm"] == n), 4)} for n in names},
                "trajectory_cost_usd": round(sum(t["cost_usd"] for t in trajs.values()), 4)}
-    (OUT / "summary.json").write_text(json.dumps(summary, indent=2))
+    (OUT / ("summary.json" if ROUND == 1 else f"summary-r{ROUND}.json" if not ONLY else f"summary-r{ROUND}-{ONLY}.json")).write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
 

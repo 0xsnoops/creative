@@ -22,8 +22,7 @@ from tests.test_pipeline_offline import FUNSEARCH, fake_world, reply_to  # noqa:
 REAL_POST = LLM._post  # captured before any fixture replaces it
 SECRETS = {"OPENROUTER_API_KEY": "sk-or-TESTSECRET", "EXA_API_KEY": "exa-TESTSECRET"}
 BIN = "online_bin_packing"
-TOOLS = {"herd_map", "blind_spots", "reality_check", "diverge_check", "diverge_escape", "diverge_status"}
-ALIASES = {"herd_check": "diverge_check", "herd_escape": "diverge_escape", "herd_status": "diverge_status"}
+TOOLS = {"diverge_map", "blind_spots", "reality_check", "diverge_check", "diverge_escape", "diverge_status"}
 
 
 def boom(*a, **k):
@@ -74,12 +73,8 @@ def test_instructions_are_an_operating_manual():
 
 def test_every_tool_says_when_to_call_prerequisites_and_cost():
     found = tools()
-    assert set(found) == TOOLS | set(ALIASES)
-    for old, new in ALIASES.items():  # deprecated HERD names point to the DIVERGE tool
-        assert found[old].description.startswith(f"Deprecated alias of {new}")
+    assert set(found) == TOOLS
     for name, tool in found.items():
-        if name in ALIASES:
-            continue
         d = tool.description
         assert re.search(r"\bcall\b", d, re.I), name
         assert "$" in d, name  # a cost statement
@@ -90,14 +85,14 @@ def test_every_tool_says_when_to_call_prerequisites_and_cost():
         default = tool.input_schema["properties"]["budget_usd"]["default"]
         assert f"Default budget_usd {default}" in d, name  # the stated default is the real one
         assert "Returns" in d, name
-    for name in ("herd_map", "blind_spots", "diverge_check"):
+    for name in ("diverge_map", "blind_spots", "diverge_check"):
         assert "Cold start" in found[name].description
     assert "Not for" in found["diverge_escape"].description and "without waiting to be asked" in found["diverge_escape"].description
     assert "evaluator" in found["diverge_escape"].description and "EXA" not in found["diverge_escape"].description
 
 
 # ------------------------------------------------------------------ diverge_status
-def test_herd_status_is_free_offline_and_never_shows_keys(fake_world, no_calls, monkeypatch):
+def test_diverge_status_is_free_offline_and_never_shows_keys(fake_world, no_calls, monkeypatch):
     for k, v in SECRETS.items():
         monkeypatch.setenv(k, v)
     text, _ = call("diverge_status")
@@ -111,7 +106,7 @@ def test_herd_status_is_free_offline_and_never_shows_keys(fake_world, no_calls, 
     assert "model_catalog" not in status  # the live check is opt-in
 
 
-def test_herd_status_missing_key_is_actionable(fake_world, no_calls, monkeypatch):
+def test_diverge_status_missing_key_is_actionable(fake_world, no_calls, monkeypatch):
     for k in SECRETS:
         monkeypatch.delenv(k, raising=False)
     status = json.loads(call("diverge_status")[0])
@@ -122,7 +117,7 @@ def test_herd_status_missing_key_is_actionable(fake_world, no_calls, monkeypatch
     assert "python -m diverge demo strategy_loop" in status["next_action"]
 
 
-def test_herd_status_live_catalog_is_optional(fake_world, no_calls, monkeypatch):
+def test_diverge_status_live_catalog_is_optional(fake_world, no_calls, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", SECRETS["OPENROUTER_API_KEY"])
     status = json.loads(call("diverge_status", {"check_model_catalog": True})[0])
     assert status["model_catalog"]["optional"] is True and status["model_catalog"]["status"].startswith("unavailable")
@@ -160,7 +155,7 @@ def test_every_verdict_maps_to_a_next_action():
     assert "get 2 more" in agent_fields({}, "inconclusive", {})["next_action"]
 
 
-def test_herd_escape_returns_structured_verdict_and_next_action(fake_world, monkeypatch):
+def test_diverge_escape_returns_structured_verdict_and_next_action(fake_world, monkeypatch):
     pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), Task.resolve(BIN))
 
     def post(self, body, attempts=4):
@@ -173,13 +168,14 @@ def test_herd_escape_returns_structured_verdict_and_next_action(fake_world, monk
     assert text.splitlines()[0] == "VERDICT: escape"
     v, body = parse(text)
     assert s == {"verdict": v, **body}
-    assert s["next_action"] == NEXT_ACTION["escape"] and s["can_continue_autonomously"] is True
+    # the plateau check may append a "reframe or escalate" sentence (diverge/plateau.py)
+    assert s["next_action"].startswith(NEXT_ACTION["escape"]) and s["can_continue_autonomously"] is True
     assert s["complete"] is True and s["missing_requirements"] == [] and s["candidate_available"] is True
     assert s["lever"]["mechanism"] and s["evidence_summary"]["MEASURED"] > 0
     assert list(body)[0] == "next_action"  # read right after the VERDICT line
 
 
-def test_herd_escape_without_evaluator_is_a_structured_error(fake_world):
+def test_diverge_escape_without_evaluator_is_a_structured_error(fake_world):
     text, s = call("diverge_escape", {"task_description": "Design a deduplication service.",
                                    "current_solution": "def f(): pass\n"})
     assert text.startswith("VERDICT: inconclusive\n") and s["verdict"] == "inconclusive"
@@ -192,7 +188,7 @@ def test_missing_key_is_a_structured_error_not_a_crash(fake_world, no_network, m
     monkeypatch.setattr(LLM, "_post", REAL_POST)  # the real client: it checks the key before any request
     for k in SECRETS:
         monkeypatch.delenv(k, raising=False)
-    r = json.loads(call("herd_map", {"task_description": BIN})[0])
+    r = json.loads(call("diverge_map", {"task_description": BIN})[0])
     assert r["error"] == "missing_requirement" and r["missing"] == ["OPENROUTER_API_KEY"]
     assert r["complete"] is False and r["live_calls_available"] is False and r["offline_demo_available"]
     assert "only the user" in r["next_action"] and "never invent" in r["next_action"]
@@ -200,7 +196,7 @@ def test_missing_key_is_a_structured_error_not_a_crash(fake_world, no_network, m
 
 
 def test_budget_exceeded_is_structured_and_resumable(fake_world):
-    r = json.loads(call("herd_map", {"task_description": BIN, "budget_usd": 0.0001})[0])
+    r = json.loads(call("diverge_map", {"task_description": BIN, "budget_usd": 0.0001})[0])
     assert r["error"] == "budget_exceeded" and r["missing"] == ["budget"] and r["complete"] is False
     assert "budget_usd" in r["next_action"] and "ask the user" in r["next_action"]
 
@@ -214,7 +210,7 @@ def test_unknown_family_lists_valid_names(fake_world):
 def test_demo_strategy_loop_makes_no_network_call(no_calls, monkeypatch, capsys):
     monkeypatch.setattr(pipeline.Herd, "__init__", boom)
     from diverge.__main__ import main
-    monkeypatch.setattr(sys, "argv", ["herd", "demo", "strategy_loop"])
+    monkeypatch.setattr(sys, "argv", ["diverge", "demo", "strategy_loop"])
     with pytest.raises(SystemExit) as e:
         main()
     assert e.value.code == 0 and "VERDICT:" in capsys.readouterr().out
@@ -225,7 +221,7 @@ def test_preflight_json(fake_world, no_calls, monkeypatch, capsys, offline):
     for k, v in SECRETS.items():
         monkeypatch.setenv(k, v)
     from diverge.__main__ import main
-    monkeypatch.setattr(sys, "argv", ["herd", "preflight", "--json", *(["--offline"] if offline else [])])
+    monkeypatch.setattr(sys, "argv", ["diverge", "preflight", "--json", *(["--offline"] if offline else [])])
     with pytest.raises(SystemExit) as e:
         main()
     out = capsys.readouterr().out
@@ -235,7 +231,7 @@ def test_preflight_json(fake_world, no_calls, monkeypatch, capsys, offline):
     assert ("model_catalog" in r) is not offline
 
 
-def test_herd_escape_missing_key_is_structured(fake_world, no_network, monkeypatch):
+def test_diverge_escape_missing_key_is_structured(fake_world, no_network, monkeypatch):
     pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), Task.resolve(BIN))
     monkeypatch.setattr(LLM, "_post", REAL_POST)
     for k in SECRETS:

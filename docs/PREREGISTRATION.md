@@ -4,17 +4,17 @@ Branch `model-review-changes`. Implementer `google/gemini-4-argon` for every ope
 Labeler `anthropic/claude-opus-5.5`. Every call is traced (`HERD_TRACE_DIR=results/traces/phase2-20261018`).
 
 ## Spending
-- Hard cap: HERD `budget_usd: 25.0` (counts everything in HERD's cache; this experiment starts
+- Hard cap: DIVERGE `budget_usd: 25.0` (counts everything in DIVERGE's cache; this experiment starts
   from an empty experiment cache).
 - I stop and ask if the two maps together cost more than $10, or if total spend is heading past $25.
 
 ## Step 0: smoke test
-`herd run cache_eviction --n 1 --no-reality`. This checks the live request formats. Its sampler
+`diverge run cache_eviction --n 1 --no-reality`. This checks the live request formats. Its sampler
 responses are reused by step 1 (same cache keys).
 
-## Step 1: herd maps
-`herd run <task> --n 20 --no-reality` for cache_eviction, then online_bin_packing.
-Then run `herd fingerprints online_bin_packing` on the map samples ($0).
+## Step 1: consensus maps
+`diverge run <task> --n 20 --no-reality` for cache_eviction, then online_bin_packing.
+Then run `diverge fingerprints online_bin_packing` on the map samples ($0).
 
 ## Step 2: budgets, fixed from map costs only
 - `remaining = 25 - total spent after step 1 - 1.00` (the $1.00 is held back for overruns).

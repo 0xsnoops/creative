@@ -8,14 +8,14 @@ loop_score = 0.6 * strategy_similarity + 0.3 * stall + 0.1 * shared_weak, where
 A single attempt scores 0. loop_detected needs two or more attempts, strategy_similarity of at
 least SAME_STRATEGY and stalled (or unknown) progress; loop_score only ranks how strong it is.
 
-BEHAVIOR DETECTOR (detector "behavior"; used whenever herd.fingerprint.supported(task), i.e. the
+BEHAVIOR DETECTOR (detector "behavior"; used whenever diverge.fingerprint.supported(task), i.e. the
 task's evaluator can fingerprint candidates, unless behavior_loop=False). The loop decision then
 rests only on measurements; the strategy fields an LLM extractor fills in (decision rule,
 assumptions, mechanism family) stay in the report as a caption and never enter it:
 (a) same behavior: the RECENT (3) most recent attempts all fall in one behavior cluster
-    (herd.fingerprint.clusters, single linkage at fingerprint.THRESHOLD over all attempts);
+    (diverge.fingerprint.clusters, single linkage at fingerprint.THRESHOLD over all attempts);
 (b) same failures: every pair of those clustered attempts has failure-set Jaccard >= SAME_FAILURES
-    (0.8), failure sets being herd.failures.failure_set(dev_detail, k=FAILURE_K): the k worst dev
+    (0.8), failure sets being diverge.failures.failure_set(dev_detail, k=FAILURE_K): the k worst dev
     cases. All pairs, not the mean, so one attempt that fails elsewhere breaks the loop; with
     k = 2 this means identical failure sets;
 (c) stalled: no dev improvement greater than EPSILON over the last 3 attempts. The best score of

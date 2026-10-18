@@ -105,10 +105,13 @@ def main():
     report = build_project(target)
     print(f"project: {target}\nonboard: {json.dumps(report)[:600]}", flush=True)
     trace_dir = ROOT / "results" / "traces" / f"autonomous-demo-run{args.run}"
-    env = {**os.environ, "HERD_TRACE_DIR": str(trace_dir)}
+    # The agent itself keeps its normal Claude Code login: no API key in its environment. The DIVERGE
+    # MCP server it starts reads keys from .env or the private file named by DIVERGE_ENV_FILE.
+    env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "EXA_API_KEY")}
+    env["HERD_TRACE_DIR"] = str(trace_dir)
     cmd = ["claude", "-p", PROMPT, "--output-format", "stream-json", "--verbose",
            "--mcp-config", str(target / ".mcp.json"), "--strict-mcp-config",
-           "--allowedTools", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__herd",
+           "--allowedTools", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__diverge",
            "--max-turns", str(args.max_turns), "--max-budget-usd", str(args.max_budget)]
     started = time.time()
     proc = subprocess.run(cmd, cwd=target, env=env, capture_output=True, text=True, timeout=3600)

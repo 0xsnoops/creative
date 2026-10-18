@@ -18,15 +18,15 @@ DIVERGE repo); treat its output as one well-founded experiment, not a guaranteed
 
 ## Setup (once per project)
 
-If the `herd_*` MCP tools are missing, onboard yourself from the DIVERGE repo (no human needed):
+If the `diverge_*` MCP tools (e.g. `diverge_status`) are missing, onboard yourself from the DIVERGE repo (no human needed):
 
 ```sh
-uv --directory <herd repo> run python -m diverge onboard --client claude --target <project> --json
+uv --directory <diverge repo> run python -m diverge onboard --client claude --target <project> --json
 ```
 
-Then follow its `next_steps` (reload the client and approve the `herd` MCP server). Never
+Then follow its `next_steps` (reload the client and approve the `diverge` MCP server). Never
 invent an API key: if one is missing, ask the user to set `OPENROUTER_API_KEY` in the DIVERGE
-repo's `.env`. To see DIVERGE work offline at $0: `uv --directory <herd repo> run python -m diverge demo strategy_loop`.
+repo's `.env`. To see DIVERGE work offline at $0: `uv --directory <diverge repo> run python -m diverge demo strategy_loop`.
 
 ## Tools
 
@@ -35,7 +35,7 @@ repo's `.env`. To see DIVERGE work offline at $0: `uv --directory <herd repo> ru
 | `diverge_status` | first, every session: are budget, keys and models ready? Stop and tell the user if not. | $0 |
 | `diverge_check` | before implementing: is my planned strategy the obvious/default one? Args: `task_description`, `my_approach` (one or two sentences on the mechanism), `evaluator_cmd` if any. | paid |
 | `diverge_escape` | after 2+ scored attempts stall. Args: `task_description`, `current_solution` (code), `previous_attempts` (code, oldest first), `evaluator_cmd`, `lower_is_better`, `budget_usd` (default 2). | paid |
-| `herd_map`, `blind_spots`, `reality_check` | lower-level research primitives (what models converge on, what they miss, scoring one family). Use only when asked for that research. | paid |
+| `diverge_map`, `blind_spots`, `reality_check` | lower-level research primitives (what models converge on, what they miss, scoring one family). Use only when asked for that research. | paid |
 
 `evaluator_cmd` is run as `<cmd> <candidate.py>`, prints `{"valid": bool, "score": number}` as
 its last JSON line, and needs absolute paths. It runs inside DIVERGE's sandbox (no network, no writes
@@ -65,5 +65,5 @@ implementations, not yours); `inconclusive` or `untested` treat it as context on
 
 Group `evidence` by class: MEASURED (evaluator runs, sample counts), SOURCE_BACKED (cited
 literature), HYPOTHESIZED (DIVERGE's untested reasoning). Never treat HYPOTHESIZED evidence as
-measured. Repeat the `scope_note` (herd shares depend on the prompt wording) and `spent_usd`.
+measured. Repeat the `scope_note` (consensus shares depend on the prompt wording) and `spent_usd`.
 Keep it short: verdict, what you will do next, evidence by class, scope note, cost.

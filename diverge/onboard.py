@@ -116,7 +116,7 @@ def next_steps(uv, actions, repo=REPO):
          + ("OPENROUTER_API_KEY is present." if _key_present("OPENROUTER_API_KEY", repo) else
             "OPENROUTER_API_KEY is NOT set: ask the user to set it there. Never invent a key.")),
         "Try the offline demo (no API calls, $0): " + f"{run} demo strategy_loop",
-        "A first herd map can take several minutes; start Claude Code with MCP_TOOL_TIMEOUT=1800000 so the "
+        "A first consensus map can take several minutes; start Claude Code with MCP_TOOL_TIMEOUT=1800000 so the "
         "client does not give up.",
     ]
     return steps

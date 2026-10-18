@@ -30,7 +30,7 @@ def run(task_name, n, reality):
         print(f"\nreality check skipped: the weakest model has {effective_n(study)} labeled samples, so the "
               f"blind-spot list is noise; rerun with --n {min_n} or more")
     elif reality and task.evaluator:
-        # Top 3 herd families and every blind spot, all through the same prompt template.
+        # Top 3 consensus families and every blind spot, all through the same prompt template.
         by_name = {f["family"]: f for f in study["families"]}
         families = [by_name[f] for f in m["top3"]] + study["blind_spots"]
         scores = ensure_family_scores(herd, task, study, families, Evaluator(task),
@@ -68,9 +68,9 @@ def escape_cmd(args):
     for reason in r["reasons"]:
         print(f"  - {reason}")
     if r.get("herd_prevalence") is not None:
-        print(f"Herd prevalence of this strategy profile: {r['herd_prevalence']}")
+        print(f"Consensus prevalence of this strategy profile: {r['herd_prevalence']}")
     if r.get("herd_stability"):
-        print(f"Herd stability under rewording: {r['herd_stability']['verdict']}")
+        print(f"Consensus stability under rewording: {r['herd_stability']['verdict']}")
     print(f"Recommended switch: {r['recommended_switch']['mechanism']}\n  why: {r['recommended_switch']['why']}")
     if r.get("candidate"):
         print(f"Candidate: {r['candidate_path']}  dev score {ev['after']} (improved: {ev['improved']})")
@@ -86,7 +86,7 @@ def escape_cmd(args):
 
 
 def fingerprints_cmd(task_name):
-    """Fingerprint the herd map's valid samples and compare behavior clusters with labels."""
+    """Fingerprint the consensus map's valid samples and compare behavior clusters with labels."""
     from . import fingerprint
     from .pipeline import read_json, write_json
     herd = Herd()
@@ -121,18 +121,18 @@ def main():
     p = sub.add_parser("run", help="run the blind-spot experiment on a task")
     p.add_argument("task")
     p.add_argument("--n", type=int, help="samples per model (overrides config)")
-    p.add_argument("--no-reality", action="store_true", help="stop after the herd map and blind spots")
+    p.add_argument("--no-reality", action="store_true", help="stop after the consensus map and blind spots")
     b = sub.add_parser("bench", help="benchmark the generation operators at equal budget")
     b.add_argument("task")
     b.add_argument("--budget", type=float, help="USD per operator per repeat (overrides config)")
     b.add_argument("--repeats", type=int, help="repeats on different seeds (overrides config)")
     b.add_argument("--operators", help="comma-separated subset, e.g. plain,verbalized")
-    b.add_argument("--n", type=int, help="samples per model of the herd map to use (default: at least "
+    b.add_argument("--n", type=int, help="samples per model of the consensus map to use (default: at least "
                    "reality_check.min_samples_per_model when blind-spot operators run)")
     b.add_argument("--allow-small-map", action="store_true", help="run blind-spot operators on a smaller map")
     f = sub.add_parser("fingerprints", help="behavioral fingerprints of a task's map samples (bin packing)")
     f.add_argument("task")
-    pp = sub.add_parser("paraphrase", help="Step 0: does paraphrasing the prompt move the herd map?")
+    pp = sub.add_parser("paraphrase", help="Step 0: does paraphrasing the prompt move the consensus map?")
     pp.add_argument("task")
     ov = sub.add_parser("overlook", help="Step 1: overlooked inputs, assumptions, grid gaps, minority and latent ideas")
     ov.add_argument("task")
@@ -145,7 +145,8 @@ def main():
     es.add_argument("--budget", type=float, default=2.0, help="USD this run may spend")
     dm = sub.add_parser("demo", help="replay a recorded escape run offline (no API calls)")
     dm.add_argument("fixture", help="name under fixtures/trajectories and fixtures/runs, e.g. strategy_loop")
-    pf = sub.add_parser("preflight", help="check budget, API keys and model slugs before a live run")
+    pf = sub.add_parser("preflight", help="check budget, API keys and model slugs before a live run "
+                        "(exit code reflects live readiness, also with --offline; the offline demo needs no keys)")
     pf.add_argument("--json", action="store_true", help="print the readiness dict (as diverge_status returns it)")
     pf.add_argument("--offline", action="store_true", help="skip the live model catalog check (no network)")
     sub.add_parser("spend", help="show estimated spend so far")
@@ -154,7 +155,7 @@ def main():
     ob.add_argument("--client", default="claude", help="coding agent client (only 'claude' is supported)")
     ob.add_argument("--target", default=".", help="project directory to onboard (default: current directory)")
     ob.add_argument("--dry-run", action="store_true", help="write nothing; list the planned actions")
-    ob.add_argument("--force", action="store_true", help="overwrite conflicting existing files or herd entry")
+    ob.add_argument("--force", action="store_true", help="overwrite conflicting existing files or MCP server entry")
     ob.add_argument("--json", action="store_true", help="print a structured JSON report")
     args = parser.parse_args()
 

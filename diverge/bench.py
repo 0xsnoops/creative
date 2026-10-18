@@ -5,7 +5,7 @@
 - Scores: each family's candidate is selected on the dev split; reported scores and
   "useful" decisions use that candidate's held-out score, compared with held-out baselines.
 - Cost: "cached" counts only what the operator itself spent. "Cold-start" adds the setup an
-  operator depends on (the herd map for blind_spot, the literature taxonomy for
+  operator depends on (the consensus map for blind_spot, the literature taxonomy for
   literature_all), as if every repeat started from an empty cache. Labeling the candidates
   is measurement and billed to no operator.
 - The repeat "seeds" vary generation, not the evaluation data, and three repeats are a
@@ -29,10 +29,12 @@ SURFACE, INK, INK_2, GRID, BLUE, ORANGE = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e
 MAP = ("sampling", "literature", "labeling")
 SETUP_STAGES = {"blind_spot": MAP, "blind_spot_contrast": MAP, "blind_spot_contrast_random": MAP,
                 "blind_spot_feedback": MAP, "blind_spot_feedback_sham": MAP,
-                "literature_all": ("literature",), "literature_random": ("literature",)}
+                "literature_all": ("literature",), "literature_random": ("literature",),
+                "blind_spot_hybrid": MAP, "blind_spot_directions": MAP, "blind_spot_directions_hybrid": MAP}
 # Operators whose families come from the herd map's blind spots (or are sized by them).
 NEEDS_MAP = {"blind_spot", "blind_spot_contrast", "blind_spot_contrast_random", "blind_spot_feedback",
-             "blind_spot_feedback_sham", "literature_random"}
+             "blind_spot_feedback_sham", "literature_random", "blind_spot_hybrid", "blind_spot_directions",
+             "blind_spot_directions_hybrid"}
 
 
 def spread(values):
@@ -153,10 +155,10 @@ def verdict(table, baseline_name, best_baseline):
             conclusion = "supports the thesis: knowing where models concentrate chose better experiments"
         elif results[0] == -1 or results[1] == -1:
             conclusion = ("does not support the thesis: implementing every literature family did as well "
-                          "or better without the herd map")
+                          "or better without the consensus map")
         else:
             conclusion = "is inconclusive at this budget"
-        lines.append(f"Ablation, blind_spot vs literature_all (the same work without the herd map) {conclusion}. "
+        lines.append(f"Ablation, blind_spot vs literature_all (the same work without the consensus map) {conclusion}. "
                      + " ".join(c[1] for c in compared))
     if all((table[o]["useful_discoveries"]["max"] or 0) == 0 for o in ops):
         lines.append(f"No operator produced a family whose held-out score beats {baseline_name} "
@@ -262,15 +264,15 @@ def report(task, table, per_run, baselines, cfg, verdict_text, setup):
               "- useful_discoveries: distinct valid families (by labeled mechanism) whose held-out score beats "
               "the best held-out reference baseline.",
               "- Cached cost counts only the operator's own calls. Cold-start adds the setup it relies on, as if "
-              f"each repeat started empty: blind_spot + full herd map (${setup['blind_spot'] or 0:.3f}), "
+              f"each repeat started empty: blind_spot + full consensus map (${setup['blind_spot'] or 0:.3f}), "
               f"literature_all + literature search and taxonomy (${setup['literature_all'] or 0:.3f}).",
               f"- Not billed to any operator: labeling the candidates (${setup['label_spend']:.3f} new spend "
-              f"this run). New spend on the herd map this run: ${setup['map_spend']:.3f} (0 means it was cached).",
+              f"this run). New spend on the consensus map this run: ${setup['map_spend']:.3f} (0 means it was cached).",
               "- Generation seeds vary the candidates, not the evaluation data; 3 repeats are a small sample.",
               "- Family counts depend on the labeler's granularity; all operators share the same labeler "
               "and taxonomy, so the counts are comparable with each other but not absolute."]
     if setup["map_n_per_model"] < cfg["reality_check"]["min_samples_per_model"]:
-        lines.append(f"- Caution: the herd map behind blind_spot used only {setup['map_n_per_model']} samples per "
+        lines.append(f"- Caution: the consensus map behind blind_spot used only {setup['map_n_per_model']} samples per "
                      f"model, so its blind spots are families not observed in a small sample.")
     for r in per_run:
         if r["notes"].get("error"):
@@ -327,7 +329,8 @@ def candidate_records(runs, per_run, labels, out):
                          "heldout_score": metrics["heldout_by_candidate"].get(cid),
                          "selected": metrics["selected"].get(cid),
                          "meta": {k: c[k] for k in ("temperature", "contrast_kind", "contrast_families",
-                                                    "feedback_round", "feedback_from", "frame", "adhd_round")
+                                                    "feedback_round", "feedback_from", "frame", "adhd_round",
+                                                    "template", "direction", "direction_round")
                                   if k in c},
                          "prompt": c.get("prompt"), "code": code, "dev_detail": c.get("dev_detail")})
     return rows
@@ -353,9 +356,9 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
     study = ensure_map(herd, task, n_per_model)
     map_spend = herd.ledger.new_spend
     if NEEDS_MAP & set(operators) and effective_n(study) < min_n and not allow_small_map:
-        raise SystemExit(f"the herd map has only {effective_n(study)} labeled samples per model for its weakest "
+        raise SystemExit(f"the consensus map has only {effective_n(study)} labeled samples per model for its weakest "
                          f"model (need {min_n}); blind spots from it are noise. Build a bigger map "
-                         f"(python -m herd run {task.name} --n {min_n} --no-reality) or pass --allow-small-map")
+                         f"(python -m diverge run {task.name} --n {min_n} --no-reality) or pass --allow-small-map")
     # Operators run one after another; if the global cap could run out partway, the last ones
     # would be underfunded and look worse. Refuse to start instead.
     labeling = labeling_estimate(herd, operators, bench_cfg["repeats"])

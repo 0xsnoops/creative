@@ -155,6 +155,6 @@ def test_skill_description_triggers():
     body = (REPO / "skills/diverge/SKILL.md").read_text()
     assert "Do not wait for the user to ask you to use DIVERGE" in body
     assert "Before escalating a scored strategy problem to a human, call `diverge_escape`" in body
-    for tool in ("diverge_status", "diverge_check", "diverge_escape", "herd_map", "blind_spots", "reality_check"):
+    for tool in ("diverge_status", "diverge_check", "diverge_escape", "diverge_map", "blind_spots", "reality_check"):
         assert tool in body
     assert "python -m diverge onboard" in body and "demo strategy_loop" in body

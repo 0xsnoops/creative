@@ -44,8 +44,8 @@ hold on this workload; several reviewers (Opus, Sonnet, nemotron, stepfun, kimi)
 Each model received the same packet of about 31.5k tokens and one of three lenses:
 (a) prompt and generation design, (b) selection, budget and evaluation mechanics, (c) what ADHD,
 FunSearch, AlphaEvolve/OpenEvolve and ShinkaEvolve do better. The packet held the operators,
-reality.py, the bench.py excerpts, literature/herdmap signatures, the task prompt, the evaluator,
-blind spots and the herd map, a per-candidate table for all 9 operators, per-trace dev scores, the
+reality.py, the bench.py excerpts, literature/consensus-map (`herdmap.py`) signatures, the task prompt, the evaluator,
+blind spots and the consensus map, a per-candidate table for all 9 operators, per-trace dev scores, the
 best plain and blind_spot code, and ADHD's README, how-it-works, engine.ts, frames.ts and types.ts
 (clone @7b91ce6, read as text only). Calls used `Herd(budget_usd=8.0).llm.chat`, temperature 0.7.
 
@@ -88,7 +88,7 @@ reply was kept. The retries cost $2.16.
 - gemini proposes averaging over more dev seeds, which changes the evaluator's data, and ensemble
   selection. It also claims dev overfitting, which the data contradicts.
 - nemotron, cohere and stepfun propose steering generation toward the plain winner's trick or
-  toward herd-share families. That is peeking, or it defeats the test.
+  toward high-consensus-share families. That is peeking, or it defeats the test.
 - Sonnet attributes the underspend to `max_candidates`. The real cause is the reservation.
 - llama and granite are generic.
 
@@ -116,7 +116,7 @@ Rank = support × plausibility. The notes behind each score are in
 | 1 | Degenerate or converged candidates, no dedup | 14 | 3 | 0.5966 ×8 (LRU-K/LIRS), 0.6752 = dev LRU ×5 |
 | 2 | Budget use and allocation: ~40% of the cap spent, round-robin gives 1–2 draws per family | 13 | 3 | Worst-case reservation of $0.20 per call vs a $0.30 cap (root cause from Opus b/c; verified) |
 | 3 | The "faithful within the family" template blocks hybrids | 12 | 3 | `reality.py IMPLEMENT_TEMPLATE`; the loosest prompts gave the best non-plain scores (adhd_frames/000 0.5758, blind_spot_contrast/001 0.5793) |
-| 4 | Blind-spot families are poorly matched to the workload; herd absence is not a quality signal | 11 | 3 | Stationary Zipf, repeated scans, 50% one-hit keys; blind_spot/001 truncates history |
+| 4 | Blind-spot families are poorly matched to the workload; absence from the consensus is not a quality signal | 11 | 3 | Stationary Zipf, repeated scans, 50% one-hit keys; blind_spot/001 truncates history |
 | 5 | Selection noise: a max over 4–8 draws, one repeat | 10 | 3 | Plain median 0.657 vs blind_spot 0.594 |
 | 6 | Contrast and feedback do not beat their controls | 11 | 2 | 0.5793 vs 0.5832 and 0.5883 vs 0.5896 (n=1, unreadable). The contrast list also tells the model to avoid persistent frequency, the winning ingredient |
 | 7 | Family descriptions are too abstract and carry parameters that break at small caches | 9 | 2 | LIRS's "~1% cold resident share" is about 0 slots at capacity 47 |
@@ -129,50 +129,50 @@ repair (4), adhd_frames evidence (3).
 
 | # | fix | where | support | plaus. |
 |---|---|---|---|---|
-| 1 | **Allow adaptation and hybrids around a family core.** Replace "Implement this approach faithfully and make it as strong as you can within the family" with "Use this family's decision rule as the core; you may add standard components (history of evicted keys, a probation queue for first-seen keys, aging, admission) if they help on the workload described above." Ship it as a **new arm**, keep the old template as a control, and report purity. | `herd/reality.py` `IMPLEMENT_TEMPLATE`, `implementation_prompt` (new flag or operator) | 10 | 3 |
-| 2 | **Syntax gate and one repair call.** Run `textwrap.dedent`, tab normalization and `compile()` on extracted code. On a SyntaxError, make one billed repair call with the parser error. Apply to every operator. | `herd/sample.py` `extract_code`; `herd/operators/__init__.py` `OperatorContext.job` | 7 | 3 |
-| 3 | **Give each retry a different variant.** On visit r>0 to a family, append one of a fixed, family-agnostic list of design axes (history: none / bounded / unbounded with decay; treat first-seen keys specially; isolate scans; simplest O(1) variant), or rotate the named sub-algorithm (LRU-2 vs LRU-K, LIRS vs CLOCK-Pro, SIEVE vs CLOCK). | `herd/operators/blind_spot.py` `jobs`, `literature_random.py`, `literature_all.py`; a helper in `reality.py` | 6 | 3 |
-| 4 | **Evolutionary refine stage** (FunSearch/OpenEvolve style). After a seeding wave, show the top 2 dev parents (code plus per-trace dev miss ratios via `blind_spot_feedback.gaps`) plus one "inspiration" program from another family, and ask for an improved program. Families act as islands. Needs **matched `plain_evolve` controls**. | new `herd/operators/evolve.py`; `registry()` in `herd/operators/__init__.py` | 6 | 3 |
-| 5 | **Spend the budget.** Reserve on the expected cost (the running mean of this run's completed calls, with the worst case only for the first call). Retry a refused singleton once after in-flight calls settle instead of breaking. Log unspent budget. Also report an equal-N mode (for example, 16 implementer calls). | `herd/llm.py` `LLM.chat` / `Ledger.reserve`; `herd/operators/__init__.py` `run_jobs` (`if len(wave) == 1: break`) | 6 | 3 |
-| 6 | **Cross-family hybrid operator.** Build the prompt as "Start from base family `<herd top family>`; add this component from `<blind-spot family>`", using only the herd map and the taxonomy (no run results). Keep pure blind_spot as a control. | new `herd/operators/blind_spot_hybrid.py` | 5 | 3 |
-| 7 (tie) | **Successive halving across families.** Round 0: one draw per family. Then give the remaining draws to the top half by dev score. Stop a family after two tied scores (within 1e-4) or once it is 0.02 behind. Use the `on_done` hook and the `None` barrier, as `blind_spot_feedback` does. | `herd/operators/blind_spot.py`, `literature_*.py` `jobs` | 7 | 2 |
-| 7 (tie) | **Richer dev feedback.** Show all 6 per-run dev gaps against the run's **best program**, not against LRU (which every candidate already beats). Include the run-best code as an inspiration. Drop "keeping the family's mechanism" in favor of "keep it as the core". Keep the sham control. | `herd/operators/blind_spot_feedback.py` `note_for`, `NOTE_VALID`, `_jobs` | 7 | 2 |
-| 7 (tie) | **Family mechanism specs** (state / on_hit / on_miss / evict / scaling at tiny capacity), generated by the taxonomy builder. Drop benchmark claims such as "outperforms ARC". | `herd/literature.py` `build_taxonomy` (TAXONOMY_PROMPT) | 7 | 2 |
+| 1 | **Allow adaptation and hybrids around a family core.** Replace "Implement this approach faithfully and make it as strong as you can within the family" with "Use this family's decision rule as the core; you may add standard components (history of evicted keys, a probation queue for first-seen keys, aging, admission) if they help on the workload described above." Ship it as a **new arm**, keep the old template as a control, and report purity. | `diverge/reality.py` `IMPLEMENT_TEMPLATE`, `implementation_prompt` (new flag or operator) | 10 | 3 |
+| 2 | **Syntax gate and one repair call.** Run `textwrap.dedent`, tab normalization and `compile()` on extracted code. On a SyntaxError, make one billed repair call with the parser error. Apply to every operator. | `diverge/sample.py` `extract_code`; `diverge/operators/__init__.py` `OperatorContext.job` | 7 | 3 |
+| 3 | **Give each retry a different variant.** On visit r>0 to a family, append one of a fixed, family-agnostic list of design axes (history: none / bounded / unbounded with decay; treat first-seen keys specially; isolate scans; simplest O(1) variant), or rotate the named sub-algorithm (LRU-2 vs LRU-K, LIRS vs CLOCK-Pro, SIEVE vs CLOCK). | `diverge/operators/blind_spot.py` `jobs`, `literature_random.py`, `literature_all.py`; a helper in `reality.py` | 6 | 3 |
+| 4 | **Evolutionary refine stage** (FunSearch/OpenEvolve style). After a seeding wave, show the top 2 dev parents (code plus per-trace dev miss ratios via `blind_spot_feedback.gaps`) plus one "inspiration" program from another family, and ask for an improved program. Families act as islands. Needs **matched `plain_evolve` controls**. | new `diverge/operators/evolve.py`; `registry()` in `diverge/operators/__init__.py` | 6 | 3 |
+| 5 | **Spend the budget.** Reserve on the expected cost (the running mean of this run's completed calls, with the worst case only for the first call). Retry a refused singleton once after in-flight calls settle instead of breaking. Log unspent budget. Also report an equal-N mode (for example, 16 implementer calls). | `diverge/llm.py` `LLM.chat` / `Ledger.reserve`; `diverge/operators/__init__.py` `run_jobs` (`if len(wave) == 1: break`) | 6 | 3 |
+| 6 | **Cross-family hybrid operator.** Build the prompt as "Start from base family `<top consensus family>`; add this component from `<blind-spot family>`", using only the consensus map and the taxonomy (no run results). Keep pure blind_spot as a control. | new `diverge/operators/blind_spot_hybrid.py` | 5 | 3 |
+| 7 (tie) | **Successive halving across families.** Round 0: one draw per family. Then give the remaining draws to the top half by dev score. Stop a family after two tied scores (within 1e-4) or once it is 0.02 behind. Use the `on_done` hook and the `None` barrier, as `blind_spot_feedback` does. | `diverge/operators/blind_spot.py`, `literature_*.py` `jobs` | 7 | 2 |
+| 7 (tie) | **Richer dev feedback.** Show all 6 per-run dev gaps against the run's **best program**, not against LRU (which every candidate already beats). Include the run-best code as an inspiration. Drop "keeping the family's mechanism" in favor of "keep it as the core". Keep the sham control. | `diverge/operators/blind_spot_feedback.py` `note_for`, `NOTE_VALID`, `_jobs` | 7 | 2 |
+| 7 (tie) | **Family mechanism specs** (state / on_hit / on_miss / evict / scaling at tiny capacity), generated by the taxonomy builder. Drop benchmark claims such as "outperforms ARC". | `diverge/literature.py` `build_taxonomy` (TAXONOMY_PROMPT) | 7 | 2 |
 
 Next, outside the top 8: a behavioral dedup and degeneracy gate. It would hash per-trace dev
 vectors and run the existing `evaluator.probe()` on tiny fixed synthetic traces to flag
 LRU-equivalent code (4 models, plausibility 3; pairs naturally with fix 3). Also multi-seed
 distributional reporting: a bootstrap of the expected best-of-k, medians, and at least 5 paired
-seeds in `herd/bench.py` `run_metrics`/`aggregate` (3 models, plausibility 3). This is required
+seeds in `diverge/bench.py` `run_metrics`/`aggregate` (3 models, plausibility 3). This is required
 before any verdict.
 
 **Rejected:**
 - Injecting plain/004's mechanism (persistent frequency plus a one-hit FIFO tier) into prompts or
   code (3 models). This is peeking at this run's winner.
-- Weighting families by herd share (part of a 5-model cluster). It defeats the blind-spot test.
+- Weighting families by consensus share (part of a 5-model cluster). It defeats the blind-spot test.
 - More or different dev traces, and ensembles. These change the evaluator's data or the artifact.
 - A stronger implementer or a bigger budget for blind_spot only. Unfair.
 
 ## ADHD lessons
 
-ADHD @7b91ce6 runs reframe → diverge → **score/critic → cluster → deepen**. HERD's `adhd_frames`
+ADHD @7b91ce6 runs reframe → diverge → **score/critic → cluster → deepen**. DIVERGE's `adhd_frames`
 copies only the diverge step, as its own docstring says.
 
 | lesson | support | plaus. |
 |---|---|---|
-| **No critic gate.** ADHD scores every idea for novelty, viability and fit (0.35/0.4/0.25), flags traps and prunes before investing. HERD implements ideas in generation order. 3 of the 4 adhd_frames candidates were the same "sacrificial lamb FIFO" idea. | 15 | 3 |
-| **No deepen or refine step.** ADHD expands the top-K into sketches with a named risk and a first step. HERD hands the implementer one sentence or one line of mechanism. | 9 | 3 |
-| **No anchor stripping.** ADHD's REFRAME separates real constraints from incidental ones. HERD's "faithfully" instruction does the opposite for blind spots: it anchors on literature parameters (bounded ghosts, a 1% cold share). | 13 | 2 |
-| **Generator and critic separated by construction.** HERD keeps the divergent prompt but drops the convergent half. Without the viability gate, "ban the first 3 ideas" pushes away from frequency counting, which is near-optimal here. | 11 | 2 |
-| **Recombination.** `deepenIdea` receives sibling ideas to build hybrids. HERD never combines families. The best programs (plain/004, adhd_frames/000) are hybrids. | 5 | 3 |
-| **Coverage.** Under a tiny budget, HERD's lazy position-major loop built only the position-0 ideas from 4 frames. The wild frame was never implemented. | 4 | 2 |
-| **Caveat.** ADHD's own evidence is LLM-judged breadth and novelty on 6 open-ended problems, not executable scores. Borrow the critic and deepen stages, but ablate them against HERD's real evaluator. | 2 | 3 |
+| **No critic gate.** ADHD scores every idea for novelty, viability and fit (0.35/0.4/0.25), flags traps and prunes before investing. DIVERGE implements ideas in generation order. 3 of the 4 adhd_frames candidates were the same "sacrificial lamb FIFO" idea. | 15 | 3 |
+| **No deepen or refine step.** ADHD expands the top-K into sketches with a named risk and a first step. DIVERGE hands the implementer one sentence or one line of mechanism. | 9 | 3 |
+| **No anchor stripping.** ADHD's REFRAME separates real constraints from incidental ones. DIVERGE's "faithfully" instruction does the opposite for blind spots: it anchors on literature parameters (bounded ghosts, a 1% cold share). | 13 | 2 |
+| **Generator and critic separated by construction.** DIVERGE keeps the divergent prompt but drops the convergent half. Without the viability gate, "ban the first 3 ideas" pushes away from frequency counting, which is near-optimal here. | 11 | 2 |
+| **Recombination.** `deepenIdea` receives sibling ideas to build hybrids. DIVERGE never combines families. The best programs (plain/004, adhd_frames/000) are hybrids. | 5 | 3 |
+| **Coverage.** Under a tiny budget, DIVERGE's lazy position-major loop built only the position-0 ideas from 4 frames. The wild frame was never implemented. | 4 | 2 |
+| **Caveat.** ADHD's own evidence is LLM-judged breadth and novelty on 6 open-ended problems, not executable scores. Borrow the critic and deepen stages, but ablate them against DIVERGE's real evaluator. | 2 | 3 |
 
 ## Dissenting views
 
 - **Is the thesis wrong here, or is the pipeline?** Opus, Sonnet c, nemotron, kimi and stepfun
   argue that the blind-spot families are structurally weaker on stationary Zipf, so pipeline fixes
-  may only close the gap by turning blind spots into hybrids built on a herd core. That would weaken
+  may only close the gap by turning blind spots into hybrids built on a consensus core. That would weaken
   attribution. Others (qwen, luna, mimo) put the blame mostly on the template and allocation.
 - **Contrast.** Opus and Sonnet want it dropped or made combinational ("you may reuse these;
   must also include X"), because it currently forbids the winning ingredient. Amazon wants it
@@ -181,7 +181,7 @@ copies only the diverge step, as its own docstring says.
   draw to break the 0.5966 cluster) as a signal. Sonnet b calls feedback against sham unreadable
   at n=1. Both are right: the effect is suggestive and untested.
 - **adhd_frames.** Sonnet notes it reached the best non-plain score from 4 candidates. Opus b notes
-  its best idea is essentially 2Q/S3-FIFO, a herd family, so "divergence" re-converged on the herd.
+  its best idea is essentially 2Q/S3-FIFO, a consensus family, so "divergence" re-converged on the consensus.
 
 ## Anti-overfitting protocol for the follow-up experiment
 

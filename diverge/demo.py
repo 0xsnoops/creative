@@ -3,11 +3,12 @@
 `python -m diverge demo <name>` replays a recorded run: fixtures/trajectories/<name>.json (the agent's
 attempts) and fixtures/runs/<name>.json (what escape and a fresh-start baseline produced on them,
 recorded once with real API calls). The demo itself makes no API or network calls, never builds a
-Herd or a client, adds no timestamps and uses no randomness, so the same files print the same text.
+pipeline or a client, adds no timestamps and uses no randomness, so the same files print the same text.
 
 `python -m diverge preflight` checks budget, API keys and model slugs before a live run (`--json`
 prints readiness(), the same dict the diverge_status MCP tool returns)."""
 import os
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -66,8 +67,23 @@ def _missing_run_help(name, root):
             f"To create it, {how}. Needs OPENROUTER_API_KEY and budget; check with `python -m diverge preflight`.")
 
 
+_OLD_NAMES = ((re.compile(r"\bherd_(escape|check|status|map)\b(?!\.json)"), r"diverge_\1"),
+              (re.compile(r"\bHERD\b"), "DIVERGE"), (re.compile(r"\bHerd\b"), "Consensus"),
+              (re.compile(r"\bherd(?=[ _]|\b)(?!_map\.json)"), "consensus"))
+
+
+def current_wording(text):
+    """Recorded fixtures predate the HERD -> DIVERGE rename: show their text in current wording
+    (product DIVERGE, the concept "consensus"). Display only; fixture files are left as recorded."""
+    for pattern, new in _OLD_NAMES:
+        text = pattern.sub(new, text)
+    return text
+
+
 def run(name, root=REPO, out=print):
     """Print the recorded demo for fixture `name`. Returns 0, or 1 when a file is missing."""
+    raw_out = out
+    out = lambda text="": raw_out(current_wording(str(text)))  # noqa: E731
     root = Path(root)
     traj_path, run_path = root / "fixtures" / "trajectories" / f"{name}.json", root / "fixtures" / "runs" / f"{name}.json"
     if not traj_path.exists():
@@ -101,11 +117,11 @@ def run(name, root=REPO, out=print):
     for reason in result.get("reasons") or []:
         out(f"  - {reason}")
 
-    out("\n== 3. Herd evidence ==")
+    out("\n== 3. Consensus evidence ==")
     excerpt = rec.get("overlook_excerpt") or {}
     for r in excerpt.get("inputs") or []:
         flag = "  [overlooked]" if r.get("overlooked") else ""
-        out(f"  {r.get('input')}: used by {r.get('used_by')}/{r.get('decided')} herd samples "
+        out(f"  {r.get('input')}: used by {r.get('used_by')}/{r.get('decided')} consensus samples "
             f"({_pct(r.get('share'))}){flag}")
     assumptions = excerpt.get("assumptions") or []
     if isinstance(assumptions, dict):
@@ -116,18 +132,18 @@ def run(name, root=REPO, out=print):
             out(f"  assumption: {a.get('assumption')} ({a.get('kind')}{held})")
         else:
             out(f"  assumption: {a}")
-    out(f"  herd prevalence of the attempts' strategy profile: {result.get('herd_prevalence')}")
+    out(f"  consensus prevalence of the attempts' strategy profile: {result.get('herd_prevalence')}")
     for lever in result.get("overlooked_levers") or []:
         out(f"  lever [{lever.get('type')}] {lever.get('name')}: {lever.get('why')}")
 
-    out("\n== 4. Scope of the herd claims ==")
+    out("\n== 4. Scope of the consensus claims ==")
     para = rec.get("paraphrase")
     if para:
         out(f"  paraphrase test: {para.get('verdict')} (mean paraphrase TVD {para.get('mean_P')} vs "
-            f"max resampling TVD {para.get('max_R')}); read herd shares as 'what models converge on "
+            f"max resampling TVD {para.get('max_R')}); read consensus shares as 'what models converge on "
             f"for this wording'")
     else:
-        out("  no paraphrase test recorded; herd shares hold for this exact prompt wording only")
+        out("  no paraphrase test recorded; consensus shares hold for this exact prompt wording only")
 
     text = esc.get("contract")
     if not text:
@@ -135,7 +151,7 @@ def run(name, root=REPO, out=print):
             from . import contract
             text = contract.render(result)
         except ImportError:
-            text = "(herd.contract is not available and the run file has no recorded contract)"
+            text = "(diverge.contract is not available and the run file has no recorded contract)"
     verdict = text.splitlines()[0].replace("VERDICT:", "").strip() if text.startswith("VERDICT:") else None
     switch = result.get("recommended_switch") or {}
     if verdict == "escape":
@@ -167,7 +183,7 @@ def run(name, root=REPO, out=print):
     for label, dev, held, cost in rows:
         out(f"  {label:24} {_fmt(dev):>9} {_fmt(held):>9}  {cost}".rstrip())
 
-    out(f"\nPRELIMINARY: {rec.get('n_runs', 1)} run")
+    out(f"\nPRELIMINARY: {rec.get('n_runs') or 1} run" + ("s" if (rec.get('n_runs') or 1) != 1 else ""))
     if verdict is not None and verdict != "escape":
         out(f"no escape candidate: verdict {verdict}, so DIVERGE did not switch strategy and there is nothing to "
             f"compare with fresh_start")
@@ -206,7 +222,7 @@ WHEN_TO_CALL = ("diverge_escape when several scored attempts have stalled, the s
                 "changes a lot but the score barely moves, or you are about to retry another variation or escalate; "
                 "diverge_check before committing to a strategy. Not for generic debugging.")
 KEYS = (("openrouter", "OPENROUTER_API_KEY", True, "every model call (fingerprinting, implementing, map builds)"),
-        ("exa", "EXA_API_KEY", False, "literature search, only when a herd map is built for a new task"))
+        ("exa", "EXA_API_KEY", False, "literature search, only when a consensus map is built for a new task"))
 
 
 def _status(herd, env):
@@ -246,7 +262,10 @@ def readiness(herd=None, env=None, live=False, root=REPO):
     env = os.environ if env is None else env
     remaining = cap - spent
     requirements, missing = {}, []
-    for name, key, required, used_for in KEYS:
+    keys = KEYS
+    if str(env.get("DIVERGE_PROVIDER", "")).lower() == "anthropic":  # OpenRouter disabled
+        keys = (("anthropic", "ANTHROPIC_API_KEY", True, "every model call, sent to the Anthropic API"),) + KEYS[1:]
+    for name, key, required, used_for in keys:
         present = bool(env.get(key))
         requirements[name] = {"env": key, "status": "configured" if present else
                               ("missing" if required else "missing (optional)"),
@@ -265,8 +284,9 @@ def readiness(herd=None, env=None, live=False, root=REPO):
     if live_ok:
         action = (f"DIVERGE is configured. Call {PRIMARY_TOOL} yourself when attempts stall (see when_to_call); "
                   f"diverge_check before choosing a strategy.")
-    elif "OPENROUTER_API_KEY" in missing:
-        action = ("Live DIVERGE calls need OPENROUTER_API_KEY, which only the user can provide (in .env); ask them, and "
+    elif any(k in missing for k in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")):
+        needed = "ANTHROPIC_API_KEY" if "ANTHROPIC_API_KEY" in missing else "OPENROUTER_API_KEY"
+        action = (f"Live DIVERGE calls need {needed}, which only the user can provide (in .env); ask them, and "
                   "never invent or guess a credential. Until then, " +
                   (f"run the offline demo ({OFFLINE_DEMO_COMMAND}, no API calls)." if demo_ok else
                    "continue without DIVERGE."))

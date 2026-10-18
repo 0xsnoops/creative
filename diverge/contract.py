@@ -2,7 +2,7 @@
 then one compact JSON object with the chosen lever, a falsifiable next experiment and evidence
 where every claim is labeled MEASURED, SOURCE_BACKED or HYPOTHESIZED.
 
-verdict(result) takes an escape_for_agent result dict (herd.server) and returns one of
+verdict(result) takes an escape_for_agent result dict (diverge.server) and returns one of
 keep | repair | escape | escalate | inconclusive. Rules, applied in this order:
 
 1. inconclusive: the result has "error".
@@ -12,7 +12,7 @@ keep | repair | escape | escalate | inconclusive. Rules, applied in this order:
    (evaluation.before is None).
 4. escalate (contradictory evaluator/task, B): at least 2 scored attempts, all scores equal
    (within 1e-9 relative), while their strategies differ (strategy_similarity is known and below
-   herd.trajectory.SAME_STRATEGY, 0.7): the evaluator does not tell different strategies apart.
+   diverge.trajectory.SAME_STRATEGY, 0.7): the evaluator does not tell different strategies apart.
 5. keep: diagnosis action "continue".
 6. repair: action "repair".
 7. escape: action "switch_strategy" and a lever was chosen (overlooked_levers non-empty and
@@ -25,6 +25,7 @@ tool); without that list, two scores are inferred from diagnosis.evidence.progre
 improvement is only computed from two or more scores)."""
 import json
 
+from . import plateau as _plateau
 from .trajectory import SAME_STRATEGY
 
 VERDICTS = ("keep", "repair", "escape", "escalate", "inconclusive")
@@ -178,15 +179,15 @@ def _sourced(lever, index):
 
 
 def _herd_counts(lever):
-    """MEASURED herd counts carried by a lever's detail, if any."""
+    """MEASURED consensus counts carried by a lever's detail, if any."""
     d, name, t = lever.get("detail") or {}, lever.get("name"), lever.get("type")
     if t == "unused_signal" and d.get("used_by") is not None and d.get("decided"):
-        item = {"claim": f"{name} used by {d['used_by']}/{d['decided']} herd samples", "class": MEASURED}
+        item = {"claim": f"{name} used by {d['used_by']}/{d['decided']} consensus samples", "class": MEASURED}
         if d.get("used_by_models"):
             item["detail"] = {"used_by_models": d["used_by_models"]}
         return item
     if t == "assumption_break" and d.get("held_by") is not None and d.get("checked"):
-        return {"claim": f'assumption "{name}" held by {d["held_by"]}/{d["checked"]} checked herd samples',
+        return {"claim": f'assumption "{name}" held by {d["held_by"]}/{d["checked"]} checked consensus samples',
                 "class": MEASURED, "detail": "per-sample holds are judged by a checker model, with quoted evidence"}
     if t == "minority_mechanism" and d.get("models"):
         n = len(d["models"]) + len(d.get("absent_from") or [])
@@ -194,7 +195,7 @@ def _herd_counts(lever):
                 "class": MEASURED, "detail": {"models": d["models"]}}
     if t == "blind_spot" and (d.get("observed") or d.get("share") is not None):
         seen = d.get("observed") or f"share {d['share']}"
-        return {"claim": f"{name} observed in the herd: {seen}", "class": MEASURED}
+        return {"claim": f"{name} observed in the consensus: {seen}", "class": MEASURED}
     return None
 
 
@@ -222,7 +223,7 @@ def evidence(result, lever, families=None):
             item["detail"] = "restates a strategy property extracted by a model from the code"
         out.append(item)
     if result.get("herd_prevalence") is not None:
-        out.append({"claim": f"at most {result['herd_prevalence']:.0%} of herd samples share the attempts' input profile",
+        out.append({"claim": f"at most {result['herd_prevalence']:.0%} of consensus samples share the attempts' input profile",
                     "class": MEASURED})
     levers = result.get("overlooked_levers") or []
     if lever and levers:
@@ -252,11 +253,11 @@ def scope_note(paraphrase=None, stability=None):
     elif stability:
         p, r, v = stability.get("paraphrase_tvd"), stability.get("resampling_tvd_max"), stability.get("verdict")
     else:
-        return "Herd shares are for this prompt wording; robustness to rewording was not measured for this task."
+        return "Consensus shares are for this prompt wording; robustness to rewording was not measured for this task."
     if p is None or r is None:
-        return f"Herd shares are for this prompt wording (paraphrase verdict: {v})."
+        return f"Consensus shares are for this prompt wording (paraphrase verdict: {v})."
     moved = "rewording moved the map" if p > r else "rewording moved the map no more than resampling"
-    return (f"Herd shares are for this prompt wording: {moved} (paraphrase TVD {p:.2f} vs at most {r:.2f} "
+    return (f"Consensus shares are for this prompt wording: {moved} (paraphrase TVD {p:.2f} vs at most {r:.2f} "
             f"between resamples; verdict: {v}).")
 
 
@@ -269,6 +270,10 @@ def contract(result, overlook=None, paraphrase=None, families=None):
     out = {"lever": lever, "next_experiment": next_experiment(result, v, lever),
            "evidence": evidence(result, lever, families),
            "scope_note": scope_note(paraphrase, result.get("herd_stability"))}
+    if item := _plateau.evidence_item(result, v):  # stalled at the best known baseline (diverge.plateau)
+        out["evidence"].append(item)
+    if "plateau" in result:
+        out["plateau"] = result["plateau"]
     for k in ("spent_usd", "counterexamples"):
         if k in result:
             out[k] = result[k]
@@ -284,13 +289,17 @@ def render(result, overlook=None, paraphrase=None, families=None):
 
 
 def parse(text):
-    """(verdict, body) from render() output."""
+    """(verdict, body) from render() or agent_result() output. A markdown block may sit between the
+    VERDICT line and the JSON object; the JSON starts at the first line that starts with "{" (markdown
+    lines never do)."""
     head, _, rest = text.partition("\n")
-    return head.removeprefix("VERDICT: ").strip(), json.loads(rest)
+    lines = rest.split("\n")
+    start = next((i for i, line in enumerate(lines) if line.startswith("{")), 0)
+    return head.removeprefix("VERDICT: ").strip(), json.loads("\n".join(lines[start:]))
 
 
 # ------------------------------------------------------------------ agent fields
-# What an agent should do next for each verdict. diverge_escape (herd.server) adds these fields to
+# What an agent should do next for each verdict. diverge_escape (diverge.server) adds these fields to
 # the contract body and also returns them as MCP structuredContent.
 MIN_SCORED = 2  # rule 3 above: fewer scored attempts is inconclusive
 NEXT_ACTION = {
@@ -323,7 +332,7 @@ def _inconclusive_action(result):
 
 def agent_fields(result, v, body):
     """{next_action, can_continue_autonomously, complete, missing_requirements, candidate_available,
-    evidence_summary} for verdict v; error results carry their own next_action (herd.server.failure)."""
+    evidence_summary} for verdict v; error results carry their own next_action (diverge.server.failure)."""
     if result.get("error"):
         return {"next_action": result.get("next_action") or NEXT_ACTION["inconclusive"],
                 "can_continue_autonomously": bool(result.get("can_continue_autonomously", False)),
@@ -335,6 +344,7 @@ def agent_fields(result, v, body):
     if v == "escape" and result.get("candidates") and not ev.get("improved"):
         action += (" DIVERGE's own candidate did not beat the before score on dev, so the lever is still untested "
                    "by a working implementation.")
+    action += _plateau.action_extension(result, v)
     counts = {c: 0 for c in (MEASURED, SOURCE_BACKED, HYPOTHESIZED)}
     for e in body.get("evidence") or []:
         counts[e["class"]] = counts.get(e["class"], 0) + 1
@@ -349,5 +359,141 @@ def agent_result(result, overlook=None, paraphrase=None, families=None):
     plus "verdict", for MCP clients that read structuredContent."""
     v, body = contract(result, overlook, paraphrase, families)
     merged = {**agent_fields(result, v, body), **body}
-    return f"VERDICT: {v}\n" + json.dumps(merged, indent=2, default=str), \
-        json.loads(json.dumps({"verdict": v, **merged}, default=str))
+    structured = json.loads(json.dumps({"verdict": v, **merged}, default=str))
+    return f"VERDICT: {v}\n" + escape_markdown(structured) + "\n" + json.dumps(merged, indent=2, default=str), \
+        structured
+
+
+# ------------------------------------------------------------------ readable markdown
+# A short block between the VERDICT line and the JSON. Every value in it is copied from the result
+# object (numbers via json.dumps, so they read exactly as in the JSON); nothing is recomputed.
+def _md_text(x, limit=300):
+    s = " ".join(str(x).split())  # one line: a markdown line never starts with "{" (see parse)
+    return s if len(s) <= limit else s[:limit - 3] + "..."
+
+
+def _md_num(x):
+    return json.dumps(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else _md_text(x)
+
+
+def _yes(x):
+    return "yes" if x else "no"
+
+
+def escape_markdown(obj):
+    """Markdown summary of a diverge_escape structured object: verdict, lever, traps, next test."""
+    lines = [f"## DIVERGE escape: {_md_text(obj.get('verdict'))}"]
+    if obj.get("error"):
+        lines.append(f"**Error:** {_md_text(obj['error'])}: {_md_text(obj.get('detail', ''))}")
+    else:
+        lever = obj.get("lever")
+        lines.append(f"**Lever:** {_md_text(lever.get('name'))} ({_md_text(lever.get('type'))}): "
+                     f"{_md_text(lever.get('mechanism'))}" if lever else "**Lever:** none chosen")
+        ne = obj.get("next_experiment") or {}
+        m = ne.get("measured")
+        if m:
+            lines.append(f"**Measured ({_md_text(m.get('split'))}):** candidate {_md_num(m.get('after'))} vs current "
+                         f"{_md_num(m.get('before'))} (improved: {_yes(m.get('improved'))})")
+        traps = [f"{_md_text(e['claim'])} (HYPOTHESIZED: not measured)" for e in obj.get("evidence") or []
+                 if e.get("class") == HYPOTHESIZED]
+        if ne.get("failure_threshold"):
+            traps.append(f"fails if: {_md_text(ne['failure_threshold'])}")
+        if traps:
+            lines += ["**Traps:**", *(f"- {t}" for t in traps)]
+        if ne.get("hypothesis"):
+            test = _md_text(ne["hypothesis"])
+            if ne.get("success_threshold"):
+                test += f" Success: {_md_text(ne['success_threshold'])}."
+            lines.append(f"**Next test:** {test}")
+    lines.append(f"**Next action:** {_md_text(obj.get('next_action'), 600)}")
+    return "\n".join(lines) + "\n"
+
+
+def _family_line(f):
+    parts = [f"**{_md_text(f.get('family'))}**"]
+    if f.get("score") is not None:
+        parts.append(f"score {_md_num(f['score'])}")
+    if f.get("share") is not None:
+        parts.append(f"consensus share {_md_num(f['share'])}")
+    return ", ".join(parts) + (f": {_md_text(f['mechanism'])}" if f.get("mechanism") else "")
+
+
+def check_markdown(obj):
+    """Markdown summary of a diverge_check structured object: verdict, consensus placement, shortlist,
+    traps, next test."""
+    lines = [f"## DIVERGE check: {_md_text(obj.get('verdict'))}"]
+    if obj.get("error"):
+        lines.append(f"**Error:** {_md_text(obj['error'])}: {_md_text(obj.get('detail', ''))}")
+        lines.append(f"**Next action:** {_md_text(obj.get('next_action'), 600)}")
+        return "\n".join(lines) + "\n"
+    herd = obj.get("herd_comparison") if obj.get("mode") == "free_text" else obj
+    if herd and herd.get("family"):
+        line = f"**Your approach:** {_md_text(herd['family'])}, consensus share {_md_num(herd.get('share'))}"
+        if herd.get("rank") is not None:
+            line += f", rank {_md_num(herd['rank'])}"
+        if "in_top_families" in herd:
+            line += f" (one of the consensus top families: {_yes(herd['in_top_families'])})"
+        lines.append(line)
+        if herd.get("top_families"):
+            lines.append("**Consensus top families:** " + ", ".join(
+                f"{_md_text(f)} ({_md_num(s)})" for f, s in herd["top_families"]))
+    elif obj.get("herd_note"):
+        lines.append(f"**Consensus comparison:** {_md_text(obj['herd_note'])}")
+    if obj.get("my_family_score") is not None:
+        lines.append(f"**Your family's score ({_md_text(obj.get('scored_on'))}):** {_md_num(obj['my_family_score'])}")
+    shortlist = [obj[k] for k in ("blind_spot", "better_family", "diverse_alternative") if obj.get(k)]
+    if shortlist:
+        lines += ["**Shortlist (MEASURED):**", *(f"- {_family_line(f)}" for f in shortlist)]
+    alts = obj.get("alternatives") or []
+    if alts:
+        lines.append("**Alternatives (HYPOTHESIZED, untested):**")
+        for a in alts:
+            lines.append(f"- **{_md_text(a.get('name'))}**: {_md_text(a.get('mechanism'))} "
+                         f"Strength: {_md_text(a.get('strength'))} Test: {_md_text(a.get('how_to_test'))}")
+    traps = [f"{_md_text(a.get('name'))}: {_md_text(a.get('trap'))}" for a in alts if a.get("trap")]
+    if obj.get("note"):
+        traps.append(_md_text(obj["note"]))
+    if obj.get("exploratory"):
+        traps.append("held-out results were shown before for this evaluator: treat this comparison as exploratory")
+    if obj.get("complete") is False and obj.get("stopped_at"):
+        traps.append(f"budget stopped testing at {_md_text(obj['stopped_at'])}: the comparison is partial")
+    if traps:
+        lines += ["**Traps:**", *(f"- {t}" for t in traps)]
+    lines.append(f"**Next test:** {_md_text(obj.get('next_action'), 600)}")
+    return "\n".join(lines) + "\n"
+
+
+# ------------------------------------------------------------------ diverge_check
+FREE_TEXT_ACTION = (
+    "These alternatives are HYPOTHESIZED: DIVERGE has not implemented or scored any of them. Test before "
+    "committing: implement the promising ones and score each with your evaluator (each how_to_test says what to "
+    "measure), or call diverge_check again with evaluator_cmd (a command that takes a code file path as its last "
+    'argument and prints {"valid": bool, "score": float}) so DIVERGE implements and scores the consensus families and '
+    "blind spots itself.")
+CHECK_NEXT_ACTION = {
+    "keep": "Keep your approach: no tested family beat it. Build on it, score each change, and call diverge_escape "
+            "if scored attempts stall.",
+    "try_blind_spot": "Implement blind_spot (start from its code_path, DIVERGE's best implementation) and score it "
+                      "with your evaluator before committing to it.",
+    "try_other_family": "Switch to better_family (start from its code_path) and score it with your evaluator; "
+                        "diverse_alternative, when present, is a rarer family that also beat yours.",
+    "inconclusive": "Your family was not scored (see note). Call diverge_check again with a larger k or budget_usd "
+                    "(ask the user before raising spend), or check the evaluator.",
+    "unclassified": "my_approach matched no family in the consensus map: describe its mechanism more concretely and "
+                    "call diverge_check again.",
+    "untested": FREE_TEXT_ACTION,
+}
+
+
+def check_result(result):
+    """(text, structured) for the diverge_check tool: `VERDICT: <verdict>`, a markdown block, then one
+    JSON object (parse() reads it). structured is the same object (it carries verdict, complete and
+    next_action; error results keep their own next_action)."""
+    v = "inconclusive" if result.get("error") else (result.get("verdict") or "inconclusive")
+    obj = {"verdict": v, "complete": result.get("complete", not result.get("error")),
+           "next_action": result.get("next_action") or CHECK_NEXT_ACTION.get(v, NEXT_ACTION["inconclusive"]),
+           "can_continue_autonomously": result.get("can_continue_autonomously", True),
+           **{k: x for k, x in result.items() if k not in ("verdict", "complete", "next_action",
+                                                         "can_continue_autonomously")}}
+    obj = json.loads(json.dumps(obj, default=str))
+    return f"VERDICT: {v}\n" + check_markdown(obj) + "\n" + json.dumps(obj, indent=2), obj

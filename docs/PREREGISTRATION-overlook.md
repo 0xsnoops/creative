@@ -1,9 +1,9 @@
 # Overlooked-ideas phase: protocol (written before any live call of this phase)
 
 Branch `overlooked-ideas`, started from `model-review-changes` at `309f740`. Spend before this
-phase: $8.14, all in HERD's cache.
+phase: $8.14, all in DIVERGE's cache.
 
-**Budget for this phase: $20.** HERD's own global cap goes to $28.00, so the code itself refuses
+**Budget for this phase: $20.** DIVERGE's own global cap goes to $28.00, so the code itself refuses
 to spend past it. I stop and ask before this phase goes past $20. Every call is traced to
 `results/traces/overlook-20261018/`.
 
@@ -11,11 +11,11 @@ to spend past it. I stop and ask before this phase goes past $20. Every call is 
 - Samplers: the existing five.
 - Labeler: `anthropic/claude-opus-5.5`, used for taxonomy labels, so they stay comparable to
   the maps.
-- New extractor: `anthropic/claude-haiku-5.5`, for reading herd code in Step 1. Cheap; it never
+- New extractor: `anthropic/claude-haiku-5.5`, for reading consensus-map code in Step 1. Cheap; it never
   generates solutions.
 - Implementer for Step 2: `google/gemini-4-argon`.
 
-**Herd data:** the existing N=20 maps, 100 samples per task (95 valid for bin packing, 76 for
+**Consensus data:** the existing N=20 maps, 100 samples per task (95 valid for bin packing, 76 for
 cache eviction).
 
 ## Step 0: paraphrase test (estimate about $1.8)
@@ -38,9 +38,9 @@ cache eviction).
   - R = the 6 pairwise TVDs among the 4 original groups (resampling noise).
   - P = the 12 TVDs between each of the 3 paraphrase groups and each of the 4 original groups.
 - **Decision rule, fixed now:**
-  - If mean(P) <= max(R), the herd is **robust to wording**: paraphrasing moves it no more than
+  - If mean(P) <= max(R), the consensus is **robust to wording**: paraphrasing moves it no more than
     resampling does.
-  - If mean(P) > max(R), the herd is **partly a prompt effect**. The README will then say so.
+  - If mean(P) > max(R), the consensus is **partly a prompt effect**. The README will then say so.
   - With 10 samples per group this can only detect large effects, and the report will say that.
 - The brief stated the rule the other way round; this reading is the logically correct one.
 
@@ -68,7 +68,7 @@ cache eviction).
      call merges synonyms into a small vocabulary per component. The literature taxonomy
      families are decomposed the same way.
    - **Gap cells:**
-     (a) combinations that literature families occupy and no herd sample does;
+     (a) combinations that literature families occupy and no consensus-map sample does;
      (b) pairs of component values that each appear in at least 2 samples, are never seen
      together, and are judged coherent by one extractor call that sees only the values.
    - Evidence is recorded for every cell.
@@ -76,15 +76,15 @@ cache eviction).
    component values produced by only 1-2 of the 5 sampler models and absent from the other 3-4.
    No API cost.
 5. **Latent tail.**
-   - Each of the 5 sampler models answers 2 prompts per task (20 calls): (A) shown the herd's
+   - Each of the 5 sampler models answers 2 prompts per task (20 calls): (A) shown the consensus
      top-3 families with a strict no-repeat instruction, asking which OTHER approaches it knows
      for this exact problem; (B) the same question without the list (the control).
    - Answers are matched to the taxonomy by the extractor. Answers that match no taxonomy family
      are checked with at most 3 Exa searches per task. Only items with a matching taxonomy
      family, a retrieved source, or a precise mechanism (state plus decision rule) count as
      verified.
-   - Reported: verified non-herd approaches per model under A vs B.
-   - "Showing the herd unlocks knowledge" requires A > B for at least 4 of the 5 models;
+   - Reported: verified non-consensus approaches per model under A vs B.
+   - "Showing the consensus unlocks knowledge" requires A > B for at least 4 of the 5 models;
      otherwise the result is "no evidence".
 
 Every overlook.json item carries evidence: sample IDs, models, code lines, sources, quotes.
@@ -94,8 +94,8 @@ Every overlook.json item carries evidence: sample IDs, models, code lines, sourc
 
 - **Operators and controls** (same implementer, base template, evaluator and budget per
   operator; one overlook item per prompt):
-  - unused_signal vs unused_signal_control (a random input the herd already uses).
-  - assumption_break vs assumption_break_control (a random assumption from non-herd families).
+  - unused_signal vs unused_signal_control (a random input the consensus already uses).
+  - assumption_break vs assumption_break_control (a random assumption from non-consensus families).
   - component_gap vs component_gap_control (a random occupied cell).
   - minority_report vs minority_report_control (a random majority mechanism).
   - blind_spot+latent.

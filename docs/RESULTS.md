@@ -4,9 +4,9 @@ Only measured numbers are recorded here. The raw data (`results/`, `cache/`, tra
 gitignored and kept locally. Protocols: `docs/PREREGISTRATION.md` (operator benchmark) and
 `docs/PREREGISTRATION-overlook.md` (paraphrase test and overlook).
 
-Total spent through HERD so far: **$11.84** (cap $28):
+Total spent through DIVERGE so far: **$11.84** (cap $28):
 - $0.50 smoke test
-- $6.16 for the two N=20 herd maps
+- $6.16 for the two N=20 consensus maps
 - $0.44 lost to a benchmark bug, since fixed
 - about $1.5 for the first, partial benchmark repeat
 - $3.07 for the paraphrase test and overlook
@@ -14,14 +14,14 @@ Total spent through HERD so far: **$11.84** (cap $28):
 
 The outline-only model review cost $0.69 separately.
 
-## Herd maps (N=20 per model, 5 models)
+## Consensus maps (N=20 per model, 5 models)
 
 | task | valid samples | top 3 families | share held by the top 3 |
 |---|---|---|---|
 | online_bin_packing | 95 / 100 | Tight-fit-or-spacious gap avoidance; Best Fit; Sum-of-Squares gap-count balancing | 62% |
 | cache_eviction | 76 / 100 | W-TinyLFU (sketch frequency duel); 2Q / S3-FIFO (probationary queue + ghosts); LFU | 75% |
 
-## Is the herd real? Partly a prompt effect
+## Is the consensus real? Partly a prompt effect
 
 Method:
 - 3 meaning-preserving paraphrases of each task prompt. Automatic checks confirmed identical
@@ -38,14 +38,14 @@ Comparison: total variation distance (TVD) between 10-sample groups.
 
 On cache eviction, rewording alone moved W-TinyLFU from 45% to 67% of samples and 2Q/S3-FIFO
 from 50% to 17%. One of the three paraphrases stayed close to the original (TVD 0.1–0.2) and two
-moved a lot (0.4–0.5). With groups of 10 samples, only large shifts can be detected. Herd claims
+moved a lot (0.4–0.5). With groups of 10 samples, only large shifts can be detected. Consensus claims
 should be read as "for this wording".
 
-## Overlook (`herd overlook <task>`)
+## Overlook (`python -m diverge overlook <task>`)
 
 ### online_bin_packing (95 valid samples, $0.17)
 
-**Inputs the herd uses.** Static analysis covered all 95 samples.
+**Inputs the consensus uses.** Static analysis covered all 95 samples.
 
 | input | share of samples using it |
 |---|---|
@@ -62,7 +62,7 @@ checked samples: ties are resolved by argmax order, and bin age is not used as a
 classed hard because the prompt states the tie rule.
 
 **Component grid.**
-- Literature combinations no herd sample occupies: Next Fit, First Fit, Worst Fit, Harmonic
+- Literature combinations no consensus-map sample occupies: Next Fit, First Fit, Worst Fit, Harmonic
   size classes, and evolved composite scoring.
 - Coherent value pairs never seen together, for example "inventory potential change" scoring
   with no persistent state, and an item-size-dependent new-bin rule with expected-waste scoring.
@@ -72,9 +72,9 @@ classed hard because the prompt states the tie rule.
 - distribution-learning packing (Anthropic only)
 - evolved composite scoring and a piecewise band score (DeepSeek only)
 
-**Latent tail.** Verified approaches outside the herd, listed with vs without the herd shown:
+**Latent tail.** Verified approaches outside the consensus, listed with vs without the consensus shown:
 
-| model | with herd shown | without |
+| model | with consensus shown | without |
 |---|---|---|
 | Anthropic | 6 | 5 |
 | OpenAI | 5 | 5 |
@@ -82,12 +82,12 @@ classed hard because the prompt states the tie rule.
 | Meta | 2 | 4 |
 | DeepSeek | 3 | 4 |
 
-Only 2 of 5 models named more, so there is **no evidence** that showing the herd unlocks hidden
+Only 2 of 5 models named more, so there is **no evidence** that showing the consensus unlocks hidden
 knowledge. The pre-registered bar was 4 of 5.
 
 ### cache_eviction (76 valid samples, $0.17)
 
-**Inputs the herd uses.** Static analysis decided the clear cases; the extractor model resolved
+**Inputs the consensus uses.** Static analysis decided the clear cases; the extractor model resolved
 the ambiguous ones (workload_mix always, time and frequency often).
 
 | input | share |
@@ -114,7 +114,7 @@ No input is under the 10% "overlooked" line. workload_mix is close.
   serves one trace; the policy mirrors the simulator's cache.
 
 **Component grid.**
-- Literature combinations no herd sample occupies: plain LFU, CLOCK / reference bits, LRU-K,
+- Literature combinations no consensus-map sample occupies: plain LFU, CLOCK / reference bits, LRU-K,
   ARC, and LIRS.
 - Coherent unseen pairs, for example small-queue ghost promotion combined with periodic counter
   halving.
@@ -122,12 +122,12 @@ No input is under the 10% "overlooked" line. workload_mix is close.
 **Minority report.**
 - Plain LRU appears only from Llama.
 - CLOCK-style lazy promotion appears only from DeepSeek.
-- W-TinyLFU, a top herd family, is produced almost entirely by Google and OpenAI. "Produced by
+- W-TinyLFU, a top consensus family, is produced almost entirely by Google and OpenAI. "Produced by
   few models" is not the same as "rare".
 
 **Latent tail.**
 
-| model | with herd shown | without |
+| model | with consensus shown | without |
 |---|---|---|
 | Anthropic | 4 | 4 |
 | OpenAI | 3 | 3 |
@@ -153,7 +153,7 @@ cache at no cost.
 ### Three-operator run to held-out (1 repeat, preliminary)
 
 This is the core comparison: plain sampling, random literature, and literature chosen because the
-herd overlooked it. Each operator got $0.30 and 1 repeat (seed 0). Candidates were selected on dev,
+consensus overlooked it. Each operator got $0.30 and 1 repeat (seed 0). Candidates were selected on dev,
 and each family's pick was then scored once on held-out. The dev calls were replayed from the
 cache, so the new spend was about $0.
 
@@ -173,18 +173,18 @@ repeat, so it is no verdict either way.
 
 Scores are % excess bins, as dev / held-out; lower is better.
 
-| trajectory | HERD verdict | strategy vs code similarity | best attempt | fresh_start |
+| trajectory | DIVERGE verdict | strategy vs code similarity | best attempt | fresh_start |
 |---|---|---|---|---|
 | open revisions, 3.66 → 0.30 | keep | 0.30 vs 0.21 | 0.299 / 0.258 | 0.279 / 0.248 |
 | "keep the approach, tune it", 3.66 → 0.36 | keep | 0.29 vs 0.42 | 0.359 / 0.537 | 1.376 / 1.409 |
-| 4 more tuning revisions, stalled 0.66 → 1.85 (`herd demo strategy_loop`) | repair, not a loop (below the 0.7 threshold) | 0.45 vs 0.64 | 0.658 / 0.953 | 0.628 / 0.834 |
+| 4 more tuning revisions, stalled 0.66 → 1.85 (`diverge demo strategy_loop`) | repair, not a loop (below the 0.7 threshold) | 0.45 vs 0.64 | 0.658 / 0.953 | 0.628 / 0.834 |
 
 Baselines: best fit 4.15 / 3.98, first fit 4.54 / 4.31.
 
-HERD never returned `escape` in these runs, so no escape candidate was generated.
+DIVERGE never returned `escape` in these runs, so no escape candidate was generated.
 
-On the stalled window, the lever HERD would have tried was `n_open_bins`. It is used by 5 of 95
-herd samples: 2 from DeepSeek and 1 each from Gemini, Llama and GPT-6.1. I implemented it anyway as
+On the stalled window, the lever DIVERGE would have tried was `n_open_bins`. It is used by 5 of 95
+consensus-map samples: 2 from DeepSeek and 1 each from Gemini, Llama and GPT-6.1. I implemented it anyway as
 an ablation, at the same budget as fresh_start. It scored 1.096 / 0.973 and lost to fresh_start.
 
 These runs are no evidence either way about escape vs fresh_start at scale. They show one weakness:
@@ -194,14 +194,14 @@ revisions of the same code can measure as different strategies.
 Fixtures: `fixtures/trajectories/` and `fixtures/runs/`, as `strategy_loop`,
 `strategy_loop_tune` and `strategy_loop_unconstrained`. Reproduce with
 `scripts/strategy_loop_run.py --mode open|tune|plateau` and `scripts/forced_escape.py`; cached
-calls replay at no cost. Replay with `herd demo <fixture>`.
+calls replay at no cost. Replay with `python -m diverge demo <fixture>`.
 
 ## Mini rescue test (preliminary, n = 4 stuck states)
 
 `scripts/rescue_test.py`; raw data in `results/rescue/` (gitignored).
 
 **Setup**
-- **Agent model:** Llama 4 Maverick. It is the cheapest sampler, and its best herd samples are
+- **Agent model:** Llama 4 Maverick. It is the cheapest sampler, and its best consensus-map samples are
   exactly best fit.
 - **Trajectories:** it wrote 6 trajectories of 6 attempts with dev-score feedback. 4 were
   naturally stuck: no dev improvement of more than 1% over the last 3 attempts.
@@ -223,7 +223,7 @@ rescued it there; try_different did best. No arm beat a plateau at best fit.
 
 **Cost:** diverge_escape cost $0.010 in total and was the most expensive arm, but every arm was cheap.
 
-**Lever:** HERD chose a family lever, "Worst Fit / Almost-Any-Fit variants", which is a weak
+**Lever:** DIVERGE chose a family lever, "Worst Fit / Almost-Any-Fit variants", which is a weak
 direction for escaping best fit.
 
 **Admission check:** it rejected 17 escape and random-lever candidates for not differing enough
@@ -232,6 +232,65 @@ from the stuck attempts or not depending on the lever.
 **Bug fixed before these numbers:** the first run of this test exposed a bug in the sketch filter.
 Family and paraphrased levers were always dropped. It was fixed in commit 6ba6309, and the table
 above comes from the rerun.
+
+## Rescue test round 2 (pre-registered in docs/PREREGISTRATION-final.md; preliminary, n = 4)
+
+**Setup**
+- **Stuck states:** the same 4 as round 1.
+- **Arms:** every arm got fresh seeds and used Claude Haiku 5.5 as the implementer, through the
+  Anthropic API, per the amendment.
+- **Scoring:** selection was on dev. Held-out was rescored one program at a time
+  (`scripts/rescore_rescue.py`), because the machine was overloaded during the run and one program
+  timed out. The candidates and dev picks are unchanged.
+- **Rescue:** the arm's held-out score beats the stuck best's held-out score.
+
+| state (stuck best held-out) | fresh_start | try_different | random_lever | escape v2 | escape v3 | escape v4 (exploratory) |
+|---|---|---|---|---|---|---|
+| 0 (148.12) | 3.98 yes | 3.98 yes | 7.54 yes | 3.97 yes | 3.98 yes | **1.66 yes** |
+| 1 (3.98, best fit) | 3.98 no | 3.75 yes | **1.21 yes** | 8.88 no | 2.52 yes | no admitted candidate |
+| 3 (3.98, best fit) | 4.16 no | 3.98 no | **1.06 yes** | 7.49 no | no admitted candidate | no admitted candidate |
+| 4 (3.96) | 3.76 yes | 3.98 no | 6.53 no | 6.46 no | 4.01 no | **1.11 yes** |
+| **rescued** | 2/4 | 2/4 | **3/4** | 1/4 | 2/4 | 2/4 |
+
+Cost per arm was $0.003 to $0.08 per state; v3 and v4 cost the most.
+
+**Pre-registered rule:** v3 becomes the default only if it rescues more states than both
+`try_different` and `random_lever`. It rescued 2, against 2 and 3, so **v2 stays the default and
+v3 stays opt-in**. v4 was added after the pre-registration and is exploratory. It also stays opt-in.
+
+**What the data show**
+- **Pipeline vs plain instruction:** arms that go through DIVERGE's escape pipeline (fresh
+  context, failure summary, sketches, behavioral admission check) did break best-fit plateaus.
+  random_lever reached 1.21 and 1.06, and v3 reached 2.52. Round 1 had none, and "try something
+  different" reached 3.75 once.
+- **The lever choice:** the arm that rescued most used a random lever (the control). So the
+  pipeline helps, but DIVERGE's choice of the overlooked lever has not been shown to matter.
+- **v4's quality:** when v4 produced a candidate, it was the best of any arm (1.66 and 1.11).
+  But it produced no admitted candidate on 2 of 4 states.
+- **Sample size:** n = 4. One state changes any count.
+
+## Three-operator benchmark on the Anthropic API (budget fix applied; preliminary, 2 repeats)
+
+**Setup**
+- Task: cache_eviction, held-out miss ratio, lower is better.
+- Implementer: Claude Sonnet 5.5. Budget: $0.30 per operator per repeat.
+- Every operator now uses its whole budget.
+
+| operator | candidates per repeat | best held-out | distinct families beating LRU | discoveries per $ (cached) |
+|---|---|---|---|---|
+| plain | 12 | 0.5681 | 2 | 7.67 |
+| literature_random | 9-11 | **0.5680** | 4 | 14.74 |
+| blind_spot | 6 | 0.5877 | 4 | **15.46** |
+
+- **Best final program:** blind_spot does not produce a better one. Plain and random literature
+  tie.
+- **Variety:** blind_spot and random literature find twice as many distinct working families as
+  plain per repeat.
+
+docs/BENCH_FORENSICS.md explains why. The blind-spot families (LRU-K, LeCaR, LIRS, CLOCK) are weak
+for this workload, and "best of a few draws" hides that plain has the worst median.
+docs/BENCH_NEW_OPERATORS.md has the hybrid and per-retry-direction operators, if that run finished
+before the freeze.
 
 ## Not yet measured
 

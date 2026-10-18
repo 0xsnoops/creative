@@ -1,4 +1,4 @@
-# How agents escape strategy loops: research review for HERD
+# How agents escape strategy loops: research review for DIVERGE
 
 Written 2026-10-18 after a research sprint. Five parallel searches checked primary sources: arXiv full text or abstracts, official repos, publisher pages and official docs. Exa was not authenticated in this session, so the searches used web search. Numbers marked **[unverified]** come from memory or secondary sources. Recent arXiv preprints (2026) were checked at the abstract or HTML level only and have not been peer reviewed.
 
@@ -9,7 +9,7 @@ Written 2026-10-18 after a research sprint. Five parallel searches checked prima
 - **Th**: theory.
 - **Anec**: anecdotal or marketing.
 
-HERD's own measurements are tagged **[HERD]**. They come from `results/` in this repo and are small-sample.
+DIVERGE's own measurements are tagged **[DIVERGE]**. They come from `results/` in this repo and are small-sample.
 
 ---
 
@@ -32,7 +32,7 @@ HERD's own measurements are tagged **[HERD]**. They come from `results/` in this
    - PlanSearch, Claude-3.5-Sonnet on LiveCodeBench: pass@200 60.6 → 77.0, while pass@1 often drops (Obj).
    - DivSampling: MMLU-Pro pass@100 0.785 → 0.870, but no majority-vote gain on MATH.
    - DARLING: pass@128 +7.6 / +10.2 over GRPO.
-   - Without a verifier, diversity mostly adds noise. HERD only makes sense for tasks that have an evaluator.
+   - Without a verifier, diversity mostly adds noise. DIVERGE only makes sense for tasks that have an evaluator.
 
 4. **Searching over ideas in natural language beats searching over code tokens.**
    - PlanSearch: observations, then combinations, then plans, then code.
@@ -54,7 +54,7 @@ HERD's own measurements are tagged **[HERD]**. They come from `results/` in this
 7. **When an LLM mutates a program repeatedly, it tends to go in circles.**
    - "Mutation Without Variation" (arXiv 2606.05408): with no selection, 87% of mutation chains revisit an already-seen structure in more than 93% of mutations.
    - Classical genetic-programming mutation does not do this.
-   - This is the most direct published evidence for HERD's premise that LLMs fall into strategy loops.
+   - This is the most direct published evidence for DIVERGE's premise that LLMs fall into strategy loops.
 
 8. **Different models converge, and the stronger they are, the more their errors overlap.**
    - Kim et al. (ICML 2025, 71 HELM models, Obj): when two models are both wrong, they give the same wrong answer 60% of the time, against 33% by chance. More accurate models have more correlated errors.
@@ -79,14 +79,14 @@ HERD's own measurements are tagged **[HERD]**. They come from `results/` in this
       - Pink-elephant effect: naming a forbidden concept makes the model more likely to produce it.
       - Human design-fixation research: examples narrow exploration (Sio et al. 2015 meta-analysis, 43 studies), and "avoid this" warnings fail for familiar features (Viswanathan & Linsey 2020).
     - **I found no paper that tests "here are the common solutions, produce a different strategy" against an objective pass@k at matched budget.**
-    - HERD's own latent-tail test was null: only 2 of 5 models named more verified non-herd approaches when shown the herd [HERD].
+    - DIVERGE's own latent-tail test was null: only 2 of 5 models named more verified non-consensus approaches when shown the consensus [DIVERGE].
 
-11. **The herd is partly caused by the prompt wording.**
-    - [HERD] Paraphrasing the task moved the strategy distribution more than resampling did.
+11. **The consensus is partly caused by the prompt wording.**
+    - [DIVERGE] Paraphrasing the task moved the strategy distribution more than resampling did.
       - Bin packing: mean total variation distance 0.51 vs at most 0.40 between resampled groups.
       - Cache eviction: 0.35 vs at most 0.10.
     - This fits the literature on prompt sensitivity: FormatSpread finds accuracy gaps up to 76 points from formatting alone.
-    - **No published paper measures how paraphrasing shifts the distribution of solution strategies** (as opposed to accuracy). HERD's paraphrase test is a real gap in the literature.
+    - **No published paper measures how paraphrasing shifts the distribution of solution strategies** (as opposed to accuracy). DIVERGE's paraphrase test is a real gap in the literature.
 
 12. **A fresh context is a strong, underrated baseline.**
     - In humans, incubation helps mainly by letting people forget misleading cues. Smith & Blankenship 1991; Vul & Pashler 2007 found no incubation benefit at all without misdirection.
@@ -111,7 +111,7 @@ HERD's own measurements are tagged **[HERD]**. They come from `results/` in this
     - Tao et al. (arXiv 2511.02864): AlphaEvolve exploited float tolerance, numerical integration and LP solver failures.
     - A DGM lineage gamed its hallucination detector.
     - Toledo et al. (MLE-bench): validation scores kept climbing while test scores flattened; picking by test score would have added 9–13 points.
-    - HERD's held-out-only reporting is correct and must stay.
+    - DIVERGE's held-out-only reporting is correct and must stay.
 
 ---
 
@@ -125,7 +125,7 @@ HERD's own measurements are tagged **[HERD]**. They come from `results/` in this
   - ideas, via LLM-judged back-translation into natural language (PlanSearch, math-strategy clustering);
   - equivalence classifiers (NoveltyBench, DARLING).
 
-  No production agent does this. It is the open slot HERD aims at.
+  No production agent does this. It is the open slot DIVERGE aims at.
 
 **B. Decide: repair, switch, or escalate?**
 - **B1. Difficulty or feedback-strength rules.** Snell: revise on easy problems, sample in parallel on hard ones. Olausson: repair only with strong feedback.
@@ -199,32 +199,32 @@ HERD's own measurements are tagged **[HERD]**. They come from `results/` in this
 
 ---
 
-## Strongest mechanisms for HERD (ranked by evidence × fit)
+## Strongest mechanisms for DIVERGE (ranked by evidence × fit)
 
 1. **Stagnation-gated escape that uses diagnosed failures.** Best ablation in the field (AdaEvolve's meta-guidance). Gate it on an *external* score signal, never on the agent's self-report.
 2. **Behavioral strategy fingerprints with equivalence clustering.** Execution behavior on fixed probe inputs is the best detector of same-algorithm code (DivAlgo, AlphaCode). Add static input-flow analysis to see *what information* each attempt decides from. Use an LLM mechanism label only as a readable caption, never as the decision signal.
-3. **Distinguishing and agreement counterexamples.** A 40-year line of work (oracle-guided synthesis, query-by-committee, S\*) shows that inputs which separate hypotheses are the most informative. HERD's variant: find inputs where *all* attempts agree and an exact or alternative solver disagrees and does better. It turns a hidden assumption into a concrete failing case, the "build and test" route that worked for humans when warnings failed (Viswanathan & Linsey 2020).
+3. **Distinguishing and agreement counterexamples.** A 40-year line of work (oracle-guided synthesis, query-by-committee, S\*) shows that inputs which separate hypotheses are the most informative. DIVERGE's variant: find inputs where *all* attempts agree and an exact or alternative solver disagrees and does better. It turns a hidden assumption into a concrete failing case, the "build and test" route that worked for humans when warnings failed (Viswanathan & Linsey 2020).
 4. **Exclusion enforced by a check, not by instruction.** Admit a new candidate only if its fingerprint falls outside the stuck cluster. ShinkaEvolve: embedding rejection "strongly" beats no rejection. Denial prompting forces technique changes. Humans and LLMs ignore "be different" instructions for familiar defaults, so check it instead of asking for it.
 5. **Search at the idea level before writing code.** PlanSearch and EoH show the mechanism description should be the unit of variation. Generate 3–5 mechanism sketches, each conditioned on a measured lever, and implement only those whose sketch differs from the cluster.
 6. **Per-instance failure signatures with Pareto retention.** The GEPA ablation: keep any strategy that is best on *some* instance. When all attempts fail the same instances, that shared failure set is the strongest "same idea" evidence and points at what the next mechanism must handle.
 7. **Lineage-value allocation between repair and escape.** REx and HGM: allocate budget by the expected value of a lineage, with Thompson sampling on a prior that shrinks with each failed refinement. This gives a principled "abandon now" point instead of a fixed debug depth.
-8. **Fresh context with consolidated failure facts.** Supported by incubation research, Laban, PACEvolve and Sinha. Cheap, and it is also the baseline everything else must beat. HERD should apply it by default when escaping.
-9. **Unused-signal and representation levers.** Changing representation has large objective effects ("Talk like a Graph", object-based ARC, PoT). But the successful cases had humans choosing the representation, and I found no evidence that an *automatically* proposed representation change beats a random one. HERD's input-flow audit is a reasonable, testable way to propose one: an attempt that reads a new input is a different mechanism by construction.
+8. **Fresh context with consolidated failure facts.** Supported by incubation research, Laban, PACEvolve and Sinha. Cheap, and it is also the baseline everything else must beat. DIVERGE should apply it by default when escaping.
+9. **Unused-signal and representation levers.** Changing representation has large objective effects ("Talk like a Graph", object-based ARC, PoT). But the successful cases had humans choosing the representation, and I found no evidence that an *automatically* proposed representation change beats a random one. DIVERGE's input-flow audit is a reasonable, testable way to propose one: an attempt that reads a new input is a different mechanism by construction.
 10. **Cross-model minority mechanisms as hypotheses.** Errors are correlated across models, so minority mechanisms are rare but not reliably good. Use them only to fill the candidate pool for #3, #4 and #5, always behind a verifier.
 
 ---
 
-## What HERD should NOT build
+## What DIVERGE should NOT build
 
 - **Persona or frame generators** (ADHD frames, "think like a biologist", devil's advocate).
   - Assigned dissent is weaker than authentic dissent (Nemeth et al. 2001).
   - Persona perturbations give modest pass@k gains that follow an inverted U (DivSampling).
   - ADHD's only evaluation is judge-rated.
-  - [HERD] In the partial seed-0 cache-eviction run, `adhd_frames` did not beat `plain`.
+  - [DIVERGE] In the partial seed-0 cache-eviction run, `adhd_frames` did not beat `plain`.
 - **Multi-agent debate as a source of new strategies.** Voting beats debate (Choi et al., NeurIPS 2025; Huang et al.). Debate converges.
-- **"Here are the herd answers, do something else" without a check.**
+- **"Here are the consensus answers, do something else" without a check.**
   - Pink-elephant effects, the quality drop in G2, and design fixation all argue against it.
-  - [HERD] The latent-tail test was null, and contrast prompts showed no clear gain in the partial run.
+  - [DIVERGE] The latent-tail test was null, and contrast prompts showed no clear gain in the partial run.
 - **LLM-judged novelty as a target.**
   - Novelty does not predict outcomes (arXiv 2604.19440).
   - Shinka's LLM novelty judge adds little.
@@ -232,8 +232,8 @@ HERD's own measurements are tagged **[HERD]**. They come from `results/` in this
   - DARLING's lexical diversity reward was gamed.
 - **A higher-temperature mode.** Artificial Hivemind: even at temperature 2.0 with min-p 0.1, 61% of sample pairs had similarity above 0.8. It changes wording, not mechanisms.
 - **Similarity detection from embeddings or ASTs alone.** It misses `>`/`<` flips (Code-MUE) and splits the same algorithm written differently.
-- **Semantic entropy as the herd detector.** By its own authors' account it cannot catch consistent errors, and a consistent error is exactly what a herd produces.
-- **Another evolutionary framework.** AlphaEvolve, OpenEvolve, ShinkaEvolve, AdaEvolve/EvoX, GEPA and DGM already cover population search. HERD's leverage is as a layer *any* agent or evolver can call.
+- **Semantic entropy as the consensus detector.** By its own authors' account it cannot catch consistent errors, and a consistent error is exactly what a consensus produces.
+- **Another evolutionary framework.** AlphaEvolve, OpenEvolve, ShinkaEvolve, AdaEvolve/EvoX, GEPA and DGM already cover population search. DIVERGE's leverage is as a layer *any* agent or evolver can call.
 - **Far-analogy transplant as a flagship feature.** Near sources beat far ones for humans (Chan et al. 2015), and analogical prompting gains are about +2–3 points. Keep `transplant` as one generator, not the story.
 - **Unprompted self-reflection loops.** More than 90% of reflections are confirmatory (Kang et al.).
 
@@ -244,30 +244,30 @@ HERD's own measurements are tagged **[HERD]**. They come from `results/` in this
 **ADHD**
 - *What it does:* N "cognitive frames" run in parallel with evaluation forbidden, then a critic scores, clusters and deepens the best ideas.
 - *Overlap:* generating ideas away from the default.
-- *Where HERD differs:* ADHD never looks at what the agent already tried or at what models actually produce. HERD's frames come from measurements, and its results are scored by an evaluator.
+- *Where DIVERGE differs:* ADHD never looks at what the agent already tried or at what models actually produce. DIVERGE's frames come from measurements, and its results are scored by an evaluator.
 - *Learn:* keep generation separate from evaluation, so the critic doesn't anchor generation (the nominal-groups result).
 - *Don't copy:* fixed frames; the judge-only evaluation.
 
 **AlphaEvolve**
 - *What it does:* evolutionary code search with a MAP-Elites + islands database, a model ensemble and evolved meta-prompts.
 - *Overlap:* finding non-obvious algorithms with an evaluator.
-- *Where HERD differs:* AlphaEvolve is a closed search engine needing ~10³–10⁶ samples. HERD works inside an agent's trajectory with a budget of 3–10 attempts.
+- *Where DIVERGE differs:* AlphaEvolve is a closed search engine needing ~10³–10⁶ samples. DIVERGE works inside an agent's trajectory with a budget of 3–10 attempts.
 - *Learn:* exact verifiers; Tao et al.'s lessons on exploits; short expert hints beat full PDFs; "generalizer mode."
 - *Don't copy:* a population as the default answer.
 
 **ShinkaEvolve**
 - *What it does:* sample-efficient evolution with novelty rejection, parent weighting and a bandit over LLMs.
 - *Overlap:* rejecting near-duplicate candidates.
-- *Where HERD differs:* Shinka rejects by code embedding plus a judge. HERD can reject by behavior and decision inputs, and can explain *why* the next candidate differs.
+- *Where DIVERGE differs:* Shinka rejects by code embedding plus a judge. DIVERGE can reject by behavior and decision inputs, and can explain *why* the next candidate differs.
 - *Learn:* reject before evaluation to save budget; a bandit over models.
 - *Don't copy:* an LLM novelty judge as the gate.
 
 **AdaEvolve / SkyDiscover / EvoX**
 - *What it does:* an adaptive exploration rate, UCB over islands, stagnation-triggered "solution tactics"; EvoX rewrites the search strategy itself.
 - *Overlap:* **the closest competitor**: detecting stagnation and injecting a new strategy.
-- *Where HERD differs:*
-  - AdaEvolve detects stagnation from *score only*. HERD can detect *strategic sameness* before the score stalls.
-  - AdaEvolve's tactics come from its own failures. HERD adds cross-model herd data, unused inputs and agreement counterexamples.
+- *Where DIVERGE differs:*
+  - AdaEvolve detects stagnation from *score only*. DIVERGE can detect *strategic sameness* before the score stalls.
+  - AdaEvolve's tactics come from its own failures. DIVERGE adds cross-model consensus data, unused inputs and agreement counterexamples.
   - Whether those additions help is unproven; that is Experiment 3 below.
 - *Learn:* the improvement-signal formula; rotating tactics before generating new ones; the ablation design.
 - *Don't copy:* its scope as a framework that owns the loop.
@@ -275,62 +275,62 @@ HERD's own measurements are tagged **[HERD]**. They come from `results/` in this
 **GEPA**
 - *What it does:* reflective mutation of prompts with per-instance Pareto selection.
 - *Overlap:* using failures to drive the next candidate.
-- *Where HERD differs:* GEPA optimizes prompts and has no notion of mechanism.
+- *Where DIVERGE differs:* GEPA optimizes prompts and has no notion of mechanism.
 - *Learn:* **per-instance Pareto retention.** It is cheap and has the cleanest ablation (greedy gets stuck).
 - *Don't copy:* reflection as the only source of variation.
 
 **Weco / AIDE**
 - *What it does:* tree search with draft/debug/improve, 5 drafts, debug depth 3.
 - *Overlap:* repair vs redraft.
-- *Where HERD differs:* AIDE's choice between repair and redraft is random or fixed. HERD's can be based on diagnosed failures.
+- *Where DIVERGE differs:* AIDE's choice between repair and redraft is random or fixed. DIVERGE's can be based on diagnosed failures.
 - *Learn:* the AIRA finding that operators limit everything, and that validation overfitting is real.
 - *Don't copy:* fixed probabilities for debug vs draft.
 
 **OpenEvolve**
 - *What it does:* an open AlphaEvolve with MAP-Elites, islands and a novelty filter.
 - *Overlap:* diversity maintenance.
-- *Where HERD differs:* OpenEvolve's README shows a plateau at 2.377 that a *human* broke by reconfiguring the run. HERD aims to automate exactly that step.
+- *Where DIVERGE differs:* OpenEvolve's README shows a plateau at 2.377 that a *human* broke by reconfiguring the run. DIVERGE aims to automate exactly that step.
 - *Learn:* treat its plateau logs as a ready-made test set for stuck states.
 - *Don't copy:* complexity as a hand-picked diversity axis.
 
 **Reflexion**
 - *What it does:* verbal reflections from task feedback, stored in memory.
 - *Overlap:* using failure feedback.
-- *Where HERD differs:* Reflexion repairs within one strategy and suffers Degeneration-of-Thought. HERD decides whether to stop repairing.
+- *Where DIVERGE differs:* Reflexion repairs within one strategy and suffers Degeneration-of-Thought. DIVERGE decides whether to stop repairing.
 - *Learn:* feedback from the environment beats self-assessment.
 - *Don't copy:* unbounded reflection.
 
 **Self-Refine**
 - *What it does:* self-feedback, then refinement.
 - *Overlap:* the repair path.
-- *Where HERD differs:* HERD uses objective failure signatures.
+- *Where DIVERGE differs:* DIVERGE uses objective failure signatures.
 - *Learn:* little.
 - *Don't copy:* intrinsic critique on reasoning tasks (Huang: it hurts).
 
 **OpenHands**
 - *What it does:* exact-repeat stuck detection (4/3/3/6), then stops (V1); V0 offered memory truncation.
 - *Overlap:* loop detection.
-- *Where HERD differs:* strategic loops; automatic, evidence-backed recovery.
+- *Where DIVERGE differs:* strategic loops; automatic, evidence-backed recovery.
 - *Learn:* a one-time nudge before declaring stuck; scope detection to events since the last user message; detectors must be cheap and high-precision.
 - *Don't copy:* stopping without a next step.
 
 **Amp Oracle / Claude Code advisor**
 - *What it does:* second opinion from a stronger model.
 - *Overlap:* "consult someone else when stuck."
-- *Where HERD differs:* stronger models share errors (Kim et al., Goel et al.). HERD gives *a reason* and a *test*, not just an opinion.
+- *Where DIVERGE differs:* stronger models share errors (Kim et al., Goel et al.). DIVERGE gives *a reason* and a *test*, not just an opinion.
 - *Learn:* the advisor's trigger "when an error keeps recurring."
 - *Don't copy:* opaque, model-decided timing.
 
 ---
 
-## Proposed HERD architecture
+## Proposed DIVERGE architecture
 
 ```
 agent / evolver ──► [1] Trace adapter ──► attempts: code, eval result per dev instance, timestamps
                                              │
         ┌────────────────────────────────────┼─────────────────────────────┐
         ▼                                    ▼                             ▼
-[2] Fingerprinter                     [3] Progress monitor           [4] Herd store (cached)
+[2] Fingerprinter                     [3] Progress monitor           [4] Consensus store (cached)
   - input flow (AST slice)              - external score momentum      - cross-model samples per task
   - state kept                          - failure-set overlap          - paraphrase sensitivity
   - behavior on fixed probes            - repetition (OpenHands)       - shared assumptions, unused inputs
@@ -358,17 +358,17 @@ agent / evolver ──► [1] Trace adapter ──► attempts: code, eval resul
 
 **Interfaces** (MCP and CLI; this mostly maps onto existing modules):
 
-- **`herd_status(attempts)`** → `{stuck: bool, reason: literal|stall|same_strategy, clusters, behavior_similarity, code_similarity, shared_failures}`
+- **`diverge_status(attempts)`** → `{stuck: bool, reason: literal|stall|same_strategy, clusters, behavior_similarity, code_similarity, shared_failures}`
   - Uses `strategy.py` and `trajectory.py`.
-- **`herd_diagnose(attempts)`** → `{action: repair|related|represent|escalate, evidence}`
+- **`diverge_diagnose(attempts)`** → `{action: repair|related|represent|escalate, evidence}`
   - Uses `diagnose.py`.
   - Rules to start with:
     - *repair*: failures differ between attempts, or the score is still improving.
     - *escape*: at least 3 attempts in one behavior cluster, the same failure set, and the momentum is below threshold.
     - *escalate*: two or more escapes have failed.
-- **`herd_escape(attempts, task, evaluator)`** → `{lever, why_different, sketch, code, admission_proof, dev_score}`
+- **`diverge_escape(attempts, task, evaluator)`** → `{lever, why_different, sketch, code, admission_proof, dev_score}`
   - Uses `escape.py`, `overlook.py` and `counterexample.py`.
-- **`herd_counterexample(attempts)`** → the smallest input where every attempt makes the same decision and a better decision exists.
+- **`diverge_counterexample(attempts)`** → the smallest input where every attempt makes the same decision and a better decision exists.
 
 **Design rules:**
 - Every claim of difference is backed by behavior, not text.
@@ -381,13 +381,13 @@ agent / evolver ──► [1] Trace adapter ──► attempts: code, eval resul
 
 **E1. Detector validity (offline, about $0 using cached samples).**
 - **Question:** does "same behavior cluster" predict that *continuing within the cluster won't help*, better than code embeddings or an LLM judge?
-- **Data:** the existing herd samples plus benchmark candidates for bin packing (more than 100 programs), with dev scores and per-instance failures.
+- **Data:** the existing consensus-map samples plus benchmark candidates for bin packing (more than 100 programs), with dev scores and per-instance failures.
 - **Method:**
   - For each pair, compute behavior agreement on the 200 probes, embedding cosine, AST similarity and the LLM mechanism label.
   - Outcome: the overlap between the pair's failure sets, and the score gap.
   - Report AUC for separating "same failure set" pairs.
 - **Success:** behavior AUC is at least 0.10 above embedding AUC, and within-cluster best-of-k gains are smaller than cross-cluster gains at the same k.
-- **If it fails:** fingerprints are cosmetic, and HERD's detection story collapses.
+- **If it fails:** fingerprints are cosmetic, and DIVERGE's detection story collapses.
 
 **E2. Rescuing naturally stuck agents (the thesis test, about $5–8).**
 - **Setup:**
@@ -401,20 +401,20 @@ agent / evolver ──► [1] Trace adapter ──► attempts: code, eval resul
   5. a stronger model (adjusted for cost);
   6. best-of-K fresh samples;
   7. a random lever (a random input, assumption or cell, drawn from the same generator);
-  8. HERD escape.
+  8. DIVERGE escape.
 - **Primary metric:** whether the held-out score beats the plateau, paired across arms.
 - **Secondary metrics:** whether attempts leave the cluster, and whether they actually use the lever.
-- **Success:** HERD's rescue rate beats arms 2, 3 and 7 by at least 15 points, with a paired McNemar test p<0.05, on at least 2 of 3 tasks.
+- **Success:** DIVERGE's rescue rate beats arms 2, 3 and 7 by at least 15 points, with a paired McNemar test p<0.05, on at least 2 of 3 tasks.
 
 **E3. Does cross-model information add anything over the agent's own history? (about $3)**
-- **Context:** this separates HERD from AdaEvolve.
+- **Context:** this separates DIVERGE from AdaEvolve.
 - **Arms on the same stuck states:**
   - (a) levers built from the agent's own attempts only (AdaEvolve-style tactics);
-  - (b) levers built from the cross-model herd;
-  - (c) a herd **sham**: herd statistics with family labels shuffled across tasks;
-  - (d) levers built from the literature taxonomy without herd shares (HERD's `literature_random`).
+  - (b) levers built from the cross-model consensus;
+  - (c) a consensus **sham**: consensus statistics with family labels shuffled across tasks;
+  - (d) levers built from the literature taxonomy without consensus shares (DIVERGE's `literature_random`).
 - **Success:** (b) beats (a), (c) and (d) on rescue rate.
-- **If (a) ≈ (b):** cross-model sampling is cost without benefit, and HERD should become an own-trajectory tool.
+- **If (a) ≈ (b):** cross-model sampling is cost without benefit, and DIVERGE should become an own-trajectory tool.
 
 ---
 
@@ -424,24 +424,24 @@ agent / evolver ──► [1] Trace adapter ──► attempts: code, eval resul
   - A coding agent writes a bin-packing heuristic and is scored on Weibull instances (FunSearch's setup).
   - Four attempts, four different-looking files: best fit with a penalty, best fit with a tie-break, a "smarter" scoring formula, a refactor.
   - Score panel: about 4% excess bins every time.
-- **0:20–0:50, HERD shows it is one idea.**
+- **0:20–0:50, DIVERGE shows it is one idea.**
   - Panel A: code similarity 28%. Panel B: on 200 probe states, the attempts pick the same bin 97% of the time; four dots collapse to one.
-  - Input heat strip: none of them uses the number of open bins or the bins' opening order, though the task allows both. In the current map, the number of open bins enters the decision in only 5 of 95 herd samples; opening order in 34 of 95.
+  - Input heat strip: none of them uses the number of open bins or the bins' opening order, though the task allows both. In the current map, the number of open bins enters the decision in only 5 of 95 consensus-map samples; opening order in 34 of 95.
   - All 4 fail the same dev instances.
 - **0:50–1:15, the counterexample.**
   - A 6-item sequence animates. All four attempts make the same placement; the exact optimum (by brute force) does not, and uses one fewer bin.
   - The caption names the shared assumption: "fit each item as tightly as possible now."
 - **1:15–1:45, escape.**
-  - HERD proposes one lever with its evidence, e.g. "unused input: number of open bins; 0 of 4 attempts and 5 of 95 model samples use it". Whether this lever actually helps has not been measured; pick the demo lever only after E2.
+  - DIVERGE proposes one lever with its evidence, e.g. "unused input: number of open bins; 0 of 4 attempts and 5 of 95 model samples use it". Whether this lever actually helps has not been measured; pick the demo lever only after E2.
   - The new candidate's fingerprint lands *outside* the cluster.
   - Held-out excess bins drop (the known reference point is the FunSearch heuristic at 0.68% vs best fit 3.98%).
 - **1:45–2:00, the control bar chart.** At the same budget:
   - "try something different": 0/N rescued;
   - fresh context: x/N;
   - random lever: y/N;
-  - HERD: z/N.
+  - DIVERGE: z/N.
 
-**Honesty rule:** run E2 first and show whatever the bars actually say. If fresh context ties HERD, the demo becomes "HERD tells you you're stuck and why." That is still true and useful, but it is a weaker claim.
+**Honesty rule:** run E2 first and show whatever the bars actually say. If fresh context ties DIVERGE, the demo becomes "DIVERGE tells you you're stuck and why." That is still true and useful, but it is a weaker claim.
 
 ---
 
@@ -460,7 +460,7 @@ agent / evolver ──► [1] Trace adapter ──► attempts: code, eval resul
 9. Relevant idea injection or rephrasing for pass@k (DivSampling, DIV-SE).
 10. Distribution elicitation (Verbalized Sampling).
 
-Training methods (DARLING, outcome-based exploration) are strong but outside HERD's scope.
+Training methods (DARLING, outcome-based exploration) are strong but outside DIVERGE's scope.
 
 **2. Which have objective performance evidence**
 
@@ -503,7 +503,7 @@ Plain repair or reflection is the weak option here.
   - the overlap of their per-instance failure sets;
   - a distinguishing-input search: if no small input separates them, treat them as equivalent.
 - Use LLM mechanism labels only as captions, since different judges agree only at rank correlation 0.46–0.74.
-- Validate the threshold on known mechanisms first. HERD already does this (`fingerprints` gate).
+- Validate the threshold on known mechanisms first. DIVERGE already does this (`fingerprints` gate).
 
 **5. Turning failure evidence into a decision to switch**
 
@@ -519,7 +519,7 @@ Plain repair or reflection is the weak option here.
 
 **6. Problem information LLMs commonly ignore**
 - Inputs available at decision time but not used.
-  - [HERD] Bin packing, from `overlook.json`: the number of open bins enters the decision in 5 of 95 herd samples, and bin opening order (age) in 34 of 95. The item-size distribution is used by about 70%, so it is *not* overlooked.
+  - [DIVERGE] Bin packing, from `overlook.json`: the number of open bins enters the decision in 5 of 95 consensus-map samples, and bin opening order (age) in 34 of 95. The item-size distribution is used by about 70%, so it is *not* overlooked.
 - The history and statistics of the stream (distribution, order, age).
 - Tie-break semantics.
 - The scoring rule's structure, e.g. what the evaluator actually rewards.
@@ -535,7 +535,7 @@ Plain repair or reflection is the weak option here.
   - Warnings don't help for familiar features.
   - Examples narrow search, and the narrowing is weaker when the examples are fewer and less common (Sio et al. 2015).
   - Building and testing helps.
-- Concretely: show a *counterexample*, not the herd's answers; show few, uncommon examples; reset the context.
+- Concretely: show a *counterexample*, not the consensus answers; show few, uncommon examples; reset the context.
 
 **8. Strongest evidence that showing default answers helps**
 - **Making outputs more distinct:**
@@ -551,13 +551,13 @@ Plain repair or reflection is the weak option here.
   - The pink-elephant effect.
   - NeoCoder: forced novelty stays below human level, and correctness falls.
 - **Human studies:** Smith, Ward & Schumacher 1993; Viswanathan & Linsey 2020 ("avoid" warnings fail for familiar features).
-- **[HERD] Own results:**
+- **[DIVERGE] Own results:**
   - The latent-tail null result.
-  - In the partial seed-0 cache-eviction run, `plain` (0.5666 dev miss ratio) beat every herd-aware operator. It was 1 seed, on dev only, with 4–8 candidates each.
+  - In the partial seed-0 cache-eviction run, `plain` (0.5666 dev miss ratio) beat every consensus-aware operator. It was 1 seed, on dev only, with 4–8 candidates each.
 
-**10. What HERD must show to prove that knowing the herd adds value**
+**10. What DIVERGE must show to prove that knowing the consensus adds value**
 
-HERD must beat each baseline in a preregistered, paired, matched-budget, held-out comparison on naturally stuck states:
+DIVERGE must beat each baseline in a preregistered, paired, matched-budget, held-out comparison on naturally stuck states:
 
 | Baseline | What it controls for |
 |---|---|
@@ -568,16 +568,16 @@ HERD must beat each baseline in a preregistered, paired, matched-budget, held-ou
 | Random reframing / random lever from the same generator | Structure without information |
 | Second opinion from another family | Source diversity |
 | Ordinary reflection | Self-critique |
-| Literature search without herd shares | Retrieval |
+| Literature search without consensus shares | Retrieval |
 | Best-of-N fresh samples | Budget |
 
 Two more conditions:
-- **A herd-sham ablation.** Shuffling or replacing the herd statistics must remove at least half the gain. Otherwise the herd isn't what helps.
-- **Own-history only.** Replacing cross-model data with the agent's own attempts must lose the gain. Otherwise HERD is AdaEvolve with extra steps.
+- **A consensus-sham ablation.** Shuffling or replacing the consensus statistics must remove at least half the gain. Otherwise the consensus isn't what helps.
+- **Own-history only.** Replacing cross-model data with the agent's own attempts must lose the gain. Otherwise DIVERGE is AdaEvolve with extra steps.
 
 ---
 
-## Five concrete HERD mechanisms
+## Five concrete DIVERGE mechanisms
 
 ### 1. Same Move Detector → Exclusion Gate
 
@@ -608,9 +608,9 @@ Two more conditions:
 ### 2. Unused Signal Lever
 
 - **Signal:**
-  - Static backward-slice input flow, for every attempt and every herd sample.
+  - Static backward-slice input flow, for every attempt and every consensus-map sample.
   - A fixed list of the inputs available at decision time.
-- **Detection:** an input used by 0 of the agent's attempts and ≤10% of herd samples, which the task statement allows.
+- **Detection:** an input used by 0 of the agent's attempts and ≤10% of consensus-map samples, which the task statement allows.
 - **Intervention:**
   - Generate 2–3 mechanism sketches whose decision *must* depend on that input.
   - Admission requires that perturbing the input changes at least 5% of probe decisions (a faithfulness check).
@@ -632,7 +632,7 @@ Two more conditions:
 - **Detection:** search small inputs (e.g., 5–8 items) for cases where **all** recent attempts make the same decision and the exact solver's choice yields a strictly better outcome. Rank by how small the input is and how large the gap.
 - **Intervention:** give the agent the counterexample:
   - the state;
-  - the herd decision;
+  - the consensus decision;
   - the better decision;
   - the resulting outcomes;
   - the shared assumption it exposes.
@@ -675,67 +675,67 @@ Two more conditions:
   - With few states, the rules get tuned to noise.
 - **Demo visualization:** a traffic light next to the attempt timeline. Green means repair (errors differ), amber means stalled, red means "same idea, same failures": escape.
 
-### 5. Herd Anchor Break
+### 5. Consensus Anchor Break
 
 - **Signal:**
-  - Assumptions and component values held by ≥90% of cross-model herd samples *and* by every recent agent attempt.
+  - Assumptions and component values held by ≥90% of cross-model consensus-map samples *and* by every recent agent attempt.
   - Each is classed as incidental unless supported by a verbatim quote from the prompt (already built into `overlook.py`).
 - **Detection:** an incidental assumption that is shared by everything and not required by the task.
 - **Intervention:**
   - Regenerate with exactly that assumption negated, e.g. "ties are not harmless; bin age is a signal."
   - An extractor check confirms the new candidate violates the anchor and keeps every hard constraint.
-- **Why this may escape the loop:** targeted constraint relaxation (Knoblich 1999). The herd tells *which* constraint is self-imposed, so this is not a random reframing.
+- **Why this may escape the loop:** targeted constraint relaxation (Knoblich 1999). The consensus tells *which* constraint is self-imposed, so this is not a random reframing.
 - **Simplest baseline:**
-  - Break a random incidental assumption taken from non-herd families (already preregistered as `assumption_break_control`).
-  - A *shuffled-herd* anchor taken from a different task.
+  - Break a random incidental assumption taken from non-consensus families (already preregistered as `assumption_break_control`).
+  - A *shuffled-consensus* anchor taken from a different task.
 - **Experiment:** three arms, 3 repeats, held-out best score, with a faithfulness check.
 - **Success criterion:** beats both controls and `plain` on held-out best in every repeat.
 - **Failure mode:**
-  - The anchor is shared *because it is load-bearing*: the herd is right, and breaking it makes things worse.
+  - The anchor is shared *because it is load-bearing*: the consensus is right, and breaking it makes things worse.
   - The extractor invents an assumption no attempt really holds.
-  - [HERD] Only 1 shared assumption survived the check for bin packing, and it was classed *hard*, so this lever may rarely fire.
+  - [DIVERGE] Only 1 shared assumption survived the check for bin packing, and it was classed *hard*, so this lever may rarely fire.
 - **Demo visualization:** a bar reading "92% of solutions from 5 model families assume X; the task never says X." Strike through X, then the new score.
 
 ---
 
-## Skeptical conclusion: assume HERD is wrong
+## Skeptical conclusion: assume DIVERGE is wrong
 
 **The strongest reasons the thesis may fail:**
 
-1. **The value is in the verifier and the budget, not in the herd.**
+1. **The value is in the verifier and the budget, not in the consensus.**
    - Brown et al.: coverage grows log-linearly with plain resampling.
    - Toledo et al.: operator design limits everything else.
    - Olausson: resampling ≈ repair.
-   - With an evaluator and N samples, best-of-N may capture most of what HERD claims to add.
-2. **The herd is a property of the wording.** [HERD]'s own paraphrase test says so. "Knowledge of the herd" may be knowledge of one prompt's attractor; random rephrasing (DivSampling) captures the same effect for free.
-3. **Showing the herd backfires.**
+   - With an evaluator and N samples, best-of-N may capture most of what DIVERGE claims to add.
+2. **The consensus is a property of the wording.** [DIVERGE]'s own paraphrase test says so. "Knowledge of the consensus" may be knowledge of one prompt's attractor; random rephrasing (DivSampling) captures the same effect for free.
+3. **Showing the consensus backfires.**
    - In human design work, examples cause fixation, and warnings fail for familiar features.
    - In LLMs, conditioning on earlier outputs lowers quality (G2).
-   - [HERD]'s latent-tail test found no unlocked knowledge.
+   - [DIVERGE]'s latent-tail test found no unlocked knowledge.
 4. **Consensus is often consensus because it is good.**
    - Novelty doesn't predict outcomes (arXiv 2604.19440).
    - Near sources beat far ones.
    - Good LLM optimizers are local refiners.
    - Pushing away from the mode trades a decent mechanism for a rare, worse one.
-5. **Fresh context explains every escape.** Incubation works by forgetting. Any mechanism that restarts the context will look like it escapes, whatever the herd says.
+5. **Fresh context explains every escape.** Incubation works by forgetting. Any mechanism that restarts the context will look like it escapes, whatever the consensus says.
 6. **The detection is circular or fragile.**
    - Probe sets and thresholds are hand-chosen.
    - Mechanism labels from LLMs disagree (rank correlation 0.46–0.74).
    - For tasks without tractable intermediate states (most of SWE), behavioral fingerprints aren't available.
 7. **A competitor already owns the useful part.**
    - AdaEvolve already does stagnation detection plus tactic generation from its own failures, with an ablation.
-   - What HERD adds (cross-model data, anchors) is the part with the least evidence.
+   - What DIVERGE adds (cross-model data, anchors) is the part with the least evidence.
 8. **Small, noisy wins.**
    - Benchmark rankings in this area flip with seeds (arXiv 2609.19799).
-   - [HERD]'s current 3-repeat design can only detect large effects.
+   - [DIVERGE]'s current 3-repeat design can only detect large effects.
    - In the partial run, `plain` won.
 
 **What would change my mind:** a preregistered E2 + E3 on at least 30 naturally stuck trajectories across at least 2 tasks with held-out scoring, in which:
-- (a) HERD's rescue rate beats fresh context + "try something different" + earlier attempts **and** a random lever from the same generator by at least 15 points, paired, p<0.05;
-- (b) a herd sham (shuffled statistics) loses at least half of that gain;
+- (a) DIVERGE's rescue rate beats fresh context + "try something different" + earlier attempts **and** a random lever from the same generator by at least 15 points, paired, p<0.05;
+- (b) a consensus sham (shuffled statistics) loses at least half of that gain;
 - (c) own-history-only levers lose at least half of it.
 
-If (a) holds but (b) and (c) fail, HERD's value is the detector and the exclusion gate, not knowing the herd, and it should be repositioned that way. If (a) fails, the measurement tooling (paraphrase test, fingerprints, behavior clusters) is still a useful contribution to *evaluation*, but not an escape method.
+If (a) holds but (b) and (c) fail, DIVERGE's value is the detector and the exclusion gate, not knowing the consensus, and it should be repositioned that way. If (a) fails, the measurement tooling (paraphrase test, fingerprints, behavior clusters) is still a useful contribution to *evaluation*, but not an escape method.
 
 ---
 

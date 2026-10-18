@@ -1,4 +1,4 @@
-"""The agent-facing docs must not overclaim: no sentence may say HERD beats a baseline, another
+"""The agent-facing docs must not overclaim: no sentence may say DIVERGE beats a baseline, another
 agent or another system, or that an improvement is proven, unless the sentence negates it
 ("has not been shown to beat ..."). Also pins the README's top lines and agent vocabulary."""
 import re
@@ -53,11 +53,11 @@ def overclaims(text):
 
 
 @pytest.mark.parametrize("bad", [
-    "HERD beats fresh_start on bin packing.",
+    "DIVERGE beats fresh_start on bin packing.",
     "Escape outperforms Claude and Codex.",
-    "HERD is better than AlphaEvolve.",
+    "DIVERGE is better than AlphaEvolve.",
     "Our operator outperforms ADHD.",
-    "HERD gives a proven improvement.",
+    "DIVERGE gives a proven improvement.",
     "In our runs, escape wins against a fresh start.",
 ])
 def test_detector_flags_overclaims(bad):
@@ -69,7 +69,7 @@ def test_detector_flags_overclaims(bad):
     "It has not been shown to beat continuing, a fresh start or another model.",
     "These runs are no evidence either way about escape vs fresh_start at scale.",
     "It scored 1.096 / 0.973 and lost to fresh_start.",
-    "We do not claim that HERD outperforms Claude.",
+    "We do not claim that DIVERGE outperforms Claude.",
     "Treat it as one experiment, not a guaranteed fix.",
 ])
 def test_detector_allows_negations_and_neutral_text(ok):
@@ -77,8 +77,8 @@ def test_detector_allows_negations_and_neutral_text(ok):
 
 
 def test_sentence_split_joins_wrapped_lines():
-    text = "HERD clearly\nbeats fresh_start. Fine.\n\n- item one\n  continues here\n| a | b |"
-    assert "HERD clearly beats fresh_start." in sentences(text)
+    text = "DIVERGE clearly\nbeats fresh_start. Fine.\n\n- item one\n  continues here\n| a | b |"
+    assert "DIVERGE clearly beats fresh_start." in sentences(text)
     assert "- item one continues here" in sentences(text)
 
 
