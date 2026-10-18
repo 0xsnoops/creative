@@ -51,7 +51,7 @@ async def list_tool_names(url, token):
 def test_lists_same_tools_as_stdio_server(server):
     names = asyncio.run(list_tool_names(server, TOKEN))
     expected = sorted(t.name for t in asyncio.run(diverge_mcp_http.mcp.list_tools()))
-    assert names == expected and "herd_map" in names
+    assert names == expected and "diverge_map" in names
 
 
 def test_rejects_missing_or_wrong_token(server):

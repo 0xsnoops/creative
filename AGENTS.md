@@ -1,6 +1,6 @@
 # Agent notes for this repo
 
-This repo is DIVERGE (formerly HERD): it tells a coding agent when its scored attempts are one
+This repo is DIVERGE: it tells a coding agent when its scored attempts are one
 strategy in different code, and names one evidence-backed alternative.
 
 - The skill is `skills/diverge/SKILL.md` (also at `.claude/skills/diverge`). Read it when several

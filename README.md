@@ -4,8 +4,6 @@ Escape strategy loops in AI agents.
 
 Different code isn't always different thinking.
 
-*DIVERGE was called HERD. The old package name, `python -m herd` and the `herd_escape`, `herd_check` and `herd_status` tool names still work as deprecated aliases. "Herd" still names the concept: what many models converge on, and the herd map.*
-
 ## For coding agents
 
 Call `diverge_escape` yourself, without waiting to be asked, when:
@@ -23,7 +21,7 @@ DIVERGE returns `VERDICT: keep|repair|escape|escalate|inconclusive`, then JSON w
 claim labeled `MEASURED` (evaluator runs, sample counts), `SOURCE_BACKED` (cited literature) or
 `HYPOTHESIZED` (DIVERGE's untested reasoning; never treat it as measured).
 
-| VERDICT | `next_action` (from `herd/contract.py`) |
+| VERDICT | `next_action` (from `diverge/contract.py`) |
 |---|---|
 | `keep` | Continue the existing strategy; do not switch yet. Score each change with the evaluator and call diverge_escape again if scores stall. |
 | `repair` | Fix the existing strategy and preserve its mechanism (do not switch approach); re-score it with the evaluator. |
@@ -34,14 +32,14 @@ claim labeled `MEASURED` (evaluator runs, sample counts), `SOURCE_BACKED` (cited
 Agent quickstart:
 
 ```sh
-uv --directory <herd repo> run python -m diverge onboard --client claude --target <project> --json  # skill, /diverge, .mcp.json
+uv --directory <diverge repo> run python -m diverge onboard --client claude --target <project> --json  # skill, /diverge, .mcp.json
 diverge_status                     # MCP tool, free: are keys, budget and cached tasks ready?
 diverge_escape(task_description, current_solution, previous_attempts, evaluator_cmd)  # after 2+ scored attempts stall
 ```
 
 Tool roles: `diverge_status` is the free readiness check (no model or network call); `diverge_check`
 asks, before you implement, whether your planned strategy is the default most models pick;
-`diverge_escape` is the primary tool once attempts stall. `herd_map`, `blind_spots` and
+`diverge_escape` is the primary tool once attempts stall. `diverge_map`, `blind_spots` and
 `reality_check` are lower-level research primitives. No API key? `python -m diverge demo
 strategy_loop` replays a recorded run offline at $0.
 
@@ -71,20 +69,20 @@ The only measured numbers are in `docs/RESULTS.md` and `docs/RESULTS-E1.md` (pro
 `docs/PREREGISTRATION.md`, `docs/PREREGISTRATION-overlook.md`). Any other number in this README
 is illustrative.
 
-**Herd maps (N=20 samples per model, 5 models).**
+**Consensus maps (N=20 samples per model, 5 models).**
 
 | task | valid samples | top 3 families | share held by the top 3 |
 |---|---|---|---|
 | online_bin_packing | 95 / 100 | Tight-fit-or-spacious gap avoidance; Best Fit; Sum-of-Squares gap-count balancing | 62% |
 | cache_eviction | 76 / 100 | W-TinyLFU (sketch frequency duel); 2Q / S3-FIFO (probationary queue + ghosts); LFU | 75% |
 
-**Paraphrase test: the herd is partly a prompt effect.** Rewording the task prompt (3
-meaning-preserving paraphrases, 2 models, 5 samples each) moved the herd map more than
+**Paraphrase test: the consensus is partly a prompt effect.** Rewording the task prompt (3
+meaning-preserving paraphrases, 2 models, 5 samples each) moved the consensus map more than
 resampling the original prompt did, on both tasks: mean total variation distance 0.51 vs at
 most 0.40 between original-prompt groups for bin packing, and 0.35 vs at most 0.10 for cache
 eviction (where W-TinyLFU went from 45% to 67% of samples). Groups are small (10 samples), so
-only large shifts can be detected. Read every herd-based claim as "what models converge on for
-this wording". Details: `herd paraphrase <task>`.
+only large shifts can be detected. Read every consensus-based claim as "what models converge on for
+this wording". Details: `python -m diverge paraphrase <task>`.
 
 **Live strategy-loop runs: preliminary, 1 run each.** These used online_bin_packing and cost $0.62
 in total. Each is a real trajectory from the implementer (Gemini 4 Argon) with dev-score feedback.
@@ -94,14 +92,14 @@ Scores are % excess bins, as dev / held-out; lower is better.
 |---|---|---|---|---|
 | open revisions, 3.66 → 0.30 | keep | 0.30 vs 0.21 | 0.299 / 0.258 | 0.279 / 0.248 |
 | "keep the approach, tune it", 3.66 → 0.36 | keep | 0.29 vs 0.42 | 0.359 / 0.537 | 1.376 / 1.409 |
-| 4 more tuning revisions, stalled 0.66 → 1.85 (`herd demo strategy_loop`) | repair, not a loop (below the 0.7 threshold) | 0.45 vs 0.64 | 0.658 / 0.953 | 0.628 / 0.834 |
+| 4 more tuning revisions, stalled 0.66 → 1.85 (`python -m diverge demo strategy_loop`) | repair, not a loop (below the 0.7 threshold) | 0.45 vs 0.64 | 0.658 / 0.953 | 0.628 / 0.834 |
 
 Baselines: best fit 4.15 / 3.98, first fit 4.54 / 4.31.
 
 DIVERGE never returned `escape` in these runs, so no escape candidate was generated.
 
 On the stalled window, the lever DIVERGE would have tried was `n_open_bins`. It is used by 5 of 95
-herd samples: 2 from DeepSeek and 1 each from Gemini, Llama and GPT-6.1. I implemented it anyway as
+consensus-map samples: 2 from DeepSeek and 1 each from Gemini, Llama and GPT-6.1. I implemented it anyway as
 an ablation, at the same budget as fresh_start. It scored 1.096 / 0.973 and lost to fresh_start.
 
 These runs are no evidence either way about escape vs fresh_start at scale. They show one weakness:
@@ -132,22 +130,22 @@ Operator benchmarks: started, stopped, no results yet.
 
 For a task with an evaluator:
 
-1. **Strategy fingerprints** (`herd/strategy.py`): what each attempt decides from (inputs it
+1. **Strategy fingerprints** (`diverge/strategy.py`): what each attempt decides from (inputs it
    actually uses, found by static analysis), the state it keeps, its primary signal, its
    assumptions, and where it is weak on dev data.
-2. **Loop detection** (`herd/trajectory.py`): compares attempts by strategy, not code (an
+2. **Loop detection** (`diverge/trajectory.py`): compares attempts by strategy, not code (an
    illustrative output: "code 28% similar, strategy 91% similar") and flags a loop when
    progress has stalled.
-3. **The herd map and what it overlooks** (`herd/overlook.py`): from many models' samples,
-   inputs the task allows but the herd never uses, assumptions every common solution shares
+3. **The consensus map and what it overlooks** (`diverge/overlook.py`): from many models' samples,
+   inputs the task allows but the consensus never uses, assumptions every common solution shares
    although the task does not require them, unoccupied component combinations, and
    mechanisms only one or two models produce.
-4. **Repair or escape** (`herd/diagnose.py`, `herd/escape.py`): keep improving the current
+4. **Repair or escape** (`diverge/diagnose.py`, `diverge/escape.py`): keep improving the current
    strategy, or stop repairing and switch to one evidence-backed lever.
-5. **Strategy counterexamples** (`herd/counterexample.py`): tiny cases where all your attempts
+5. **Strategy counterexamples** (`diverge/counterexample.py`): tiny cases where all your attempts
    make the same decision and the alternative does not.
 
-The original pipeline below (herd map, blind spots, operator benchmark) is the measurement
+The original pipeline below (consensus map, blind spots, operator benchmark) is the measurement
 foundation the escape workflow builds on.
 
 ## Setup
@@ -203,7 +201,7 @@ it as structuredContent, plus `verdict`):
 - `next_experiment`: `hypothesis`, `success_threshold`, `failure_threshold`;
 - `evidence`: a list of `{claim, class}`, where class is `MEASURED`, `SOURCE_BACKED` or
   `HYPOTHESIZED` (reasoning that has not been tested);
-- `scope_note`: herd shares describe this prompt wording (see the paraphrase test above).
+- `scope_note`: consensus shares describe this prompt wording (see the paraphrase test above).
 
 What each verdict asks the agent to do is in the table under
 [For coding agents](#for-coding-agents). Errors are structured too: `{"error", "detail",
@@ -233,8 +231,8 @@ uv run python -m diverge spend
 ```
 
 Stages: sample each model on `tasks/<task>/prompt.md`, search the literature (Exa),
-build a sourced taxonomy, label each sample by mechanism, build the herd map, find blind
-spots, then implement the top 3 herd families and every blind spot K=3 times with one
+build a sourced taxonomy, label each sample by mechanism, build the consensus map, find blind
+spots, then implement the top 3 consensus families and every blind spot K=3 times with one
 shared prompt template and score them. Outputs go to `results/<task>/`.
 `labels_audit.csv` holds 20 random labels for a human to spot-check.
 
@@ -268,7 +266,7 @@ isolated with a 60s timeout (see [Running model-written code](#running-model-wri
 uv run python -m diverge bench online_bin_packing --budget 0.5   # USD per operator per repeat
 ```
 
-Operators (`herd/operators/`) each turn a task and a budget into candidate solutions. All of
+Operators (`diverge/operators/`) each turn a task and a budget into candidate solutions. All of
 them use the same implementer model, implementation prompt template and evaluator.
 
 | operator | what it does |
@@ -277,13 +275,13 @@ them use the same implementer model, implementation prompt template and evaluato
 | `hot` | the task prompt at the highest temperature that still yields valid code (calibrated per run; calibration samples count) |
 | `verbalized` | Verbalized Sampling: 5 approaches with stated probabilities, sampled from the tails (each < 0.10), each one implemented |
 | `blind_spot` | implements the families in `blind_spots.json` |
-| `literature_all` | the ablation: implements every sourced literature family, ignoring the herd map |
+| `literature_all` | the ablation: implements every sourced literature family, ignoring the consensus map |
 | `literature_random` | count-matched control: a seeded random set of sourced families, as many as there are blind spots |
-| `blind_spot_contrast` | blind spots, plus the herd's top mechanisms listed as "mechanisms your solution should differ from" |
-| `blind_spot_contrast_random` | control: the same wording and count, listing random non-herd families |
+| `blind_spot_contrast` | blind spots, plus the consensus's top mechanisms listed as "mechanisms your solution should differ from" |
+| `blind_spot_contrast_random` | control: the same wording and count, listing random non-consensus families |
 | `blind_spot_feedback` | blind spots, round by round; each family's next attempt sees its previous dev outcome (redacted error, or dev score vs the best baseline and its weakest dev case, plus the code). Never held-out |
 | `blind_spot_feedback_sham` | control: the same note structure, taken from a different family's attempt |
-| `adhd_frames` | a baseline using [ADHD](https://github.com/UditAkhourii/adhd)'s published frames: 5 frames per round (4 engineering + 1 wild) with ADHD's divergent prompts; each idea is implemented and evaluated. Frames and prompts are copied verbatim with credit to the ADHD contributors under the MIT License (full text in `herd/operators/ADHD_LICENSE`). ADHD's critic, cluster and deepen stages are not used, so this baseline uses ADHD's frames, not ADHD as a whole |
+| `adhd_frames` | a baseline using [ADHD](https://github.com/UditAkhourii/adhd)'s published frames: 5 frames per round (4 engineering + 1 wild) with ADHD's divergent prompts; each idea is implemented and evaluated. Frames and prompts are copied verbatim with credit to the ADHD contributors under the MIT License (full text in `diverge/operators/ADHD_LICENSE`). ADHD's critic, cluster and deepen stages are not used, so this baseline uses ADHD's frames, not ADHD as a whole |
 | `transplant` | Exa search for mechanisms from biology, logistics, markets, physics and networking; the labeler restates each as a structural rule in the problem's own terms; sources are kept |
 
 `bench` runs every operator at the same budget for several seeded repeats, then labels all
@@ -295,7 +293,7 @@ score, each as mean and range across repeats, plus `bench.png` and a verdict. Re
 
 **The key comparison is `blind_spot` vs `literature_all` and `literature_random`.** All
 implement sourced literature families with the same implementer, template, evaluator and
-budget; only `blind_spot` uses the herd map to choose which. `literature_random` matches the
+budget; only `blind_spot` uses the consensus map to choose which. `literature_random` matches the
 number of families, so a win cannot come from concentrating the budget alone. If `blind_spot`
 does better, knowing where models concentrate picked better experiments. If not, the gains
 come from literature retrieval alone. The verdict states this first, either way.
@@ -309,10 +307,10 @@ probes. The threshold was fixed on hand-written heuristics before any real candi
 fingerprinted; a validation gate (rescaled and tie-change copies must merge, first/best/worst/
 next fit and the FunSearch heuristic must stay apart) runs before every use.
 `uv run python -m diverge fingerprints online_bin_packing` compares behavior clusters with the
-labeled families of the herd-map samples.
+labeled families of the consensus-map samples.
 
 Cost is reported two ways. **Cached** counts only an operator's own calls. **Cold-start**
-adds the setup it depends on, as if each repeat started from an empty cache: the full herd
+adds the setup it depends on, as if each repeat started from an empty cache: the full consensus
 map for `blind_spot`, the literature search and taxonomy for `literature_all`. The verdict
 says "did better in every repeat" only when the ranges across repeats do not overlap, and
 3 repeats are still a small sample. The repeat seeds vary generation, not evaluation data.
@@ -331,15 +329,15 @@ benchmark run, so reruns reproduce the table.
 ```sh
 uv run python -m diverge onboard --client claude --target /path/to/project   # writes .mcp.json, skill, /diverge
 # or by hand:
-claude mcp add herd -- uv run --directory /absolute/path/to/herd python -m diverge serve
+claude mcp add diverge -- uv run --directory /absolute/path/to/diverge python -m diverge serve
 MCP_TOOL_TIMEOUT=1800000 claude   # or set it under "env" in ~/.claude/settings.json
 ```
 
 For a hosted (streamable HTTP) deployment such as Manufact Cloud, `diverge_mcp_http.py` serves the
-same tools at `/mcp` behind a bearer token (`HERD_HTTP_TOKEN`). It has been verified locally
+same tools at `/mcp` behind a bearer token (`DIVERGE_HTTP_TOKEN`; the older `HERD_HTTP_TOKEN` is still accepted). It has been verified locally
 only; nothing is deployed. See `docs/MANUFACT.md`.
 
-Building a herd map for a new task means sampling every model, so the first call can
+Building a consensus map for a new task means sampling every model, so the first call can
 take several minutes. Progress is streamed while it runs, and the raised
 `MCP_TOOL_TIMEOUT` (read by Claude Code, in ms) keeps the client from giving up. After
 that, calls are served from `results/` and return immediately.
@@ -347,9 +345,9 @@ that, calls are served from `results/` and return immediately.
 | tool | arguments | returns (compact JSON) |
 |---|---|---|
 | `diverge_status` | `check_model_catalog=false` | free readiness: `ready`, key status (never values), `remaining_budget_usd`, `missing`, `cached_tasks`, the offline demo command, `recommended_primary_tool`, `next_action` |
-| `herd_map` | `task_description`, `budget_usd=5` | family shares overall and per model, `concentration_top3`, `top3` |
+| `diverge_map` | `task_description`, `budget_usd=5` | family shares overall and per model, `concentration_top3`, `top3` |
 | `blind_spots` | `task_description`, `budget_usd=5` | sourced families rarely or never observed: count of n samples, per-model counts, 95% upper bound on share, mechanism, source URLs |
-| `reality_check` | `task_description`, `family`, `evaluator_cmd`, `k=3`, `lower_is_better`, `baseline_files`, `contrast=false`, `budget_usd=3` | best code, dev best and median, `final_score` (held-out), invalid count and errors, baseline comparison, the herd families it was compared against |
+| `reality_check` | `task_description`, `family`, `evaluator_cmd`, `k=3`, `lower_is_better`, `baseline_files`, `contrast=false`, `budget_usd=3` | best code, dev best and median, `final_score` (held-out), invalid count and errors, baseline comparison, the consensus families it was compared against |
 | `diverge_check` | `task_description`, `my_approach`, `evaluator_cmd`, `k=3`, `lower_is_better`, `contrast=false`, `budget_usd=5` | the family of `my_approach`, its share and rank, and a `verdict` |
 | `diverge_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=1`, `budget_usd=2` | a `VERDICT:` line, then JSON with `next_action`, `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
 
@@ -359,15 +357,15 @@ that, calls are served from `results/` and return immediately.
 - `evaluator_cmd` is run as `<evaluator_cmd> <path/to/candidate.py>` (no shell). On its last
   JSON line of stdout it must print `{"valid": bool, "score": number}`. It runs isolated, from
   a scratch working directory, so use absolute paths.
-- `herd_map` and `blind_spots` return `"low_confidence": true` when the weakest model has
+- `diverge_map` and `blind_spots` return `"low_confidence": true` when the weakest model has
   fewer than 20 labeled samples.
 - `budget_usd` caps what one call may spend. The global cap in `config.yaml` still applies.
   Every response includes `spent_usd`; any failure comes back as `{"error": ..., "detail": ...}`.
-  `diverge_check` tests one family at a time (yours, then blind spots by rank, then the herd) and,
+  `diverge_check` tests one family at a time (yours, then blind spots by rank, then the consensus families) and,
   if the budget runs out, returns what it has with `"complete": false` and `stopped_at`.
 - Held-out scores used in a comparison are counted per task and evaluator. From the second use
   on, responses say `"exploratory": true`: you may already have adapted to those numbers.
-- `contrast=true` implements blind-spot families with the herd-contrast section (see
+- `contrast=true` implements blind-spot families with the consensus-contrast section (see
   `blind_spot_contrast`). It is off by default; see the measured results before relying on it.
 - `diverge_check` picks the best tested family first, then says whether it is common or rare.
   Families are compared on held-out scores for built-in tasks (`scored_on`). It tests
@@ -401,7 +399,7 @@ A session in a repo that is tuning a cache:
 ● I'll start with an LRU policy backed by an OrderedDict. First, checking whether that's
   the approach every model reaches for.
 
-● herd - diverge_check (MCP)(task_description: "Write a Python cache eviction policy ...",
+● diverge - diverge_check (MCP)(task_description: "Write a Python cache eviction policy ...",
                          my_approach: "LRU: OrderedDict, move to end on hit, evict oldest",
                          evaluator_cmd: "python /home/me/edge-cache/bench/eval.py",
                          budget_usd: 5)
@@ -409,11 +407,11 @@ A session in a repo that is tuning a cache:
   ⎿ {"family":"<family of my approach>","share":<its share>,"rank":<its rank>,
      "is_blind_spot":false,"concentration_top3":<top-3 share>,
      "scored_on":"dev","my_family_score":<score>,
-     "tested":{"<family of my approach>":<score>,"<herd family>":<score>,"<blind spot>":<score>},
+     "tested":{"<family of my approach>":<score>,"<consensus family>":<score>,"<blind spot>":<score>},
      "verdict":"try_blind_spot",
      "blind_spot":{"family":"<blind spot>","kind":"blind_spot","mechanism":"<one-line mechanism>",
                    "share":<share>,"score":<score>,
-                   "code_path":"/path/to/herd/results/desc-<hash>/reality/<evaluator id>/<family>-<i>.py",
+                   "code_path":"/path/to/diverge/results/desc-<hash>/reality/<evaluator id>/<family>-<i>.py",
                    "source_urls":["<url>"]},
      "spent_usd":<cost of this call>}
 
@@ -446,7 +444,7 @@ under `results/` for inspection, and `labels_audit.csv` supports spot checks.
 
 ## Traces
 
-Set `HERD_TRACE_DIR=<dir>` to append every model and search call to `<dir>/calls.jsonl`
+Set `DIVERGE_TRACE_DIR=<dir>` (the older `HERD_TRACE_DIR` is still accepted) to append every model and search call to `<dir>/calls.jsonl`
 (messages, parameters, raw content and reasoning, usage, cost, cache status, latency; redacted)
 and every benchmark candidate to `<dir>/candidates.jsonl` (prompt, operator, code, dev and
 held-out scores, labeled family, whether it was selected).

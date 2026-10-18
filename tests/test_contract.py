@@ -134,8 +134,8 @@ def classes(body):
 def test_lever_herd_counts_are_measured_and_mechanism_hypothesized():
     _, body = parse(render(result()))
     ev = classes(body)
-    assert ev["history used by 38/95 herd samples"]["class"] == "MEASURED"
-    assert ev["history used by 38/95 herd samples"]["detail"]["used_by_models"]["openai/gpt-6.1-sol"] == 19
+    assert ev["history used by 38/95 consensus samples"]["class"] == "MEASURED"
+    assert ev["history used by 38/95 consensus samples"]["detail"]["used_by_models"]["openai/gpt-6.1-sol"] == 19
     assert ev["Expected effect: Build the decision rule around history."]["class"] == "HYPOTHESIZED"
     assert ev["mean pairwise strategy similarity 0.90 against code similarity 0.35"]["class"] == "MEASURED"
     assert sum(e["claim"].startswith("mean pairwise strategy similarity") for e in body["evidence"]) == 1
@@ -155,7 +155,7 @@ def test_taxonomy_family_lever_is_source_backed_with_url():
     assert body["next_experiment"]["hypothesis"].startswith("Switching to Harmonic size-class packing will beat")
     src = [e for e in body["evidence"] if e["class"] == "SOURCE_BACKED"]
     assert len(src) == 1 and src[0]["url"] == URL and "Harmonic" in src[0]["claim"]
-    assert classes(body)["Harmonic size-class packing observed in the herd: 0/95"]["class"] == "MEASURED"
+    assert classes(body)["Harmonic size-class packing observed in the consensus: 0/95"]["class"] == "MEASURED"
 
 
 def test_source_backed_only_with_a_real_url():
@@ -175,13 +175,13 @@ def test_real_taxonomy_families_give_urls():
 def test_scope_note_with_paraphrase():
     para = json.loads(_local("paraphrase.json").read_text())
     _, body = parse(render(result(), paraphrase=para))
-    assert body["scope_note"] == ("Herd shares are for this prompt wording: rewording moved the map (paraphrase "
+    assert body["scope_note"] == ("Consensus shares are for this prompt wording: rewording moved the map (paraphrase "
                                   "TVD 0.51 vs at most 0.40 between resamples; verdict: partly a prompt effect).")
 
 
 def test_scope_note_without_paraphrase():
     _, body = parse(render(result()))
-    assert body["scope_note"] == ("Herd shares are for this prompt wording; robustness to rewording was not "
+    assert body["scope_note"] == ("Consensus shares are for this prompt wording; robustness to rewording was not "
                                   "measured for this task.")
 
 
@@ -191,4 +191,4 @@ def test_render_is_json_serializable_on_real_overlook():
     lv = lever("unused_signal", "n_open_bins", **{k: row[k] for k in ("used_by", "decided", "share", "used_by_models")})
     text = render(result(levers=[lv]), overlook=overlook)
     _, body = parse(text)
-    assert classes(body)["n_open_bins used by 5/95 herd samples"]["class"] == "MEASURED"
+    assert classes(body)["n_open_bins used by 5/95 consensus samples"]["class"] == "MEASURED"

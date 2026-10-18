@@ -89,8 +89,10 @@ class Herd:
         llm_cache, exa_cache = shared_cache(cache_dir / "llm.jsonl"), shared_cache(cache_dir / "exa.jsonl")
         spent = llm_cache.total_cost() + exa_cache.total_cost()
         self.ledger = Ledger(self.cfg["budget_usd"], spent, budget_usd, bill_cached)
-        # HERD_TRACE_DIR set: every model and search call is also appended to <dir>/calls.jsonl.
-        self.trace_dir = Path(os.environ["HERD_TRACE_DIR"]) if os.environ.get("HERD_TRACE_DIR") else None
+        # DIVERGE_TRACE_DIR (legacy name: HERD_TRACE_DIR) set: every model and search call is also
+        # appended to <dir>/calls.jsonl.
+        trace = os.environ.get("DIVERGE_TRACE_DIR") or os.environ.get("HERD_TRACE_DIR")
+        self.trace_dir = Path(trace) if trace else None
         tracer = shared_tracer(self.trace_dir) if self.trace_dir else None
         self.llm = LLM(llm_cache, load_model_catalog(cache_dir), self.ledger, tracer)
         self.exa = Exa(exa_cache, self.ledger, self.cfg["exa"]["cost_per_search_usd"], tracer)

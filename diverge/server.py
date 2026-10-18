@@ -30,7 +30,8 @@ cache_eviction). Not for generic debugging, build errors or a first attempt.
 score change, or you are about to retry another variation or escalate to a human: call diverge_escape yourself; \
 do not wait for the user to ask. Follow its VERDICT and next_action.
 - Evidence is labeled MEASURED, SOURCE_BACKED or HYPOTHESIZED. Never treat HYPOTHESIZED evidence as measured.
-- herd_map, blind_spots and reality_check are lower-level research primitives.
+- diverge_map (the consensus map: what most models converge on), blind_spots and reality_check are lower-level \
+research primitives.
 evaluator_cmd takes a code file path as its last argument and prints {"valid": bool, "score": float}; lower is \
 better unless lower_is_better=false. Errors come back as JSON with error, missing and next_action. Never invent \
 a credential: a missing key needs the user."""
@@ -73,7 +74,7 @@ def classify(e, spent):
                       "budget_usd resumes where it stopped; ask the user before raising spend.")
         return failure("budget_exceeded", msg, action, ["budget"], partial)
     missing_key = re.search(r"\b([A-Z][A-Z0-9_]*_API_KEY) is not set", msg)
-    if isinstance(e, RuntimeError) and missing_key:  # herd.llm.require_env, possibly wrapped
+    if isinstance(e, RuntimeError) and missing_key:  # diverge.llm.require_env, possibly wrapped
         key = missing_key.group(1)
         return failure("missing_requirement", f"{key} is not set", (
             f"Live DIVERGE calls need {key}, which only the user can provide (in .env); ask them, and never invent or "
@@ -124,11 +125,11 @@ def map_summary(study, cfg):
 
 
 @mcp.tool()
-async def herd_map(task_description: str, ctx: Context, budget_usd: float = 5.0) -> str:
+async def diverge_map(task_description: str, ctx: Context, budget_usd: float = 5.0) -> str:
     """Research primitive: which solution families do AI models converge on for this task? Call it
     when you want the landscape itself; to act, prefer diverge_check (choosing a strategy) or diverge_escape
     (stalled attempts). Not for debugging. Needs OPENROUTER_API_KEY, and EXA_API_KEY when the map is
-    not cached yet. Default budget_usd 5.0; about $0 once cached. Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
+    not cached yet. Default budget_usd 5.0; about $0 once cached. Cold start: the first call on a task without a cached consensus map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
     Returns task, n_samples, low_confidence, concentration_top3, top3, families [[family, share,
     count]], per_model, spent_usd."""
     return await run_tool(ctx, budget_usd,
@@ -140,8 +141,8 @@ async def blind_spots(task_description: str, ctx: Context, budget_usd: float = 5
     """Research primitive: solution families from the literature that model samples rarely or
     never used. Call it when you want unexplored, sourced directions to read; to decide whether to
     switch, prefer diverge_check, or diverge_escape once attempts stall. Needs OPENROUTER_API_KEY, and
-    EXA_API_KEY when the map is not cached yet. Default budget_usd 5.0; shares herd_map's cached map
-    ($0 after it is built). Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
+    EXA_API_KEY when the map is not cached yet. Default budget_usd 5.0; shares diverge_map's cached map
+    ($0 after it is built). Cold start: the first call on a task without a cached consensus map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
     Returns low_confidence (true: too few samples per model to tell an overlooked family from an
     unlucky one) and blind_spots [{family, mechanism, observed (k of n), share_upper_95 (95% upper
     bound on the true share), per_model_counts, source_urls}], spent_usd."""
@@ -159,28 +160,28 @@ async def blind_spots(task_description: str, ctx: Context, budget_usd: float = 5
 async def reality_check(task_description: str, family: str, ctx: Context, evaluator_cmd: str = "",
                         k: int = 3, lower_is_better: bool = True, baseline_files: list[str] | None = None,
                         contrast: bool = False, budget_usd: float = 3.0) -> str:
-    """Research primitive: implement one named family (from herd_map or blind_spots) k times
+    """Research primitive: implement one named family (from diverge_map or blind_spots) k times
     (default 3) and score each with the evaluator. Call it to test one specific family; prefer
     diverge_check, which chooses the families to test, or diverge_escape for stalled attempts. Needs an
     evaluator (evaluator_cmd, or a built-in task) and OPENROUTER_API_KEY; an unknown family returns
     error unknown_family with the valid names. Default budget_usd 3.0 (a hard cap, $3): k implementer
-    calls plus sandboxed evaluator runs; builds the herd map first if it is not cached (see herd_map). The best
+    calls plus sandboxed evaluator runs; builds the consensus map first if it is not cached (see diverge_map). The best
     implementation is picked on dev; final_score is its held-out score on built-in tasks (dev for
     evaluator_cmd; see scored_on). Returns family, kind, share, n_valid, n_invalid, dev_best_score,
-    final_score, scored_on, baselines, beats_baselines, best_tested_herd, best_code, invalid_errors,
-    spent_usd. contrast=True adds the herd-contrast section (experimental; see README)."""
+    final_score, scored_on, baselines, beats_baselines, best_tested_consensus (the best already-scored consensus family), best_code, invalid_errors,
+    spent_usd. contrast=True adds the consensus-contrast section (experimental; see README)."""
     def work(herd):
         task = Task.resolve(task_description)
         study = ensure_map(herd, task)
         by_name = {f["family"]: f for f in study["families"]}
         if family not in by_name:
-            return {**failure("unknown_family", f"{family!r} is not a family in this task's herd map",
+            return {**failure("unknown_family", f"{family!r} is not a family in this task's consensus map",
                               "Call again with one of the names in families.", ["family"], can_continue=True),
                     "families": sorted(by_name)}
         evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
         scores = ensure_family_scores(herd, task, study, [by_name[family]], evaluator, k, contrast)
         s, out = scores[family], herd.out_dir(task)
-        # Only herd families that were already scored under this evaluator; none are tested here.
+        # Only consensus families that were already scored under this evaluator; none are tested here.
         herd_scores = {f: v["final_score"] for f, v in scores.items()
                        if v["kind"] == "herd" and v.get("final_score") is not None}
         baselines = baseline_scores(task, evaluator, baseline_files or ())
@@ -189,7 +190,8 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
                   "dev_best_score": s["best_score"], "dev_median_score": s["median_score"],
                   "final_score": s["final_score"], "scored_on": s["final_split"],
                   "invalid_errors": [m["error"] for m in s["implementations"] if not m["valid"]],
-                  "baselines": baselines, "compared_herd_families": sorted(herd_scores), "best_tested_herd": None}
+                  "baselines": baselines, "compared_herd_families": sorted(herd_scores), "best_tested_herd": None,
+                  "compared_consensus_families": sorted(herd_scores), "best_tested_consensus": None}
         if evaluator.has_heldout and s["final_score"] is not None:
             prior = record_heldout_use(herd, task, evaluator)
             result["heldout_prior_uses"], result["exploratory"] = prior, prior > 0
@@ -202,6 +204,7 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
             top = evaluator.best(herd_scores.values())
             result["best_tested_herd"] = {"family": next(f for f, v in herd_scores.items() if v == top),
                                           "final_score": top}
+            result["best_tested_consensus"] = result["best_tested_herd"]
         return result
     return await run_tool(ctx, budget_usd, work)
 
@@ -225,7 +228,7 @@ N_ALTERNATIVES = (3, 5)
 
 
 def cached_study(herd, task):
-    """The task's herd map if one is saved for the current inputs (exactly the case where ensure_map
+    """The task's consensus map if one is saved for the current inputs (exactly the case where ensure_map
     returns it without building), else None. Never starts a cold-start build."""
     from .pipeline import inputs_hash, read_json
     cfg = herd.cfg
@@ -238,7 +241,7 @@ def cached_study(herd, task):
 
 
 def free_text_check(herd, task, my_approach):
-    """diverge_check without an evaluator: the herd comparison when a map is cached (no map is built),
+    """diverge_check without an evaluator: the consensus comparison when a map is cached (no map is built),
     plus untested alternatives from one extractor-model call, every one HYPOTHESIZED."""
     from .llm import ask_json
     from .overlook import extractor
@@ -260,10 +263,12 @@ def free_text_check(herd, task, my_approach):
     alts = [{k: str(a.get(k) or "").strip() for k in ALT_FIELDS} | {"evidence_class": "HYPOTHESIZED"}
             for a in reply.get("alternatives") or [] if isinstance(a, dict) and a.get("name")][:N_ALTERNATIVES[1]]
     out = {"verdict": "untested", "mode": "free_text", "my_approach": my_approach, "herd_comparison": herd_cmp,
+           "consensus_comparison": herd_cmp,
            "alternatives": alts, "complete": True}
     if not study:
-        out["herd_note"] = ("No cached herd map for this task, so the herd comparison was skipped; free-text mode "
-                            "never builds one (herd_map builds it: cold start, several minutes and real spend).")
+        out["herd_note"] = out["consensus_note"] = (
+            "No cached consensus map for this task, so the consensus comparison was skipped; free-text mode "
+            "never builds one (diverge_map builds it: cold start, several minutes and real spend).")
     if len(alts) < N_ALTERNATIVES[0]:
         out["alternatives_note"] = f"the model returned {len(alts)} usable alternatives"
     return out
@@ -277,9 +282,9 @@ async def diverge_check(task_description: str, my_approach: str, ctx: Context, e
     description) belong to, how common is it among AI models, and does a tested family beat it?
     Not for debugging a failing solution; once scored attempts have stalled, use diverge_escape. Needs
     OPENROUTER_API_KEY (and EXA_API_KEY when the map is not cached yet). With an evaluator
-    (evaluator_cmd, or a built-in task) it implements your family, the blind spots and the top herd
-    families k times each (default 3) and scores them (held-out on built-in tasks). Default budget_usd 5.0. Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
-    Free-text mode (no evaluator): never builds a map; compares my_approach with the herd only if a map is
+    (evaluator_cmd, or a built-in task) it implements your family, the blind spots and the top consensus
+    families k times each (default 3) and scores them (held-out on built-in tasks). Default budget_usd 5.0. Cold start: the first call on a task without a cached consensus map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
+    Free-text mode (no evaluator): never builds a map; compares my_approach with the consensus only if a map is
     cached, and returns 3-5 untested alternatives {name, mechanism, strength, trap, how_to_test}, all
     HYPOTHESIZED, from one cheap model call (about $0.01; verdict "untested").
     Returns "VERDICT: <verdict>", a short markdown summary, then JSON (also the structuredContent):
@@ -306,7 +311,7 @@ async def diverge_status(check_model_catalog: bool = False) -> str:
     adds one free, unauthenticated GET of OpenRouter's public model list; optional). Reports whether
     each key is configured, never its value. Returns ready, live_mode_available,
     remaining_budget_usd, requirements {openrouter, exa (optional)}, missing, offline_demo_available
-    and offline_demo_command, cached_tasks (built-in tasks with a cached herd map: no cold start),
+    and offline_demo_command, cached_tasks (built-in tasks with a cached consensus map: no cold start),
     recommended_primary_tool, when_to_call, next_action."""
     from .demo import readiness
 
@@ -320,7 +325,7 @@ async def diverge_status(check_model_catalog: bool = False) -> str:
 
 def escape_for_agent(herd, task, current_solution, previous_attempts, evaluator, k=1, counterexamples=True):
     """diverge.escape.escape plus what the agent needs to trust it: strategy counterexamples between its
-    attempts and the escape candidate (tasks with a probe mode), and how stable the herd map is
+    attempts and the escape candidate (tasks with a probe mode), and how stable the consensus map is
     under rewording (the paraphrase test), when those exist."""
     from . import counterexample
     from .escape import escape
@@ -357,7 +362,7 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
     evaluator_cmd) or free text with evaluator_cmd. evaluator_cmd runs sandboxed (no network, no writes
     outside scratch, no .env, no nested sandbox), so make it self-contained with absolute paths.
     Needs an evaluator (evaluator_cmd, or a built-in task), OPENROUTER_API_KEY, and at least 2 valid
-    scored attempts for any verdict but inconclusive. It does not build a herd map: levers come from
+    scored attempts for any verdict but inconclusive. It does not build a consensus map: levers come from
     the task's cached overlook study and blind spots (built-in tasks); without them a loop may end in
     escalate. Default budget_usd 2.0, k=1 candidate; recorded runs that generated no candidate spent
     under $0.01, generating one costs more.
@@ -366,6 +371,7 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
     evidence_summary, lever, next_experiment (success and failure thresholds), evidence (each
     MEASURED, SOURCE_BACKED or HYPOTHESIZED), candidate_path, spent_usd; the same object (plus
     verdict) is the structuredContent. Follow next_action; never treat HYPOTHESIZED as measured."""
+    from . import plateau
     from .contract import agent_result
     from .pipeline import read_json
     loaded = {}
@@ -382,6 +388,7 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
         result = escape_for_agent(herd, task, current_solution, previous_attempts or [], evaluator, k)
         result["attempts"] = evaluator.attempts(codes)
         result["lower_is_better"] = evaluator.lower_is_better
+        plateau.attach(result, task.baselines("dev"))  # None for external evaluators (no built-in baselines)
         if result["attempts"] and not any(a["valid"] for a in result["attempts"]):
             # Every attempt failed to score: the evaluator (not the strategy) is the problem, so
             # "get more scored attempts" would send the agent in a loop.
@@ -403,14 +410,6 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
     # structuredContent. structured_output=False: no outputSchema, so the dict is passed through as is.
     text, structured = agent_result(json.loads(await run_tool(ctx, budget_usd, work)), **loaded)
     return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=structured)
-
-
-# Deprecated aliases from when the product was called HERD; same code, same arguments.
-for _old, _new, _structured in (("herd_escape", diverge_escape, False), ("herd_check", diverge_check, False),
-                                ("herd_status", diverge_status, True)):
-    mcp.tool(name=_old, structured_output=_structured,
-             description=f"Deprecated alias of {_new.__name__} (DIVERGE was called HERD); call {_new.__name__}. "
-                         + (_new.__doc__ or ""))(_new)
 
 
 class RecordingEvaluator:

@@ -177,7 +177,7 @@ def call_tool(name, args):
 
 
 def test_mcp_tools(fake_world):
-    herd_map, progress = call_tool("herd_map", {"task_description": "online_bin_packing"})
+    herd_map, progress = call_tool("diverge_map", {"task_description": "online_bin_packing"})
     assert herd_map["top3"][0] == "First Fit" and herd_map["spent_usd"] > 0
     assert any(m.startswith("sample") for m in progress)
 
@@ -194,7 +194,7 @@ def test_mcp_tools(fake_world):
 
 
 def test_mcp_budget_cap(fake_world):
-    result, _ = call_tool("herd_map", {"task_description": "online_bin_packing", "budget_usd": 0.0001})
+    result, _ = call_tool("diverge_map", {"task_description": "online_bin_packing", "budget_usd": 0.0001})
     assert result["error"] == "budget_exceeded"
 
 
@@ -331,7 +331,7 @@ def synthetic_check(monkeypatch, tmp_path, scores):
     return pipeline.check_approach(herd, Task.resolve("online_bin_packing"), study, "mine", StubEvaluator(), 1)
 
 
-def test_herd_check_recommends_the_best_family_not_the_first_rare_one(fake_world, monkeypatch, tmp_path):
+def test_diverge_check_recommends_the_best_family_not_the_first_rare_one(fake_world, monkeypatch, tmp_path):
     # The review's case: yours 10, a rare family 9, a common family 5. Recommend the 5.
     result = synthetic_check(monkeypatch, tmp_path, {"Mine": 10, "Common": 5, "Rare": 9})
     assert result["verdict"] == "try_other_family" and result["better_family"]["family"] == "Common"

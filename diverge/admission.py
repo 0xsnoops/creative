@@ -1,7 +1,7 @@
 """Admission gate for escape candidates (docs/RESEARCH-loop-escape.md, steps [7] and lever 2).
 Runs BEFORE full scoring and rejects a candidate unless
 
-1. it behaves differently from EVERY stuck program: its probe fingerprint (herd/fingerprint.py)
+1. it behaves differently from EVERY stuck program: its probe fingerprint (diverge/fingerprint.py)
    differs from each stuck program's on at least min_disagreement of the probe states, and
 2. it actually depends on its lever's input: perturbing that input in the probe states changes
    at least min_sensitivity of its decisions (the faithfulness check; it catches a lever used
@@ -80,7 +80,7 @@ def sensitivity(task, path, lever):
 def admit(task, candidate_code, stuck_codes, lever, min_disagreement=0.10, min_sensitivity=0.05):
     """Admission check for one escape candidate (code strings, run sandboxed).
 
-    task: a herd.task.Task (or a registered task name); stuck_codes: list or dict of the stuck
+    task: a diverge.task.Task (or a registered task name); stuck_codes: list or dict of the stuck
     cluster's code; lever: the input name (e.g. "n_open_bins") or a lever dict with "name".
     Returns {"admitted", "valid", "disagreement" (mean over stuck programs),
     "min_disagreement_vs_stuck", "disagreement_vs_stuck" (per stuck program), "sensitivity"

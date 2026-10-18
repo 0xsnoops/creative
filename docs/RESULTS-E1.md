@@ -45,7 +45,7 @@ code similarity and 0.16 above AST strategy similarity, but the absolute behavio
 ## Setup
 
 - **Programs:** 162 collected, 140 unique after deduplicating by the sha256 of the code. Sources:
-  - 95 valid herd samples;
+  - 95 valid consensus-map samples;
   - 12 fixture trajectory attempts;
   - 13 `demo/*.py`;
   - 13 `escape/**/*.py`;
@@ -67,9 +67,9 @@ code similarity and 0.16 above AST strategy similarity, but the absolute behavio
   - Program-level bootstrap: 300 reps, resampling programs with replacement and keeping all
     pairs of distinct draws. CIs are 2.5/97.5 percentiles.
   - Paired differences use the same resamples.
-- **Cost:** `herd.llm._post` was replaced with a function that raises, and the run cap was $0.
+- **Cost:** `diverge.llm._post` was replaced with a function that raises, and the run cap was $0.
   Of the 140 extracts, 129 were blocked as uncached and 11 were cache hits. The script asserts
-  `herd.ledger.new_spend == 0`, and the run reported $0.00.
+  `diverge.ledger.new_spend == 0`, and the run reported $0.00.
 - **Runtime:** 44 s for the full run on 10 CPUs: evaluation 35 s, fingerprints 6 s, bootstrap a few seconds.
 
 ## Primary target: same top-2 worst dev instances
@@ -109,11 +109,11 @@ On the secondary target, no signal is clearly above chance.
 ## Coverage
 
 Cached LLM extractor replies exist for only 11 of the 140 programs. Ten of them are trajectory
-fixture attempts and one is a herd sample. The 11 mechanism labels are near-synonyms:
+fixture attempts and one is a consensus-map sample. The 11 mechanism labels are near-synonyms:
 "value-function best fit", "distribution-aware best fit", "stochastic dynamic programming" and
 similar. The LLM-covered set is therefore a narrow slice of the population: late
 strategy-loop attempts that are mostly variations of one idea. It cannot represent the
-100+ herd samples.
+100+ consensus-map samples.
 
 ## Caveats
 

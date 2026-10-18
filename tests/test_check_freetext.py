@@ -47,7 +47,7 @@ def test_no_evaluator_no_cached_map_returns_alternatives_without_building(fake_w
     text, s = call({"task_description": FREE, "my_approach": "first fit"})
     assert text.splitlines()[0] == "VERDICT: untested" and parse(text) == ("untested", s)
     assert s["mode"] == "free_text" and s["complete"] is True and s["herd_comparison"] is None
-    assert "No cached herd map" in s["herd_note"]
+    assert "No cached consensus map" in s["consensus_note"]
     # exactly one model call (the alternatives), no sampling, no search, no map on disk
     assert len(prompts) == 1 and prompts[0][1].startswith("You are proposing alternative")
     import yaml

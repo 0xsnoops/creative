@@ -64,7 +64,7 @@ def capture(name, root):
 
 
 SECTIONS = ["DIVERGE demo: loop", "== 1.", "attempt-0", "== 2. Loop diagnosis", "strategy similarity 0.91 vs code "
-            "similarity 0.28", "== 3. Herd evidence", "history: used by 38/95 herd samples", "== 4. Scope",
+            "similarity 0.28", "== 3. Consensus evidence", "history: used by 38/95 consensus samples", "== 4. Scope",
             "prompt_sensitive", "== 5. Escape lever", "why: history is used by", "== 6. Contract",
             "VERDICT: escape", "== 7. Results", "best attempt (attempt-2)", "escape candidate", "fresh_start candidate",
             "best_fit", "first_fit", "PRELIMINARY: 1 run", "escape beat fresh_start on held-out by 0.1500"]
@@ -130,7 +130,7 @@ def test_demo_missing_run_file_explains_and_fails(tmp_path, offline):
 
 def test_cli_demo_exit_code_for_missing_fixture(monkeypatch, offline, capsys):
     from diverge.__main__ import main
-    monkeypatch.setattr(sys, "argv", ["herd", "demo", "no_such_fixture_xyz"])
+    monkeypatch.setattr(sys, "argv", ["diverge", "demo", "no_such_fixture_xyz"])
     with pytest.raises(SystemExit) as e:
         main()
     assert e.value.code == 1 and "no_such_fixture_xyz" in capsys.readouterr().out

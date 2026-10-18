@@ -102,7 +102,7 @@ def test_I6_partial_sampling_is_recorded_and_reused(fake_world, monkeypatch):
 
 
 # I7: diverge_check returns a partial comparison when the budget runs out.
-def test_I7_herd_check_returns_partial_results(fake_world, monkeypatch):
+def test_I7_diverge_check_returns_partial_results(fake_world, monkeypatch):
     task = Task.resolve(BIN)
     study = pipeline.ensure_map(herd(), task)
     real = pipeline.ensure_family_scores
@@ -131,7 +131,7 @@ def test_I8_run_tool_turns_any_exception_into_a_structured_error(fake_world, mon
     def boom(*a, **k):
         raise KeyError("families")
     monkeypatch.setattr(server, "ensure_map", boom)
-    result, _ = call_tool("herd_map", {"task_description": BIN})
+    result, _ = call_tool("diverge_map", {"task_description": BIN})
     assert result["error"] == "KeyError" and "spent_usd" in result
 
 

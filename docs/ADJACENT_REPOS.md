@@ -16,7 +16,7 @@ change, P2.
 | P1 | **escape v3**: anchor-stripped failure summary (each kept constraint quoted from the task); 5 sketches in isolated calls, each on a different lever; a critic on a different model (scores, one strength, one trap, is_trap / restates_stuck); deepen the top 2; implement through the existing admission check | performance, opt-in mode, default stays v2 | ADHD's generator/critic separation and deepen-top-K; 15 of 18 panel models named the missing critic gate | `diverge/escape.py` `escape_v3` |
 | P2 | **Feed admission rejections back into v3's resample**: the resample prompt states why the last candidate was rejected (probe disagreement, lever sensitivity) | performance, inside v3 only | Shinka resamples blindly after a novelty rejection, and so did we. In rescue-test state 3 nothing was admitted | `diverge/escape.py` (v3 resample) |
 | U1 | **Readable markdown block** above the JSON in `diverge_escape` / `diverge_check`: verdict, shortlist, traps, next test, with every number taken from the result object | product | Agents and people read the text first; the first line stays `VERDICT:` | `diverge/contract.py`, `diverge/server.py` |
-| U2 | **Free-text `diverge_check`**: without an evaluator it returns the herd comparison (only if a map is cached) plus 3–5 alternatives, each with a strength, a trap and how to test it, all HYPOTHESIZED | product | It makes the pre-implementation check useful without an evaluator | `diverge/server.py` |
+| U2 | **Free-text `diverge_check`**: without an evaluator it returns the consensus comparison (only if a map is cached) plus 3–5 alternatives, each with a strength, a trap and how to test it, all HYPOTHESIZED | product | It makes the pre-implementation check useful without an evaluator | `diverge/server.py` |
 
 ## Per repo
 
@@ -64,7 +64,7 @@ change, P2.
 - **Packaging lessons we applied now (bug fixes, not features):**
   - `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`), plus `.claude/skills/diverge`, so agents working in
     this repo also see the skill (GEPA does this).
-  - Fixed stale `herd_*` / "approve the `herd` server" wording in the skill and the `/diverge`
+  - Fixed stale pre-rename tool and server names in the skill and the `/diverge`
     command after the rename.
 - **Later:**
   - An evaluator setup helper (Shinka's setup skill).

@@ -12,7 +12,7 @@ sketches, a critic, and deepening of the top 2.
 **Arms.** Every arm uses Llama 4 Maverick as the implementer.
 - `fresh_start`: fresh context plus a failure summary, with no code.
 - `try_different`: the previous attempts plus the instruction "try a fundamentally different approach".
-- `random_lever`: the escape v2 pipeline with a random input the herd already uses (control).
+- `random_lever`: the escape v2 pipeline with a random input the consensus already uses (control).
 - `herd_escape`: escape v2, the current default.
 - `herd_escape_v3`: the new mode, opt-in.
 
