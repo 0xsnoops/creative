@@ -88,10 +88,12 @@ def test_contract_adds_evidence_and_next_action_when_stalled_at_reference():
     assert verdict(r) == "escape"
     v, body, claims = _render(r)
     line = next(c for c in claims if "best known baseline" in c)
-    assert line == ("best attempt 4.146 equals the best known baseline best_fit 4.146 on dev; more variations of "
-                    "this framing rarely help (preliminary rescue test: 0/3 such states rescued by any method)")
+    assert line == "best attempt 4.146 equals the best known baseline best_fit 4.146 on dev"
     item = next(e for e in body["evidence"] if e["claim"] == line)
     assert item["class"] == "MEASURED"
+    # the inference from the plateau is evidence of a different class
+    hyp = next(e for e in body["evidence"] if "unlikely to beat it" in e["claim"])
+    assert hyp["class"] == "HYPOTHESIZED" and "n = 4" in hyp["claim"]
     assert body["plateau"]["at_reference"] is True
     text, structured = agent_result(r)
     assert structured["verdict"] == "escape"

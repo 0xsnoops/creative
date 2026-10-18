@@ -272,6 +272,7 @@ def contract(result, overlook=None, paraphrase=None, families=None):
            "scope_note": scope_note(paraphrase, result.get("herd_stability"))}
     if item := _plateau.evidence_item(result, v):  # stalled at the best known baseline (diverge.plateau)
         out["evidence"].append(item)
+        out["evidence"].append(_plateau.hypothesis_item(result, v))
     if "plateau" in result:
         out["plateau"] = result["plateau"]
     for k in ("spent_usd", "counterexamples"):
