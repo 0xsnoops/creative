@@ -196,6 +196,43 @@ Fixtures: `fixtures/trajectories/` and `fixtures/runs/`, as `strategy_loop`,
 `scripts/strategy_loop_run.py --mode open|tune|plateau` and `scripts/forced_escape.py`; cached
 calls replay at no cost. Replay with `herd demo <fixture>`.
 
+## Mini rescue test (preliminary, n = 4 stuck states)
+
+`scripts/rescue_test.py`; raw data in `results/rescue/` (gitignored).
+
+**Setup**
+- **Agent model:** Llama 4 Maverick. It is the cheapest sampler, and its best herd samples are
+  exactly best fit.
+- **Trajectories:** it wrote 6 trajectories of 6 attempts with dev-score feedback. 4 were
+  naturally stuck: no dev improvement of more than 1% over the last 3 attempts.
+- **Arms:** each stuck state got four arms, all using the same model, at most 3 dev-scored
+  candidates per arm, and a $0.40 cap per arm.
+- **Rescue:** the arm's dev-selected candidate beats the stuck best on held-out.
+
+| stuck state (held-out of the stuck best) | fresh_start | try_different | random_lever | herd_escape v2 |
+|---|---|---|---|---|
+| 0 (148.12) | 148.12 no | **3.98 yes** | 6.88 yes | 4.02 yes |
+| 1 (3.98, best fit) | 12.97 no | 3.98 no | 4.89 no | 12.97 no |
+| 3 (3.98, best fit) | 3.98 no | 3.98 no | no admitted candidate | no admitted candidate |
+| 4 (3.96) | 12.97 no | 3.96 no | 10.53 no | 148.12 no |
+| **rescued** | 0/4 | 1/4 | 1/4 | 1/4 |
+
+**What this shows:** herd_escape v2 did not beat the simple "try a fundamentally different
+approach" arm. The only rescue came in state 0, which was stuck far from best fit, and three arms
+rescued it there; try_different did best. No arm beat a plateau at best fit.
+
+**Cost:** herd_escape cost $0.010 in total and was the most expensive arm, but every arm was cheap.
+
+**Lever:** HERD chose a family lever, "Worst Fit / Almost-Any-Fit variants", which is a weak
+direction for escaping best fit.
+
+**Admission check:** it rejected 17 escape and random-lever candidates for not differing enough
+from the stuck attempts or not depending on the lever.
+
+**Bug fixed before these numbers:** the first run of this test exposed a bug in the sketch filter.
+Family and paraphrased levers were always dropped. It was fixed in commit 6ba6309, and the table
+above comes from the rerun.
+
 ## Not yet measured
 
 - An `escape` verdict on a live trajectory. It never triggered in the three runs above.
