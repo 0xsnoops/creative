@@ -10,10 +10,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from herd.escape import generate  # noqa: E402
-from herd.pipeline import Herd  # noqa: E402
-from herd.reality import Evaluator  # noqa: E402
-from herd.task import Task  # noqa: E402
+from diverge.escape import generate  # noqa: E402
+from diverge.pipeline import Herd  # noqa: E402
+from diverge.reality import Evaluator  # noqa: E402
+from diverge.task import Task  # noqa: E402
 
 name = sys.argv[1]
 run_path = ROOT / "fixtures" / "runs" / f"{name}.json"

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from herd import counterexample as cx
+from diverge import counterexample as cx
 from tests.test_evaluators import PROBE, bin_packing, cache_eviction
 
 TASKS = Path(__file__).resolve().parent.parent / "tasks"

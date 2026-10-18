@@ -7,10 +7,10 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-import herd
-import herd.pipeline as pipeline
-from herd import demo
-from herd.llm import LLM, Ledger
+import diverge as herd
+import diverge.pipeline as pipeline
+from diverge import demo
+from diverge.llm import LLM, Ledger
 
 ATTEMPTS = [
     {"id": "attempt-0", "code": "def priority(item, capacities):\n    return [-(c - item) for c in capacities]\n",
@@ -63,7 +63,7 @@ def capture(name, root):
     return code, "\n".join(lines)
 
 
-SECTIONS = ["HERD demo: loop", "== 1.", "attempt-0", "== 2. Loop diagnosis", "strategy similarity 0.91 vs code "
+SECTIONS = ["DIVERGE demo: loop", "== 1.", "attempt-0", "== 2. Loop diagnosis", "strategy similarity 0.91 vs code "
             "similarity 0.28", "== 3. Herd evidence", "history: used by 38/95 herd samples", "== 4. Scope",
             "prompt_sensitive", "== 5. Escape lever", "why: history is used by", "== 6. Contract",
             "VERDICT: escape", "== 7. Results", "best attempt (attempt-2)", "escape candidate", "fresh_start candidate",
@@ -111,10 +111,10 @@ def test_demo_is_deterministic(tmp_path, offline):
 
 
 def test_demo_renders_contract_when_not_recorded(tmp_path, offline, monkeypatch):
-    stub = types.ModuleType("herd.contract")
+    stub = types.ModuleType("diverge.contract")
     stub.render = lambda result, overlook=None, paraphrase=None, families=None: \
         f"VERDICT: stubbed\n{json.dumps({'loop': result['loop_detected']})}"
-    monkeypatch.setitem(sys.modules, "herd.contract", stub)
+    monkeypatch.setitem(sys.modules, "diverge.contract", stub)
     monkeypatch.setattr(herd, "contract", stub, raising=False)
     write_fixture(tmp_path, contract=None)
     _, text = capture("loop", tmp_path)
@@ -129,7 +129,7 @@ def test_demo_missing_run_file_explains_and_fails(tmp_path, offline):
 
 
 def test_cli_demo_exit_code_for_missing_fixture(monkeypatch, offline, capsys):
-    from herd.__main__ import main
+    from diverge.__main__ import main
     monkeypatch.setattr(sys, "argv", ["herd", "demo", "no_such_fixture_xyz"])
     with pytest.raises(SystemExit) as e:
         main()
@@ -167,9 +167,9 @@ def test_preflight_tolerates_live_catalog_failure(monkeypatch):
 
 
 def test_escape_cli_prints_contract_after_summary(tmp_path, monkeypatch, capsys):
-    import herd.__main__ as cli
-    import herd.reality
-    import herd.server
+    import diverge.__main__ as cli
+    import diverge.reality
+    import diverge.server
     (tmp_path / "overlook.json").write_text(json.dumps({"inputs": []}))
     (tmp_path / "paraphrase.json").write_text(json.dumps({"verdict": "stable", "mean_P": 0.1, "max_R": 0.2}))
     seen = {}
@@ -184,9 +184,9 @@ def test_escape_cli_prints_contract_after_summary(tmp_path, monkeypatch, capsys)
     def render(result, overlook=None, paraphrase=None, families=None):
         seen.update(overlook=overlook, paraphrase=paraphrase, families=families)
         return "VERDICT: escape\n{}"
-    stub = types.ModuleType("herd.contract")
+    stub = types.ModuleType("diverge.contract")
     stub.render = render
-    monkeypatch.setitem(sys.modules, "herd.contract", stub)
+    monkeypatch.setitem(sys.modules, "diverge.contract", stub)
     monkeypatch.setattr(herd, "contract", stub, raising=False)
     monkeypatch.setattr(cli, "Herd", FakeHerd)
     monkeypatch.setattr(herd.reality, "Evaluator", lambda *a, **k: None)

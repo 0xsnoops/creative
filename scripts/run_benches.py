@@ -7,7 +7,7 @@ Completed calls are cached, so rerunning resumes where a stopped run left off.""
 import json, math, subprocess, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from herd.pipeline import Herd
+from diverge.pipeline import Herd
 
 CAP, RESERVE, BATCH, LABEL_PER_BATCH, EXPECTED_CANDIDATES = 25.0, 1.00, 8, 0.10, 8
 TASKS = {"cache_eviction": (0.65, ["plain", "adhd_frames", "blind_spot", "blind_spot_contrast",
@@ -37,7 +37,7 @@ if "stop" in plan:
     sys.exit("STOP: " + plan["stop"])
 for task in TASKS:
     p = plan[task]
-    cmd = [sys.executable, "-m", "herd", "bench", task, "--budget", str(p["budget_per_operator"]),
+    cmd = [sys.executable, "-m", "diverge", "bench", task, "--budget", str(p["budget_per_operator"]),
            "--repeats", "3", "--n", "20", "--operators", ",".join(p["operators"])]
     print("running:", " ".join(cmd[1:]), flush=True)
     with open(f"results/phase2/bench_{task}.log", "w") as log:

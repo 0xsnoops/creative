@@ -15,7 +15,7 @@ import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
-from herd import fingerprint as fp
+from diverge import fingerprint as fp
 
 # What each perturbation does and why the result still measures dependence on that input.
 # Decisions are compared by the original capacity of the chosen option (a new bin = 100), as the
@@ -89,7 +89,7 @@ def admit(task, candidate_code, stuck_codes, lever, min_disagreement=0.10, min_s
     Admitted only if valid, min disagreement >= min_disagreement, and (when a sound perturbation
     exists) sensitivity >= min_sensitivity + noise."""
     if isinstance(task, str):
-        from herd.task import Task
+        from diverge.task import Task
         task = Task.registered(task)
     if not supported(task):
         raise ValueError(f"task {getattr(task, 'name', task)!r} has no fingerprint/perturbation mode")

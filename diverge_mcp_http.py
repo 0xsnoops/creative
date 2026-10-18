@@ -1,11 +1,11 @@
-"""HERD over streamable HTTP, for hosted deployment (e.g. Manufact Cloud) and local HTTP testing.
+"""DIVERGE over streamable HTTP, for hosted deployment (e.g. Manufact Cloud) and local HTTP testing.
 
-Serves the same `mcp` server object as `python -m herd serve` (stdio); no tool code is duplicated.
+Serves the same `mcp` server object as `python -m diverge serve` (stdio); no tool code is duplicated.
 
-    uvicorn 'herd_mcp_http:app' --host 0.0.0.0 --port 8000      # hosted; endpoint is /mcp
-    uv run python herd_mcp_http.py [--port 8000]                # local, binds 127.0.0.1
+    uvicorn 'diverge_mcp_http:app' --host 0.0.0.0 --port 8000      # hosted; endpoint is /mcp
+    uv run python diverge_mcp_http.py [--port 8000]                # local, binds 127.0.0.1
 
-Exposure guard: HERD's tools spend the owner's API budget and run `evaluator_cmd` as a command,
+Exposure guard: DIVERGE's tools spend the owner's API budget and run `evaluator_cmd` as a command,
 so a public endpoint must not be open. When HERD_HTTP_TOKEN is set, every request needs
 `Authorization: Bearer <token>`. When it is unset, requests are refused (503) unless
 HERD_HTTP_ALLOW_OPEN=1 (the local entry point sets this, since it only binds loopback).
@@ -17,7 +17,7 @@ import os
 
 from mcp.server.transport_security import TransportSecuritySettings
 
-from herd.server import mcp
+from diverge.server import mcp
 
 # Behind a managed reverse proxy the Host header is the public hostname, which the SDK's
 # DNS-rebinding check rejects with 421 (per Manufact's Python guide). Set HERD_ALLOWED_HOSTS
@@ -63,7 +63,7 @@ app = BearerGuard(mcp.streamable_http_app(stateless_http=True, transport_securit
 
 def main():
     import uvicorn
-    parser = argparse.ArgumentParser(description="Serve HERD over streamable HTTP on loopback.")
+    parser = argparse.ArgumentParser(description="Serve DIVERGE over streamable HTTP on loopback.")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     os.environ.setdefault("HERD_HTTP_ALLOW_OPEN", "1")

@@ -77,8 +77,12 @@ def secret_values():
     trusted parent process, never by the candidate)."""
     values = {v for k, v in os.environ.items() if SECRET_NAME.search(k) and len(v) >= 8}
     env_file = os.path.join(REPO, ".env")
-    if os.path.exists(env_file):
-        for line in open(env_file).read().splitlines():
+    try:  # unreadable inside an outer sandbox (an evaluator_cmd that calls this evaluator)
+        env_lines = open(env_file).read().splitlines() if os.path.exists(env_file) else []
+    except OSError:
+        env_lines = []
+    if env_lines:
+        for line in env_lines:
             if "=" in line and not line.lstrip().startswith("#"):
                 value = line.split("=", 1)[1].strip().strip("'\"")
                 if len(value) >= 8:

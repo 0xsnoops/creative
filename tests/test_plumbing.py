@@ -1,8 +1,8 @@
 import pytest
 
-from herd.cache import JsonlCache, request_key
-from herd.llm import BudgetExceeded, Ledger
-from herd.sample import extract_code
+from diverge.cache import JsonlCache, request_key
+from diverge.llm import BudgetExceeded, Ledger
+from diverge.sample import extract_code
 
 
 def test_extract_code_picks_block_defining_entrypoint():
@@ -60,3 +60,28 @@ def test_cache_skips_a_damaged_line(tmp_path):
     cache.put("b", {"cost_usd": 0.2})
     reloaded = JsonlCache(path)
     assert set(reloaded.entries) == {"a", "b"} and reloaded.skipped_lines == 1
+
+
+def test_chat_shrinks_max_tokens_to_fit_the_run_cap_and_never_exceeds_it(tmp_path):
+    """A call whose full-size worst case no longer fits the run budget runs with fewer max_tokens
+    (>= MIN_SHRUNK_TOKENS) instead of ending the run; the reservation stays within the cap."""
+    from diverge.llm import LLM, MIN_SHRUNK_TOKENS
+    catalog = {"m": {"pricing": {"prompt": "0.000001", "completion": "0.00001"}, "top_provider": {}}}
+    ledger = Ledger(global_cap_usd=100.0, global_spent_usd=0.0, run_cap_usd=0.30)
+    llm = LLM(JsonlCache(tmp_path / "c.jsonl"), catalog, ledger)
+    sent = []
+
+    def post(body, attempts=4):
+        sent.append(body["max_tokens"])
+        assert ledger.spent_this_run + ledger.reserved <= 0.30 + 1e-9
+        # a reply never costs more than its max_tokens allow (here: 8000 tokens, or fewer)
+        return {"choices": [{"message": {"content": "x"}}], "usage": {"cost": min(8000, body["max_tokens"]) * 1e-5}}
+    llm._post = post
+    calls = 0
+    with pytest.raises(BudgetExceeded):
+        while calls < 10:  # full-size worst case: 16000 * 1e-5 * 1.25 = $0.20
+            llm.chat("m", [{"role": "user", "content": "hi"}], max_tokens=16000, sample_idx=calls)
+            calls += 1
+    assert sent[:2] == [16000, 16000] and all(MIN_SHRUNK_TOKENS <= t < 16000 for t in sent[2:])
+    assert len(sent) >= 3  # the old rule stopped after 2 calls ($0.16 spent of $0.30)
+    assert ledger.spent_this_run <= 0.30

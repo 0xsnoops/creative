@@ -8,8 +8,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from herd import contract  # noqa: E402
-from herd.pipeline import read_json  # noqa: E402
+from diverge import contract  # noqa: E402
+from diverge.pipeline import read_json  # noqa: E402
 
 name = sys.argv[1]
 run_path, fix_path = ROOT / "fixtures" / "runs" / f"{name}.json", ROOT / "fixtures" / "trajectories" / f"{name}.json"

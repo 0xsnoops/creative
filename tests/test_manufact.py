@@ -1,4 +1,4 @@
-"""The streamable-HTTP entry (herd_mcp_http) serves HERD's tools and guards exposure. No API calls."""
+"""The streamable-HTTP entry (diverge_mcp_http) serves HERD's tools and guards exposure. No API calls."""
 import asyncio
 import socket
 import threading
@@ -11,7 +11,7 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
 
-import herd_mcp_http
+import diverge_mcp_http
 
 TOKEN = "test-token-not-a-secret"
 
@@ -22,7 +22,7 @@ def running():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    srv = uvicorn.Server(uvicorn.Config(herd_mcp_http.app, host="127.0.0.1", port=port, log_level="warning"))
+    srv = uvicorn.Server(uvicorn.Config(diverge_mcp_http.app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=srv.run, daemon=True)
     thread.start()
     deadline = time.time() + 10
@@ -50,7 +50,7 @@ async def list_tool_names(url, token):
 
 def test_lists_same_tools_as_stdio_server(server):
     names = asyncio.run(list_tool_names(server, TOKEN))
-    expected = sorted(t.name for t in asyncio.run(herd_mcp_http.mcp.list_tools()))
+    expected = sorted(t.name for t in asyncio.run(diverge_mcp_http.mcp.list_tools()))
     assert names == expected and "herd_map" in names
 
 

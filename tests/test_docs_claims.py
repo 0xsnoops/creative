@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-DOCS = ["README.md", "docs/TRACKS.md", "skills/herd/SKILL.md"]
+DOCS = ["README.md", "docs/TRACKS.md", "skills/diverge/SKILL.md"]
 
 SUPERIOR = re.compile(r"\b(beat|beats|beating|outperform(?:s|ed|ing)?|better than|superior to|surpass(?:es|ed)?|"
                       r"wins? (?:against|over)|dominates?)\b", re.I)
@@ -95,13 +95,13 @@ def _plain(line):
 
 def test_readme_keeps_top_lines():
     lines = [_plain(l) for l in (ROOT / "README.md").read_text().splitlines() if l.strip()]
-    assert lines[:3] == ["# HERD", "Escape strategy loops in AI agents.",
+    assert lines[:3] == ["# DIVERGE", "Escape strategy loops in AI agents.",
                          "Different code isn't always different thinking."]
 
 
 def test_readme_agent_section_is_high_and_complete():
     text = (ROOT / "README.md").read_text()
-    for word in ("herd_escape", "herd_status", "next_action", "preliminary"):
+    for word in ("diverge_escape", "diverge_status", "next_action", "preliminary"):
         assert word in text, word
     headings = [l for l in text.splitlines() if l.startswith("## ")]
     assert headings[0] == "## For coding agents"
@@ -110,7 +110,7 @@ def test_readme_agent_section_is_high_and_complete():
 
 
 def test_readme_verdict_table_matches_contract():
-    from herd.contract import NEXT_ACTION
+    from diverge.contract import NEXT_ACTION
     text = (ROOT / "README.md").read_text()
     for verdict, action in NEXT_ACTION.items():
         assert action in text, verdict

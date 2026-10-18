@@ -5,10 +5,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from herd import admission
-from herd.fingerprint import CANONICAL
-from herd.overlook import INPUTS
-from herd.task import Task
+from diverge import admission
+from diverge.fingerprint import CANONICAL
+from diverge.overlook import INPUTS
+from diverge.task import Task
 from tests.test_evaluators import PROBE, bin_packing, write
 
 TASK = Task.registered("online_bin_packing")

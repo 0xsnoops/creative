@@ -1,4 +1,4 @@
-"""The output contract of the herd_escape MCP tool: a one-word verdict an agent can branch on,
+"""The output contract of the diverge_escape MCP tool: a one-word verdict an agent can branch on,
 then one compact JSON object with the chosen lever, a falsifiable next experiment and evidence
 where every claim is labeled MEASURED, SOURCE_BACKED or HYPOTHESIZED.
 
@@ -20,7 +20,7 @@ keep | repair | escape | escalate | inconclusive. Rules, applied in this order:
 8. escalate: action "switch_strategy" but no lever is available.
 Anything else is inconclusive.
 
-Scored attempts come from result["attempts"] ([{id, score, valid}], added by the herd_escape
+Scored attempts come from result["attempts"] ([{id, score, valid}], added by the diverge_escape
 tool); without that list, two scores are inferred from diagnosis.evidence.progress (a relative
 improvement is only computed from two or more scores)."""
 import json
@@ -125,7 +125,7 @@ def next_experiment(result, v, lever):
     tries = len(result.get("candidates") or []) or DEFAULT_TRIES
     if best is None or v == "inconclusive":
         out = {"hypothesis": "Not enough scored attempts to judge the strategy: score at least two attempts "
-                             "on the dev split and call herd_escape again.",
+                             "on the dev split and call diverge_escape again.",
                "success_threshold": None, "failure_threshold": None}
     elif v == "escalate":
         out = {"hypothesis": "The evaluator or task is inconsistent with the attempts (identical scores across "
@@ -290,20 +290,20 @@ def parse(text):
 
 
 # ------------------------------------------------------------------ agent fields
-# What an agent should do next for each verdict. herd_escape (herd.server) adds these fields to
+# What an agent should do next for each verdict. diverge_escape (herd.server) adds these fields to
 # the contract body and also returns them as MCP structuredContent.
 MIN_SCORED = 2  # rule 3 above: fewer scored attempts is inconclusive
 NEXT_ACTION = {
     "keep": "Continue the existing strategy; do not switch yet. Score each change with the evaluator and "
-            "call herd_escape again if scores stall.",
+            "call diverge_escape again if scores stall.",
     "repair": "Fix the existing strategy and preserve its mechanism (do not switch approach); re-score it "
               "with the evaluator.",
     "escape": "Implement the named lever (start from candidate_path when one exists), run the evaluator, and "
               "compare against the before score and next_experiment's success and failure thresholds.",
-    "escalate": "Stop autonomous retries and ask a human: HERD has no safe next move to name, or the evaluator "
+    "escalate": "Stop autonomous retries and ask a human: DIVERGE has no safe next move to name, or the evaluator "
                 "looks contradictory (identical scores for different strategies, or nothing is valid).",
     "inconclusive": f"Get at least {MIN_SCORED} valid, scored attempts (earlier ones as previous_attempts, the "
-                    f"latest as current_solution), then call herd_escape again.",
+                    f"latest as current_solution), then call diverge_escape again.",
 }
 AUTONOMOUS = {v: v != "escalate" for v in VERDICTS}
 
@@ -313,11 +313,11 @@ def _inconclusive_action(result):
     need = max(0, MIN_SCORED - n)
     if need:
         return (f"Only {n} valid, scored attempt{'s' if n != 1 else ''}: get {need} more (at least {MIN_SCORED} in "
-                f"total; earlier ones as previous_attempts, the latest as current_solution), then call herd_escape "
+                f"total; earlier ones as previous_attempts, the latest as current_solution), then call diverge_escape "
                 f"again.")
     if (result.get("evaluation") or {}).get("before") is None:
         return ("current_solution has no valid score: make it pass the evaluator (or pass the latest valid "
-                "attempt as current_solution), then call herd_escape again.")
+                "attempt as current_solution), then call diverge_escape again.")
     return NEXT_ACTION["inconclusive"]
 
 
@@ -333,7 +333,7 @@ def agent_fields(result, v, body):
     action = _inconclusive_action(result) if v == "inconclusive" else NEXT_ACTION[v]
     ev = result.get("evaluation") or {}
     if v == "escape" and result.get("candidates") and not ev.get("improved"):
-        action += (" HERD's own candidate did not beat the before score on dev, so the lever is still untested "
+        action += (" DIVERGE's own candidate did not beat the before score on dev, so the lever is still untested "
                    "by a working implementation.")
     counts = {c: 0 for c in (MEASURED, SOURCE_BACKED, HYPOTHESIZED)}
     for e in body.get("evidence") or []:
@@ -344,7 +344,7 @@ def agent_fields(result, v, body):
 
 
 def agent_result(result, overlook=None, paraphrase=None, families=None):
-    """(text, structured) for the herd_escape tool. text is `VERDICT: <verdict>` then one JSON object:
+    """(text, structured) for the diverge_escape tool. text is `VERDICT: <verdict>` then one JSON object:
     the agent fields first, then the contract body (parse() reads it). structured is the same object
     plus "verdict", for MCP clients that read structuredContent."""
     v, body = contract(result, overlook, paraphrase, families)

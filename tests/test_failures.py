@@ -1,7 +1,7 @@
-"""herd.failures: failure sets, Jaccard and the Mann-Whitney AUC on hand examples."""
+"""diverge.failures: failure sets, Jaccard and the Mann-Whitney AUC on hand examples."""
 import pytest
 
-from herd.failures import auc, failure_set, jaccard, relative_detail
+from diverge.failures import auc, failure_set, jaccard, relative_detail
 
 
 def bins(*excess):

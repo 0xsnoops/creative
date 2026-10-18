@@ -29,11 +29,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from herd.llm import BudgetExceeded, message_text  # noqa: E402
-from herd.pipeline import Herd, read_json  # noqa: E402
-from herd.reality import Evaluator, dev_detail  # noqa: E402
-from herd.sample import extract_code  # noqa: E402
-from herd.task import Task  # noqa: E402
+from diverge.llm import BudgetExceeded, message_text  # noqa: E402
+from diverge.pipeline import Herd, read_json  # noqa: E402
+from diverge.reality import Evaluator, dev_detail  # noqa: E402
+from diverge.sample import extract_code  # noqa: E402
+from diverge.task import Task  # noqa: E402
 
 TASK = "online_bin_packing"
 MODEL = "meta-llama/llama-4-maverick"  # cheapest configured sampler; its best herd samples are exactly best fit
@@ -125,7 +125,7 @@ def stuck(attempts):
 
 
 def failure_summary(attempts):
-    from herd.failures import failure_set
+    from diverge.failures import failure_set
     scored = [a for a in attempts if a["valid"]]
     sets = [failure_set(a["dev_detail"]) for a in scored]
     shared = sorted(frozenset.intersection(*sets)) if sets else []
@@ -155,7 +155,7 @@ def plain_arm(name, prompt, state, task, evaluator):
 
 
 def escape_arm(name, state, task, evaluator, overlook, lever=None):
-    from herd.escape import escape_v2
+    from diverge.escape import escape_v2
     herd = with_model(Herd(budget_usd=ARM_BUDGET, progress=lambda m: None))
     attempts = [{"id": a["id"], "code": a["code"], "score": a["dev_score"], "valid": a["valid"],
                  "dev_detail": a["dev_detail"]} for a in state["attempts"]]

@@ -1,7 +1,7 @@
-"""HERD as an MCP server for coding agents. Every tool returns compact JSON (herd_escape: a
+"""DIVERGE as an MCP server for coding agents. Every tool returns compact JSON (diverge_escape: a
 VERDICT line, then JSON, plus the same object as structuredContent), streams progress
 notifications, and is capped by its own budget_usd (and the config's global cap). Failures come
-back as structured errors with what is missing and a next_action; herd_status is free."""
+back as structured errors with what is missing and a next_action; diverge_status is free."""
 import asyncio
 import hashlib
 import json
@@ -20,14 +20,14 @@ from .pipeline import (Herd, baseline_scores, check_approach, effective_n, ensur
 from .reality import Evaluator
 from .task import Task
 
-INSTRUCTIONS = """HERD: different code isn't always different thinking. It tells a coding agent when its attempts \
+INSTRUCTIONS = """DIVERGE: different code isn't always different thinking. It tells a coding agent when its attempts \
 are one strategy in different code, and names one evidence-backed alternative it has scored.
 Use it for strategy stagnation on a task with a score (evaluator_cmd, or a built-in task: online_bin_packing, \
 cache_eviction). Not for generic debugging, build errors or a first attempt.
-- Unsure whether HERD is configured here: herd_status (free, no network).
-- Choosing a strategy before coding: herd_check.
+- Unsure whether DIVERGE is configured here: diverge_status (free, no network).
+- Choosing a strategy before coding: diverge_check.
 - Several scored attempts have stalled, the same failure keeps coming back, lots of code change but little \
-score change, or you are about to retry another variation or escalate to a human: call herd_escape yourself; \
+score change, or you are about to retry another variation or escalate to a human: call diverge_escape yourself; \
 do not wait for the user to ask. Follow its VERDICT and next_action.
 - Evidence is labeled MEASURED, SOURCE_BACKED or HYPOTHESIZED. Never treat HYPOTHESIZED evidence as measured.
 - herd_map, blind_spots and reality_check are lower-level research primitives.
@@ -35,11 +35,14 @@ evaluator_cmd takes a code file path as its last argument and prints {"valid": b
 better unless lower_is_better=false. Errors come back as JSON with error, missing and next_action. Never invent \
 a credential: a missing key needs the user."""
 
-mcp = MCPServer("herd", instructions=INSTRUCTIONS)
+mcp = MCPServer("diverge", instructions=INSTRUCTIONS)
 
 
 def compact(data):
     return json.dumps(data, separators=(",", ":"), default=str)
+
+
+BUILTIN_TASKS = ("online_bin_packing", "cache_eviction")
 
 
 def failure(error, detail, next_action, missing=(), partial=None, can_continue=False):
@@ -62,7 +65,7 @@ def classify(e, spent):
                "note": "completed model and search calls are cached; the same call resumes from them"} if spent else None
     if isinstance(e, BudgetExceeded):
         if msg.startswith("global budget"):
-            action = ("The global spend cap (budget_usd in config.yaml) is reached. Stop calling HERD's live tools and "
+            action = ("The global spend cap (budget_usd in config.yaml) is reached. Stop calling DIVERGE's live tools and "
                       "ask the user whether to raise it.")
         else:
             action = ("This call's budget_usd was reached. Completed calls are cached, so the same call with a larger "
@@ -72,9 +75,9 @@ def classify(e, spent):
     if isinstance(e, RuntimeError) and missing_key:  # herd.llm.require_env, possibly wrapped
         key = missing_key.group(1)
         return failure("missing_requirement", f"{key} is not set", (
-            f"Live HERD calls need {key}, which only the user can provide (in .env); ask them, and never invent or "
+            f"Live DIVERGE calls need {key}, which only the user can provide (in .env); ask them, and never invent or "
             f"guess a credential. Meanwhile the offline demo works: {OFFLINE_DEMO_COMMAND} (no API calls). "
-            f"herd_status shows what is configured."), [key], partial)
+            f"diverge_status shows what is configured."), [key], partial)
     if isinstance(e, ValueError) and "no built-in evaluator" in msg:
         return failure("evaluator_required", msg, (
             "Pass evaluator_cmd (a command that takes a code file path as its last argument and prints "
@@ -122,9 +125,9 @@ def map_summary(study, cfg):
 @mcp.tool()
 async def herd_map(task_description: str, ctx: Context, budget_usd: float = 5.0) -> str:
     """Research primitive: which solution families do AI models converge on for this task? Call it
-    when you want the landscape itself; to act, prefer herd_check (choosing a strategy) or herd_escape
+    when you want the landscape itself; to act, prefer diverge_check (choosing a strategy) or diverge_escape
     (stalled attempts). Not for debugging. Needs OPENROUTER_API_KEY, and EXA_API_KEY when the map is
-    not cached yet. Default budget_usd 5.0; about $0 once cached. Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (herd_status lists cached tasks).
+    not cached yet. Default budget_usd 5.0; about $0 once cached. Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
     Returns task, n_samples, low_confidence, concentration_top3, top3, families [[family, share,
     count]], per_model, spent_usd."""
     return await run_tool(ctx, budget_usd,
@@ -135,9 +138,9 @@ async def herd_map(task_description: str, ctx: Context, budget_usd: float = 5.0)
 async def blind_spots(task_description: str, ctx: Context, budget_usd: float = 5.0) -> str:
     """Research primitive: solution families from the literature that model samples rarely or
     never used. Call it when you want unexplored, sourced directions to read; to decide whether to
-    switch, prefer herd_check, or herd_escape once attempts stall. Needs OPENROUTER_API_KEY, and
+    switch, prefer diverge_check, or diverge_escape once attempts stall. Needs OPENROUTER_API_KEY, and
     EXA_API_KEY when the map is not cached yet. Default budget_usd 5.0; shares herd_map's cached map
-    ($0 after it is built). Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (herd_status lists cached tasks).
+    ($0 after it is built). Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
     Returns low_confidence (true: too few samples per model to tell an overlooked family from an
     unlucky one) and blind_spots [{family, mechanism, observed (k of n), share_upper_95 (95% upper
     bound on the true share), per_model_counts, source_urls}], spent_usd."""
@@ -157,7 +160,7 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
                         contrast: bool = False, budget_usd: float = 3.0) -> str:
     """Research primitive: implement one named family (from herd_map or blind_spots) k times
     (default 3) and score each with the evaluator. Call it to test one specific family; prefer
-    herd_check, which chooses the families to test, or herd_escape for stalled attempts. Needs an
+    diverge_check, which chooses the families to test, or diverge_escape for stalled attempts. Needs an
     evaluator (evaluator_cmd, or a built-in task) and OPENROUTER_API_KEY; an unknown family returns
     error unknown_family with the valid names. Default budget_usd 3.0 (a hard cap, $3): k implementer
     calls plus sandboxed evaluator runs; builds the herd map first if it is not cached (see herd_map). The best
@@ -203,16 +206,16 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
 
 
 @mcp.tool()
-async def herd_check(task_description: str, my_approach: str, ctx: Context, evaluator_cmd: str = "",
+async def diverge_check(task_description: str, my_approach: str, ctx: Context, evaluator_cmd: str = "",
                      k: int = 3, lower_is_better: bool = True, contrast: bool = False,
                      budget_usd: float = 5.0) -> str:
     """Call before committing to a strategy: which family does my_approach (a plain-language
     description) belong to, how common is it among AI models, and does a tested family beat it?
-    Not for debugging a failing solution; once scored attempts have stalled, use herd_escape. Needs
+    Not for debugging a failing solution; once scored attempts have stalled, use diverge_escape. Needs
     OPENROUTER_API_KEY (and EXA_API_KEY when the map is not cached yet). With an evaluator
     (evaluator_cmd, or a built-in task) it implements your family, the blind spots and the top herd
     families k times each (default 3) and scores them (held-out on built-in tasks); without one it
-    only classifies (verdict "untested"). Default budget_usd 5.0. Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (herd_status lists cached tasks).
+    only classifies (verdict "untested"). Default budget_usd 5.0. Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
     Returns your family and share, and verdict keep | try_blind_spot | try_other_family (also
     inconclusive, unclassified, untested), with blind_spot or better_family, diverse_alternative when
     a blind spot also beat yours, and spent_usd. contrast=True is experimental (see README)."""
@@ -226,8 +229,8 @@ async def herd_check(task_description: str, my_approach: str, ctx: Context, eval
 
 
 @mcp.tool()
-async def herd_status(check_model_catalog: bool = False) -> str:
-    """Free readiness check: call it first when unsure whether HERD is configured here, or after a
+async def diverge_status(check_model_catalog: bool = False) -> str:
+    """Free readiness check: call it first when unsure whether DIVERGE is configured here, or after a
     missing_requirement error. Costs $0: no model, search or network call (check_model_catalog=true
     adds one free, unauthenticated GET of OpenRouter's public model list; optional). Reports whether
     each key is configured, never its value. Returns ready, live_mode_available,
@@ -245,7 +248,7 @@ async def herd_status(check_model_catalog: bool = False) -> str:
 
 
 def escape_for_agent(herd, task, current_solution, previous_attempts, evaluator, k=1, counterexamples=True):
-    """herd.escape.escape plus what the agent needs to trust it: strategy counterexamples between its
+    """diverge.escape.escape plus what the agent needs to trust it: strategy counterexamples between its
     attempts and the escape candidate (tasks with a probe mode), and how stable the herd map is
     under rewording (the paraphrase test), when those exist."""
     from . import counterexample
@@ -269,16 +272,19 @@ def escape_for_agent(herd, task, current_solution, previous_attempts, evaluator,
 
 
 @mcp.tool(structured_output=False)
-async def herd_escape(task_description: str, current_solution: str, ctx: Context,
+async def diverge_escape(task_description: str, current_solution: str, ctx: Context,
                       previous_attempts: list[str] | None = None, evaluator_cmd: str = "",
                       lower_is_better: bool = True, k: int = 1, budget_usd: float = 2.0) -> CallToolResult:
     """Primary tool. Call it yourself, without waiting to be asked, when several scored attempts
     have stalled, the same failure keeps coming back, code changes a lot but the score barely moves,
     or you are about to retry another variation or hand the problem to a human. Not for a first
     attempt, syntax errors or generic debugging. Pass current_solution and previous_attempts as code
-    (oldest first). HERD scores them on the dev split, fingerprints their strategies, says whether
+    (oldest first). DIVERGE scores them on the dev split, fingerprints their strategies, says whether
     they are one strategy in different code and, when they loop, implements one evidence-backed lever
     and scores it before/after (with counterexamples on tasks that support probes).
+    task_description: a built-in task's exact name (online_bin_packing, cache_eviction; then omit
+    evaluator_cmd) or free text with evaluator_cmd. evaluator_cmd runs sandboxed (no network, no writes
+    outside scratch, no .env, no nested sandbox), so make it self-contained with absolute paths.
     Needs an evaluator (evaluator_cmd, or a built-in task), OPENROUTER_API_KEY, and at least 2 valid
     scored attempts for any verdict but inconclusive. It does not build a herd map: levers come from
     the task's cached overlook study and blind spots (built-in tasks); without them a loop may end in
@@ -298,13 +304,26 @@ async def herd_escape(task_description: str, current_solution: str, ctx: Context
         if not evaluator_cmd and not task.evaluator:
             return failure("evaluator_required", "pass evaluator_cmd or use a registered task", (
                 "Pass evaluator_cmd (a command that takes a code file path as its last argument and prints "
-                '{"valid": bool, "score": float}) or use a built-in task, then call herd_escape again.'),
+                '{"valid": bool, "score": float}) or use a built-in task, then call diverge_escape again.'),
                 ["evaluator_cmd"], can_continue=True)
         evaluator = RecordingEvaluator(Evaluator(task, evaluator_cmd or None, lower_is_better))
         codes = [*(previous_attempts or []), current_solution]
         result = escape_for_agent(herd, task, current_solution, previous_attempts or [], evaluator, k)
         result["attempts"] = evaluator.attempts(codes)
         result["lower_is_better"] = evaluator.lower_is_better
+        if result["attempts"] and not any(a["valid"] for a in result["attempts"]):
+            # Every attempt failed to score: the evaluator (not the strategy) is the problem, so
+            # "get more scored attempts" would send the agent in a loop.
+            first = next((a["error"] for a in result["attempts"] if a["error"]), None) or "no JSON result"
+            builtin = [n for n in BUILTIN_TASKS if n in task_description and n != task_description.strip()]
+            hint = (f" This looks like the built-in task {builtin[0]!r}: pass task_description={builtin[0]!r} "
+                    f"exactly and omit evaluator_cmd." if builtin else "")
+            return failure("evaluator_failed", f"none of the {len(result['attempts'])} attempts scored: {first[:600]}", (
+                "DIVERGE could not score any attempt, so it cannot judge the strategy." + hint + " An evaluator_cmd runs "
+                "inside DIVERGE's sandbox: no network, no writes outside a scratch directory, no reading .env or home "
+                "secrets, and it cannot start another sandbox; use a self-contained command with absolute paths. "
+                "Check it by scoring one file yourself, then call diverge_escape again."),
+                ["working evaluator"], can_continue=True)
         out = herd.out_dir(task)
         loaded.update(overlook=read_json(out / "overlook.json"), paraphrase=read_json(out / "paraphrase.json"),
                       families=[*(read_json(out / "blind_spots.json") or []), *(read_json(out / "families.json") or [])])
@@ -315,8 +334,16 @@ async def herd_escape(task_description: str, current_solution: str, ctx: Context
     return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=structured)
 
 
+# Deprecated aliases from when the product was called HERD; same code, same arguments.
+for _old, _new, _structured in (("herd_escape", diverge_escape, False), ("herd_check", diverge_check, True),
+                                ("herd_status", diverge_status, True)):
+    mcp.tool(name=_old, structured_output=_structured,
+             description=f"Deprecated alias of {_new.__name__} (DIVERGE was called HERD); call {_new.__name__}. "
+                         + (_new.__doc__ or ""))(_new)
+
+
 class RecordingEvaluator:
-    """An Evaluator that remembers each dev result by file name, so herd_escape can report the
+    """An Evaluator that remembers each dev result by file name, so diverge_escape can report the
     attempts' own scores (escape() scores them at escape/attempts/<sha256(code)[:12]>.py)."""
 
     def __init__(self, evaluator):
@@ -334,7 +361,8 @@ class RecordingEvaluator:
         out = []
         for i, code in enumerate(codes):
             r = self._seen.get(f"{hashlib.sha256(code.encode()).hexdigest()[:12]}.py") or {}
-            out.append({"id": f"attempt-{i}", "score": r.get("score"), "valid": r.get("valid")})
+            out.append({"id": f"attempt-{i}", "score": r.get("score"), "valid": r.get("valid"),
+                        "error": (r.get("detail") or {}).get("error") if r and not r.get("valid") else None})
         return out
 
 

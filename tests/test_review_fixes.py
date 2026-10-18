@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-import herd.pipeline as pipeline
-from herd.llm import LLM, BudgetExceeded, Ledger, ask_json
-from herd.reality import Evaluator, slug
-from herd.task import Task
+import diverge.pipeline as pipeline
+from diverge.llm import LLM, BudgetExceeded, Ledger, ask_json
+from diverge.reality import Evaluator, slug
+from diverge.task import Task
 from tests.test_pipeline_offline import MODELS, call_tool, fake_world  # noqa: F401  (fixture)
 
 BIN = "online_bin_packing"
@@ -19,14 +19,14 @@ def herd():
 
 # I2: the thesis benchmark needs a big enough map, and a count-matched literature control.
 def test_I2_bench_refuses_a_small_map_without_override(fake_world):
-    from herd.bench import run_bench
+    from diverge.bench import run_bench
     with pytest.raises(SystemExit, match="samples per model"):
         run_bench(BIN, budget_usd=0.25, repeats=1, operators=["blind_spot"], progress=lambda m: None,
                   n_per_model=3)  # an explicitly small map
 
 
 def test_I2_literature_random_matches_the_blind_spot_count(fake_world):
-    from herd.operators import run_operator
+    from diverge.operators import run_operator
     task = Task.resolve(BIN)
     study = pipeline.ensure_map(herd(), task)
     run = run_operator("literature_random", task, 0.25, seed=0, study=study, progress=lambda m: None)
@@ -68,7 +68,7 @@ def test_I4_changed_family_text_is_rescored(fake_world):
 
 # I5: labeling cost is in the preflight, and a budget stop during labeling keeps the results.
 def test_I5_labeling_budget_stop_keeps_operator_results(fake_world, monkeypatch):
-    import herd.bench as bench
+    import diverge.bench as bench
     def broke(*a, **k):
         raise BudgetExceeded("global budget reached")
     monkeypatch.setattr(bench, "label_samples", broke)
@@ -79,7 +79,7 @@ def test_I5_labeling_budget_stop_keeps_operator_results(fake_world, monkeypatch)
 
 
 def test_I5_preflight_includes_labeling_estimate(fake_world):
-    import herd.bench as bench
+    import diverge.bench as bench
     estimate = bench.labeling_estimate(herd(), operators=["plain", "hot"], repeats=2)
     assert estimate > 0
 
@@ -101,7 +101,7 @@ def test_I6_partial_sampling_is_recorded_and_reused(fake_world, monkeypatch):
     assert fake_world["llm"] == calls  # reused, not rebuilt
 
 
-# I7: herd_check returns a partial comparison when the budget runs out.
+# I7: diverge_check returns a partial comparison when the budget runs out.
 def test_I7_herd_check_returns_partial_results(fake_world, monkeypatch):
     task = Task.resolve(BIN)
     study = pipeline.ensure_map(herd(), task)
@@ -127,7 +127,7 @@ def test_I8_missing_keys_are_retried_then_rejected(fake_world, monkeypatch):
 
 
 def test_I8_run_tool_turns_any_exception_into_a_structured_error(fake_world, monkeypatch):
-    import herd.server as server
+    import diverge.server as server
     def boom(*a, **k):
         raise KeyError("families")
     monkeypatch.setattr(server, "ensure_map", boom)
@@ -137,8 +137,8 @@ def test_I8_run_tool_turns_any_exception_into_a_structured_error(fake_world, mon
 
 # I9: repeated held-out comparisons are flagged as exploratory.
 def test_I9_repeat_heldout_use_is_flagged(fake_world):
-    first, _ = call_tool("herd_check", {"task_description": BIN, "my_approach": "first fit", "k": 1})
-    second, _ = call_tool("herd_check", {"task_description": BIN, "my_approach": "first fit", "k": 1})
+    first, _ = call_tool("diverge_check", {"task_description": BIN, "my_approach": "first fit", "k": 1})
+    second, _ = call_tool("diverge_check", {"task_description": BIN, "my_approach": "first fit", "k": 1})
     assert first["heldout_prior_uses"] == 0 and first["exploratory"] is False
     assert second["heldout_prior_uses"] >= 1 and second["exploratory"] is True
 
@@ -174,7 +174,7 @@ def test_I14_reality_check_names_compared_families(fake_world):
 
 # I16: bench metrics respect the evaluator's direction.
 def test_I16_run_metrics_uses_evaluator_direction(tmp_path):
-    from herd.bench import run_metrics
+    from diverge.bench import run_metrics
     class HigherIsBetter:
         lower_is_better = False
         def best(self, xs): return max(xs)
@@ -203,7 +203,7 @@ def test_I18_empty_task_description_is_rejected():
 # Found in the live run: bench rebuilt a default-size (N=5) map over the N=20 map, then refused.
 def test_bench_reuses_the_bigger_map_by_default(fake_world):
     import yaml
-    from herd.bench import run_bench
+    from diverge.bench import run_bench
     path = pipeline.ROOT / "config.yaml"
     cfg = yaml.safe_load(path.read_text())
     cfg["reality_check"]["min_samples_per_model"] = 4  # config default n_per_model is 3 here

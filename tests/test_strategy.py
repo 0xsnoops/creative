@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-import herd.pipeline as pipeline
-from herd import strategy, trajectory
-from herd.llm import LLM
-from herd.task import Task
+import diverge.pipeline as pipeline
+from diverge import strategy, trajectory
+from diverge.llm import LLM
+from diverge.task import Task
 from tests.test_pipeline_offline import MODELS, fake_world  # noqa: F401  (fixture)
 
 BIN, CACHE = Task.resolve("online_bin_packing"), Task.resolve("cache_eviction")

@@ -5,11 +5,11 @@ import random
 
 import pytest
 
-import herd.pipeline as pipeline
-from herd import fingerprint
-from herd.operators import run_operator
-from herd.operators.adhd_frames import FRAMES, select_frames
-from herd.task import Task
+import diverge.pipeline as pipeline
+from diverge import fingerprint
+from diverge.operators import run_operator
+from diverge.operators.adhd_frames import FRAMES, select_frames
+from diverge.task import Task
 from tests.test_pipeline_offline import BEST_FIT, FIRST_FIT, call_tool, fake_world  # noqa: F401
 
 BIN = "online_bin_packing"
@@ -96,7 +96,7 @@ def test_fingerprint_gate_and_clusters(fake_world, tmp_path):
 
 
 def test_bench_reports_behavior_clusters_and_candidate_traces(fake_world, tmp_path, monkeypatch):
-    from herd.bench import run_bench
+    from diverge.bench import run_bench
     monkeypatch.setenv("HERD_TRACE_DIR", str(tmp_path / "trace"))
     table, _, bench_dir = run_bench(BIN, budget_usd=0.25, repeats=1, operators=["blind_spot", "blind_spot_contrast"],
                                     progress=lambda m: None, allow_small_map=True)
@@ -110,11 +110,11 @@ def test_bench_reports_behavior_clusters_and_candidate_traces(fake_world, tmp_pa
 
 
 def test_mcp_contrast_flag(fake_world):
-    check, _ = call_tool("herd_check", {"task_description": BIN, "my_approach": "first fit", "k": 1,
+    check, _ = call_tool("diverge_check", {"task_description": BIN, "my_approach": "first fit", "k": 1,
                                         "contrast": True})
     assert check["contrast"] is True and check["verdict"] in ("keep", "try_blind_spot", "try_other_family")
     study, task = study_and_task()
-    from herd.reality import Evaluator
+    from diverge.reality import Evaluator
     saved = json.loads((pipeline.ROOT / "results" / BIN / "family_scores.json").read_text())
     contrast_scores = saved[Evaluator(task).key + "|contrast"]
     assert contrast_scores["Best Fit"]["contrast"] is True and contrast_scores["First Fit"]["contrast"] is False

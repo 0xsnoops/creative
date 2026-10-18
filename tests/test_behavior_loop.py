@@ -5,9 +5,9 @@ import random
 
 import pytest
 
-from herd import trajectory
-from herd.diagnose import diagnose
-from herd.task import Task
+from diverge import trajectory
+from diverge.diagnose import diagnose
+from diverge.task import Task
 
 BIN, CACHE = Task.resolve("online_bin_packing"), Task.resolve("cache_eviction")
 

@@ -12,6 +12,7 @@ from .cache import request_key
 
 OPENROUTER = "https://openrouter.ai/api/v1"
 COMPLETION_MARGIN = 1.25
+MIN_SHRUNK_TOKENS = 4000  # implementer replies use ~2k tokens; smaller budgets are refused as before
 
 
 def require_env(name):
@@ -54,6 +55,14 @@ class Ledger:
         if self.run_cap is not None and self.spent_this_run + self.reserved + amount > self.run_cap:
             raise BudgetExceeded(f"run budget ${self.run_cap:.2f} reached (spent ${self.spent_this_run:.4f}, "
                                  f"in flight ${self.reserved:.4f}, next call up to ${amount:.4f})")
+
+    def headroom(self):
+        """What a new call may still reserve under both caps (inf when uncapped)."""
+        with self.lock:
+            room = self.global_cap - self.total_spent - self.reserved
+            if self.run_cap is not None:
+                room = min(room, self.run_cap - self.spent_this_run - self.reserved)
+            return room
 
     def reserve(self, amount):
         with self.lock:
@@ -133,6 +142,21 @@ class LLM:
             self.ledger.charge_cached(worst_case, hit["cost_usd"])
             self._trace(request, hit, True, 0.0)
             return {**hit, "cached": True}
+        # A full-size reservation that no longer fits the budget used to end the run early (bench
+        # operators stopped at about a third of their cap). Shrink max_tokens to what the budget can
+        # still pay for, never below MIN_SHRUNK_TOKENS; the reservation stays a hard upper bound.
+        room = self.ledger.headroom()
+        if worst_case > room:
+            fit = int((room - prompt_tokens_estimate * price_in) / (price_out * COMPLETION_MARGIN)) if price_out else 0
+            if fit >= MIN_SHRUNK_TOKENS:
+                max_tokens = fit
+                request = {**request, "max_tokens": max_tokens}
+                key = request_key(request)
+                worst_case = prompt_tokens_estimate * price_in + max_tokens * price_out * COMPLETION_MARGIN
+                if hit := self.cache.get(key):
+                    self.ledger.charge_cached(worst_case, hit["cost_usd"])
+                    self._trace(request, hit, True, 0.0)
+                    return {**hit, "cached": True}
         started = time.time()
 
         self.ledger.reserve(worst_case)

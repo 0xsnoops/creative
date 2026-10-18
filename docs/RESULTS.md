@@ -209,7 +209,7 @@ calls replay at no cost. Replay with `herd demo <fixture>`.
   candidates per arm, and a $0.40 cap per arm.
 - **Rescue:** the arm's dev-selected candidate beats the stuck best on held-out.
 
-| stuck state (held-out of the stuck best) | fresh_start | try_different | random_lever | herd_escape v2 |
+| stuck state (held-out of the stuck best) | fresh_start | try_different | random_lever | diverge_escape v2 |
 |---|---|---|---|---|
 | 0 (148.12) | 148.12 no | **3.98 yes** | 6.88 yes | 4.02 yes |
 | 1 (3.98, best fit) | 12.97 no | 3.98 no | 4.89 no | 12.97 no |
@@ -217,11 +217,11 @@ calls replay at no cost. Replay with `herd demo <fixture>`.
 | 4 (3.96) | 12.97 no | 3.96 no | 10.53 no | 148.12 no |
 | **rescued** | 0/4 | 1/4 | 1/4 | 1/4 |
 
-**What this shows:** herd_escape v2 did not beat the simple "try a fundamentally different
+**What this shows:** diverge_escape v2 did not beat the simple "try a fundamentally different
 approach" arm. The only rescue came in state 0, which was stuck far from best fit, and three arms
 rescued it there; try_different did best. No arm beat a plateau at best fit.
 
-**Cost:** herd_escape cost $0.010 in total and was the most expensive arm, but every arm was cheap.
+**Cost:** diverge_escape cost $0.010 in total and was the most expensive arm, but every arm was cheap.
 
 **Lever:** HERD chose a family lever, "Worst Fit / Almost-Any-Fit variants", which is a weak
 direction for escaping best fit.
