@@ -1,10 +1,10 @@
 """Plateau check: is the stalled best attempt sitting at the best known built-in baseline?
 
-Measured context (docs/RESULTS.md, mini rescue test, preliminary): three of four stuck states sat
-exactly at the best built-in baseline's dev score, and no method (escape, try_different, random_lever,
-fresh_start) rescued any of those three. When attempts stall AT the reference score, the agent may have
-reached what this framing allows: more variations rarely help, and the right move is to reframe the
-problem or escalate to a human.
+Measured context (docs/RESULTS.md, rescue tests, preliminary, n = 4): three of four stuck states sat
+exactly at the best built-in baseline's dev score. In round 1 no method rescued them; in round 2,
+fresh-context escape pipelines did on 2 of 3, while plain "try something different" did on 1. So when
+attempts stall AT the reference score, more local variations are a poor bet (HYPOTHESIZED): escape
+with a fresh context, reframe the problem, or escalate to a human.
 
 plateau(attempts, baselines, lower_is_better=True, eps=0.005) -> dict | None
     attempts:  [{id, score, valid}] (the diverge_escape result's "attempts" list)
