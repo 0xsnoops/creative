@@ -298,49 +298,31 @@ before the freeze.
 - Whether escape beats "continue", "be creative" or a fresh model at an equal budget. This is the
   agent-recovery benchmark.
 
-## New blind-spot operators vs plain, Anthropic, 2 repeats (interim, dev only)
+## New blind-spot operators vs plain, Anthropic, 2 repeats (preliminary)
 
 Full write-up: `docs/BENCH_NEW_OPERATORS.md`. Same setup as the 3-operator Anthropic run
 (implementer `anthropic/claude-sonnet-5.5`, labeler `anthropic/claude-opus-5.5`, $0.30 per
-operator per repeat, seeds 0-1, cache_eviction). `blind_spot_hybrid` allows hybrids of the
-blind-spot family with other mechanisms; `blind_spot_directions` gives each retry of a family a
-different design direction. At the cutoff the bench had finished generation for 7 of 8
-operator-seed runs; labeling and held-out scoring were still running (final table:
-`results/bench-new-ops.log`). Dev miss ratio, lower is better; all candidates were valid.
+operator per repeat, seeds 0-1, cache_eviction; selection on dev, scores on held-out).
+`blind_spot_hybrid` lets the implementer combine the blind-spot family with other mechanisms;
+`blind_spot_directions` gives each retry of a family a different design direction. Cells are
+mean [min, max] over 2 repeats; miss ratio, lower is better. Log: `results/bench-new-ops.log`.
 
-| operator | candidates (s0, s1) | dev best (s0, s1) | dev median (s0, s1) | spent $ (s0, s1) |
-|---|---|---|---|---|
-| plain | 12, 12 | **0.5665, 0.5675** | 0.5872, 0.5856 | 0.265, 0.256 |
-| blind_spot | 5, 6 | 0.5903, 0.5869 | 0.5962, 0.5960 | 0.213, 0.272 |
-| blind_spot_hybrid | 8, 8 | 0.5856, 0.5841 | 0.5960, 0.5956 | 0.253, 0.256 |
-| blind_spot_directions | 7, running | 0.5889, - | 0.5961, - | 0.256, - |
+| operator | candidates | valid rate | useful families (beat LRU on held-out) | best held-out | median held-out of family picks | spent $ |
+|---|---|---|---|---|---|---|
+| plain | 12.0 | 1.00 | 2.0 | **0.5672** [0.5666, 0.5678] | 0.5760 | 0.260 |
+| blind_spot | 5.5 | 1.00 | 3.5 [3, 4] | 0.5887 [0.5867, 0.5908] | 0.5930 | 0.242 |
+| blind_spot_hybrid | 8.0 | 1.00 | **4.5** [4, 5] | 0.5843 [0.5838, 0.5848] | 0.5941 | 0.255 |
+| blind_spot_directions | 7.0 | 0.93 | 4.0 | 0.5862 [0.5850, 0.5874] | 0.5944 | 0.265 |
 
-Reference, the 3-operator Anthropic run (held-out, 2 repeats): plain 0.5681, literature_random
-0.5680, blind_spot 0.5877; blind_spot had the most useful families (4 per repeat vs plain's 2).
+Invalid candidates: 1 of 65 (blind_spot_directions, "no code in reply"); no evaluator timeouts
+despite heavy machine load. Held-out baselines LRU 0.6747, FIFO 0.7088.
 
-**Verdict (preliminary):** the hybrid allowance improves blind_spot's dev best in both seeds by
-0.003-0.005 and the directions lever at most marginally, but neither closes the ~0.017 gap to
-plain sampling. Caveats: dev scores only; 2 repeats; plain and blind_spot did not replay from the
-cache as intended, so the controls here are fresh samples at the same seeds. Spend about $2.0 by
-the cutoff, projected about $2.6 with labeling.
-
-### Final held-out table (run completed 08:45 Pacific; supersedes "held-out pending" above)
-
-Setup: cache_eviction, Claude Sonnet 5.5 implementer via the Anthropic API, $0.30 per operator per
-repeat, 2 repeats. Held-out miss ratio, lower is better; values are mean [min, max] across repeats.
-LRU scores 0.6747 on held-out.
-
-| operator | candidates | distinct families beating LRU | discoveries per $ (cached) | best held-out |
-|---|---|---|---|---|
-| plain | 12 | 2 | 7.68 | **0.5672** [0.5666, 0.5678] |
-| blind_spot | 5.5 | 3.5 | 14.41 | 0.5887 [0.5867, 0.5908] |
-| blind_spot_hybrid | 8 | **4.5** | **17.67** | 0.5843 [0.5838, 0.5848] |
-| blind_spot_directions | 7 | 4.0 | 15.09 | 0.5862 [0.5850, 0.5874] |
-
-**Verdict (preliminary, 2 repeats).**
-- **Hybrid:** the hybrid-allowed template helps blind-spot steering. It produces the most
-  distinct working families per dollar (17.67, against 7.68 for plain) and improves blind_spot's
-  best score from 0.5887 to 0.5843.
-- **Directions:** per-retry directions help a little.
-- **Against plain:** neither closes the gap to plain's best program (0.5672). On this workload,
-  steering toward overlooked families buys variety, not a better best program.
+**Verdict (preliminary, 2 repeats):** neither new operator closes the gap to plain on best
+held-out; plain is ahead of every blind-spot operator in both repeats. The hybrid allowance helps
+on every measure (best held-out 0.5843 vs 0.5887, 8 vs 5.5 candidates, 4.5 vs 3.5 useful
+families, 17.7 vs 14.4 discoveries/$) but recovers only about a fifth of the gap; the
+directions lever helps less. The blind-spot operators keep the breadth advantage (about twice
+plain's useful families per dollar); plain's edge is one LFU/2Q-style family that beats
+everything in the blind spots. Caveats: plain and blind_spot did not replay from the cache as
+intended, so the controls are fresh samples at the same seeds; 2 repeats on fixed evaluation
+data. Spend $2.61 for this run.
