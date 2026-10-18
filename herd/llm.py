@@ -38,6 +38,7 @@ class Ledger:
         self.reserved = 0.0
         self.spent_this_run = 0.0  # this run's spend, including billed cache hits
         self.new_spend = 0.0       # money actually sent to the APIs in this run
+        self.recorded = 0.0        # original cost of every response used, cached or not
         self.lock = threading.Lock()
 
     @property
@@ -62,13 +63,15 @@ class Ledger:
             self.reserved -= reserved
             self.new_spend += actual
             self.spent_this_run += actual
+            self.recorded += actual
 
     def charge_cached(self, worst_case, cost):
         """Bill a cache hit to this run only; it is already part of the global total."""
-        if self.bill_cached:
-            with self.lock:
+        with self.lock:
+            if self.bill_cached:
                 self._check(worst_case, new_money=False)
                 self.spent_this_run += cost
+            self.recorded += cost
 
 
 def load_model_catalog(cache_dir):

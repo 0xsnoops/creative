@@ -113,3 +113,11 @@ def test_candidate_cannot_write_outside_scratch(tmp_path):
             "def priority(item, capacities):\n" + BEST_FIT_BODY)
     result = bin_packing.evaluate(write(tmp_path, code))
     assert result["valid"] is False and not target.exists()
+
+
+def test_heldout_split_is_separate_and_keeps_baseline_order():
+    dev = {n: r["score"] for n, r in bin_packing.baselines("dev").items()}
+    heldout = {n: r["score"] for n, r in bin_packing.baselines("heldout").items()}
+    assert heldout["best_fit"] < heldout["first_fit"] and heldout != dev
+    assert set(bin_packing.SPLITS["dev"]).isdisjoint(bin_packing.SPLITS["heldout"])
+    assert cache_eviction.make_traces("heldout")["zipf"] != cache_eviction.make_traces("dev")["zipf"]

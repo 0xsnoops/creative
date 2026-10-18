@@ -123,6 +123,11 @@ def test_map_blind_spots_and_check(fake_world):
     assert m["n_labeled"] == 6 and m["top3"][0] == "First Fit"
     assert m["families"][0]["share"] == pytest.approx(4 / 6, abs=1e-4)
     assert {b["family"] for b in study["blind_spots"]} == {"Best Fit", "Harmonic"}
+    best_fit_spot = next(b for b in study["blind_spots"] if b["family"] == "Best Fit")
+    assert best_fit_spot["observed"] == "0 of 6 labeled samples"  # not "below 2%"
+    assert best_fit_spot["per_model_counts"] == {m: 0 for m in MODELS}
+    assert 0.3 < best_fit_spot["share_upper_95"] < 0.5  # 0 of 6 says little
+    assert set(m["build_cost_usd"]) == {"sampling", "literature", "labeling"}
     taxonomy = json.loads((pipeline.ROOT / "results/online_bin_packing/taxonomy.json").read_text())
     rejected = {r["family"]: r["reason"] for r in taxonomy["rejected"]}
     assert rejected["Invented"] == "no source URL from the search results"
@@ -189,17 +194,30 @@ def test_bench_operators_at_equal_budget(fake_world):
     from herd.bench import run_bench
     table, verdict, bench_dir = run_bench("online_bin_packing", budget_usd=0.25, repeats=2,
                                           progress=lambda m: None)
-    assert set(table) == {"plain", "hot", "verbalized", "blind_spot", "transplant"}
+    assert set(table) == {"plain", "hot", "verbalized", "blind_spot", "literature_all", "transplant"}
     data = json.loads((bench_dir / "bench.json").read_text())
     for r in data["per_run"]:
         assert 0 < r["spent_usd"] <= 0.25 and r["n_candidates"] > 0
+    # Cold-start adds the setup each operator relies on; operators with none are unchanged.
+    by = {(r["operator"], r["seed"]): r for r in data["per_run"]}
+    build = sum(data["herd_map_build_cost_usd"].values())
+    assert by[("blind_spot", 0)]["spent_cold_usd"] == pytest.approx(by[("blind_spot", 0)]["spent_usd"] + build)
+    assert by[("literature_all", 0)]["spent_cold_usd"] == pytest.approx(
+        by[("literature_all", 0)]["spent_usd"] + data["herd_map_build_cost_usd"]["literature"])
+    assert by[("plain", 0)]["spent_cold_usd"] == by[("plain", 0)]["spent_usd"]
+    # literature_all ignores the map: it implements every sourced family, herd ones included.
+    lit = json.loads((bench_dir / "seed0" / "literature_all" / "run.json").read_text())
+    assert lit["notes"]["families"] == ["First Fit", "Best Fit", "Harmonic"]
+    # Scores are held-out scores of dev-selected candidates.
+    assert by[("transplant", 0)]["best_score"] != by[("transplant", 0)]["dev_best_score"]
+    assert "Ablation, blind_spot vs literature_all" in verdict
     hot = [r for r in data["per_run"] if r["operator"] == "hot"]
     assert all(r["notes"]["temperature"] == 1.6 for r in hot)  # 2.0 produced garbage
     assert table["transplant"]["useful_discoveries"]["min"] == 1  # the FunSearch-style mechanism
     assert table["plain"]["useful_discoveries"]["max"] == 0
     run = json.loads((bench_dir / "seed0" / "transplant" / "run.json").read_text())
     assert [m["family"] for m in run["notes"]["rejected_unsourced"]] == ["Unsourced idea"]
-    assert "transplant beats verbalized" in verdict
+    assert "transplant did better than verbalized in every repeat" in verdict
     assert (bench_dir / "bench.png").stat().st_size > 10_000 and "## Verdict" in (bench_dir / "bench.md").read_text()
 
     calls = dict(fake_world)
@@ -264,3 +282,54 @@ def test_external_evaluator_cmd_runs_without_secrets(fake_world, tmp_path, monke
     task = Task.resolve("Some free-text task")
     result = Evaluator(task, f"{sys.executable} {script}")(tmp_path / "candidate.py")
     assert result["valid"] is True
+
+
+def test_reality_check_selects_on_dev_and_reports_heldout(fake_world):
+    herd = pipeline.Herd(progress=lambda m: None)
+    task = Task.resolve("online_bin_packing")
+    study = pipeline.ensure_map(herd, task)
+    best_fit = next(f for f in study["families"] if f["family"] == "Best Fit")
+    s = pipeline.ensure_family_scores(herd, task, study, [best_fit], Evaluator(task), k=1)["Best Fit"]
+    heldout_baseline = task.baselines("heldout")["best_fit"]["score"]
+    assert s["final_split"] == "heldout" and s["final_score"] == pytest.approx(heldout_baseline)
+    assert s["best_score"] == pytest.approx(task.baselines()["best_fit"]["score"])  # dev
+
+
+class StubEvaluator:
+    lower_is_better, has_heldout = True, True
+
+    def beats(self, a, b):
+        return a < b
+
+
+def synthetic_check(monkeypatch, tmp_path, scores):
+    """check_approach with the user's family "Mine" and fixed held-out scores (lower is better)."""
+    fams = [{"family": f, "one_line_mechanism": f, "source_summary": "", "source_urls": ["u"]} for f in scores]
+    rows = [{"family": "Mine", "share": 0.6, "count": 6, "sourced": True},
+            {"family": "Common", "share": 0.4, "count": 4, "sourced": True},
+            {"family": "Rare", "share": 0.0, "count": 0, "sourced": True}]
+    study = {"families": fams, "blind_spots": [{**fams[2], "share": 0.0}],
+             "herd_map": {"families": rows, "top3": ["Mine", "Common"], "concentration_top3": 1.0}}
+    kinds = {"Mine": "herd", "Common": "herd", "Rare": "blind_spot"}
+    monkeypatch.setattr(pipeline, "classify", lambda *a: {"family": "Mine", "justification": "j"})
+    monkeypatch.setattr(pipeline, "ensure_family_scores", lambda *a: {
+        f: {"final_score": v, "best_code_path": f"{f}.py", "kind": kinds[f], "share": 0.0}
+        for f, v in scores.items()})
+    herd = pipeline.Herd(progress=lambda m: None)
+    return pipeline.check_approach(herd, Task.resolve("online_bin_packing"), study, "mine", StubEvaluator(), 1)
+
+
+def test_herd_check_recommends_the_best_family_not_the_first_rare_one(fake_world, monkeypatch, tmp_path):
+    # The review's case: yours 10, a rare family 9, a common family 5. Recommend the 5.
+    result = synthetic_check(monkeypatch, tmp_path, {"Mine": 10, "Common": 5, "Rare": 9})
+    assert result["verdict"] == "try_other_family" and result["better_family"]["family"] == "Common"
+    assert result["diverse_alternative"]["family"] == "Rare"
+    assert synthetic_check(monkeypatch, tmp_path, {"Mine": 10, "Common": 9, "Rare": 5})["verdict"] == "try_blind_spot"
+    assert synthetic_check(monkeypatch, tmp_path, {"Mine": 5, "Common": 9, "Rare": 5})["verdict"] == "keep"
+
+
+def test_verdict_with_a_single_operator():
+    from herd.bench import verdict
+    one = {"mean": 1.0, "min": 1.0, "max": 1.0, "sd": 0.0, "n": 1}
+    table = {"plain": {"useful_discoveries": one, "useful_discovery_rate": one, "best_score": one}}
+    assert "plain" in verdict(table, "best_fit", 4.0)  # used to raise IndexError on ranked[1]

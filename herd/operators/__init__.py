@@ -113,9 +113,10 @@ def run_jobs(ctx, jobs):
 def run_operator(name, task, budget_usd, seed=0, study=None, progress=print):
     """Run one operator at one budget. Returns {operator, seed, spent_usd, new_spend_usd, notes,
     candidates}; spent_usd counts cache hits at their original cost, so reruns match."""
-    from . import blind_spot, hot, plain, transplant, verbalized
+    from . import blind_spot, hot, literature_all, plain, transplant, verbalized
     operators = {"plain": plain.jobs, "hot": hot.jobs, "verbalized": verbalized.jobs,
-                 "blind_spot": blind_spot.jobs, "transplant": transplant.jobs}
+                 "blind_spot": blind_spot.jobs, "literature_all": literature_all.jobs,
+                 "transplant": transplant.jobs}
     if study is None:
         study = ensure_map(Herd(progress=progress), task)
     ctx = OperatorContext(name, task, budget_usd, seed, study, progress)

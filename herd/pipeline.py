@@ -93,8 +93,17 @@ def ensure_map(herd, task, n_per_model=None):
             return {"herd_map": saved, "blind_spots": read_json(out / "blind_spots.json"),
                     "families": read_json(out / "families.json")}
 
+        # What each stage would cost from a cold cache, for cold-start benchmark accounting.
+        build_cost, mark = {}, herd.ledger.recorded
+
+        def stage_done(stage):
+            nonlocal mark
+            build_cost[stage] = round(herd.ledger.recorded - mark, 6)
+            mark = herd.ledger.recorded
+
         herd.progress(f"sampling {n} per model x {len(meta['samplers'])} models")
         records = run_sampling(task, herd.llm, cfg, out, n, herd.progress)
+        stage_done("sampling")
         if over := [r for r in records if r["status"] == "budget_exceeded"]:
             raise BudgetExceeded(over[0]["error"])
         errors = [r for r in records if r["status"] == "api_error"]
@@ -106,6 +115,7 @@ def ensure_map(herd, task, n_per_model=None):
         write_json(out / "literature.json", literature)
         taxonomy = build_taxonomy(task, literature, herd.llm, cfg)
         write_json(out / "taxonomy.json", taxonomy)
+        stage_done("literature")
 
         herd.progress(f"labeling against {len(taxonomy['families'])} families")
         labels, emergent = label_samples(task, records, taxonomy, herd.llm, cfg, out, herd.progress)
@@ -113,9 +123,10 @@ def ensure_map(herd, task, n_per_model=None):
             for sid, l in labels.items():
                 f.write(json.dumps({"sample_id": sid, **l}) + "\n")
         write_audit(out / "labels_audit.csv", records, labels, out)
+        stage_done("labeling")
 
         families = taxonomy["families"] + emergent
-        herd_map = {"task": task.name, "meta": meta, "n_api_errors": len(errors),
+        herd_map = {"task": task.name, "meta": meta, "n_api_errors": len(errors), "build_cost_usd": build_cost,
                     **build_herd_map(records, labels, families)}
         blind_spots = find_blind_spots(herd_map, families, cfg["blind_spot_max_share"])
         write_json(out / "families.json", families)
@@ -140,7 +151,7 @@ def ensure_family_scores(herd, task, study, families, evaluator, k):
         scores = saved.setdefault(evaluator.key, {})
         for family in families:
             name = family["family"]
-            if name in scores and scores[name]["k"] >= k:
+            if name in scores and scores[name]["k"] >= k and "final_score" in scores[name]:
                 continue
             scores[name] = reality_check(task, family, evaluator, herd.llm, herd.cfg, out, k, herd.progress)
             refresh_kinds(scores, study, share)
@@ -156,8 +167,9 @@ def refresh_kinds(scores, study, share):
 
 
 def baseline_scores(task, evaluator, baseline_files=()):
+    """Reference scores on the same split that final scores use."""
     if not evaluator.command:
-        return {name: r["score"] for name, r in task.baselines().items()}
+        return {name: r["score"] for name, r in task.baselines("heldout").items()}
     return {Path(p).stem: evaluator(Path(p))["score"] for p in baseline_files}
 
 
@@ -187,28 +199,36 @@ def check_approach(herd, task, study, approach, evaluator, k):
     to_test = [mine] + [by_name[f] for f in study["herd_map"]["top3"] if f != name] \
         + [b for b in study["blind_spots"] if b["family"] != name]
     scores = ensure_family_scores(herd, task, study, to_test, evaluator, k)
-    tested = {f["family"]: scores[f["family"]]["best_score"] for f in to_test
-              if scores[f["family"]]["best_score"] is not None}
-    result["my_family_best_score"] = tested.get(name)
+    # Each family is represented by its implementation selected on dev, and families are compared
+    # on that implementation's held-out score (dev score only for external evaluators).
+    tested = {f["family"]: scores[f["family"]]["final_score"] for f in to_test
+              if scores[f["family"]]["final_score"] is not None}
+    result["scored_on"] = "heldout" if evaluator.has_heldout else "dev"
+    result["my_family_score"] = tested.get(name)
     result["tested"] = {f: round(s, 6) for f, s in tested.items()}
     if name not in tested:
         return {**result, "verdict": "inconclusive",
-                "note": f"no valid implementation of {name} in {k} tries"}
+                "note": f"no implementation of {name} was valid in {k} tries"}
 
-    winners = sorted((f for f in blind if f in tested and evaluator.beats(tested[f], tested[name])),
-                     key=lambda f: tested[f], reverse=not evaluator.lower_is_better)
-    if winners:
-        b, s = blind[winners[0]], scores[winners[0]]
-        return {**result, "verdict": "try_blind_spot",
-                "blind_spot": {"family": b["family"], "mechanism": b["one_line_mechanism"],
-                               "share": b["share"], "best_score": s["best_score"],
-                               "code_path": str(herd.out_dir(task) / s["best_code_path"]),
-                               "source_urls": b["source_urls"]}}
-    best_family = min(tested, key=tested.get) if evaluator.lower_is_better else max(tested, key=tested.get)
-    if tested[best_family] == tested[name]:
+    def describe(f):
+        entry, s = by_name.get(f) or blind.get(f) or {}, scores[f]
+        return {"family": f, "kind": s["kind"], "share": s["share"], "score": tested[f],
+                "mechanism": entry.get("one_line_mechanism", ""), "source_urls": entry.get("source_urls", []),
+                "code_path": str(herd.out_dir(task) / s["best_code_path"])}
+
+    def best_of(names):
+        return min(names, key=tested.get) if evaluator.lower_is_better else max(names, key=tested.get)
+
+    # Decide on quality first; rarity only explains the winner, it never overrides it.
+    best = best_of(tested)
+    if not evaluator.beats(tested[best], tested[name]):
         common = result["share"] >= herd.cfg["blind_spot_max_share"]
         return {**result, "verdict": "keep",
                 "message": "common and best, keep it" if common else "rare and best, keep it"}
-    return {**result, "verdict": "try_other_family",
-            "better_family": {"family": best_family, "best_score": tested[best_family],
-                              "share": scores[best_family]["share"]}}
+    if best in blind:
+        return {**result, "verdict": "try_blind_spot", "blind_spot": describe(best)}
+    result = {**result, "verdict": "try_other_family", "better_family": describe(best)}
+    rare_winners = [f for f in blind if f in tested and evaluator.beats(tested[f], tested[name])]
+    if rare_winners:  # also beats yours, but less than the best family: a different direction to explore
+        result["diverse_alternative"] = describe(best_of(rare_winners))
+    return result

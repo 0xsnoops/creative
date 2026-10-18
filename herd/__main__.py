@@ -20,7 +20,9 @@ def run(task_name, n, reality):
     print(f"\nconcentration (top 3): {m['concentration_top3']:.0%}  top3: {m['top3']}")
     for r in m["families"]:
         print(f"  {r['share']:6.1%}  {r['count']:4d}  {r['family']}")
-    print(f"blind spots: {[b['family'] for b in study['blind_spots']]}")
+    print("blind spots (sourced families rarely or never observed):")
+    for b in study["blind_spots"]:
+        print(f"  {b['observed']}, true share <= {b['share_upper_95']:.1%} (95%)  {b['family']}")
 
     min_n = herd.cfg["reality_check"]["min_samples_per_model"]
     if reality and task.evaluator and m["meta"]["n_per_model"] < min_n:
@@ -32,14 +34,15 @@ def run(task_name, n, reality):
         families = [by_name[f] for f in m["top3"]] + study["blind_spots"]
         scores = ensure_family_scores(herd, task, study, families, Evaluator(task),
                                       herd.cfg["reality_check"]["k"])
-        print("\nreality check (best / median / valid of k):")
+        print("\nreality check (dev best / dev median / held-out score of the dev-selected best / valid of k):")
+        fmt = lambda v: f"{v:.4f}" if v is not None else "-"
         for f in families:
             s = scores[f["family"]]
-            fmt = lambda v: f"{v:.4f}" if v is not None else "-"
             print(f"  {s['kind']:10} {fmt(s['best_score']):>8} {fmt(s['median_score']):>8} "
-                  f"{s['n_valid']}/{s['k']}  {f['family']}")
-        for name, r in task.baselines().items():
-            print(f"  {'baseline':10} {r['score']:8.4f}  {name}")
+                  f"{fmt(s['final_score']):>8} {s['n_valid']}/{s['k']}  {f['family']}")
+        dev, heldout = task.baselines(), task.baselines("heldout")
+        for name in dev:
+            print(f"  {'baseline':10} {fmt(dev[name]['score']):>8} {'':>8} {fmt(heldout[name]['score']):>8}  {name}")
     print(f"\nspend this run ${herd.ledger.new_spend:.4f}; total ${herd.ledger.total_spent:.4f} "
           f"of ${herd.ledger.global_cap:.2f}")
 

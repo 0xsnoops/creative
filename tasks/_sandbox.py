@@ -56,11 +56,11 @@ def run_isolated(cmd, timeout, stdin="", keep_path=False):
             return None
 
 
-def evaluate_isolated(evaluator_script, candidate, timeout):
-    """Run `python evaluator_script --inner candidate` in isolation and return its result."""
+def evaluate_isolated(evaluator_script, candidate, timeout, args=()):
+    """Run `python evaluator_script --inner candidate *args` in isolation and return its result."""
     nonce = secrets.token_hex(16)
-    proc = run_isolated([sys.executable, str(evaluator_script), "--inner", str(os.path.realpath(candidate))],
-                        timeout, stdin=nonce + "\n")
+    proc = run_isolated([sys.executable, str(evaluator_script), "--inner", str(os.path.realpath(candidate)),
+                         *args], timeout, stdin=nonce + "\n")
     if proc is None:
         return invalid(f"timeout after {timeout}s")
     tag = RESULT_TAG + nonce

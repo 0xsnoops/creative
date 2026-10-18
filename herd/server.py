@@ -70,13 +70,15 @@ async def herd_map(task_description: str, ctx: Context, budget_usd: float = 5.0)
 
 @mcp.tool()
 async def blind_spots(task_description: str, ctx: Context, budget_usd: float = 5.0) -> str:
-    """Solution families from the literature that fewer than 2% of model samples use,
-    with their mechanism and source URLs."""
+    """Solution families from the literature that model samples rarely or never used, with how
+    often they were observed (k of n samples, per model), a 95% upper bound on their true share,
+    their mechanism and source URLs."""
     def work(herd):
         study = ensure_map(herd, Task.resolve(task_description))
         return {"low_confidence": low_confidence(study, herd.cfg),
                 "blind_spots": [{"family": b["family"], "mechanism": b["one_line_mechanism"],
-                                 "share": b["share"], "source_urls": b["source_urls"]}
+                                 "observed": b["observed"], "share_upper_95": b["share_upper_95"],
+                                 "per_model_counts": b["per_model_counts"], "source_urls": b["source_urls"]}
                                 for b in study["blind_spots"]]}
     return await run_tool(ctx, budget_usd, work)
 
@@ -85,8 +87,9 @@ async def blind_spots(task_description: str, ctx: Context, budget_usd: float = 5
 async def reality_check(task_description: str, family: str, ctx: Context, evaluator_cmd: str = "",
                         k: int = 3, lower_is_better: bool = True, baseline_files: list[str] | None = None,
                         budget_usd: float = 3.0) -> str:
-    """Implement one solution family k times and score each with the evaluator. Returns the best
-    code and score, the median score, and how it compares with baselines and the top herd family."""
+    """Implement one solution family k times and score each with the evaluator. The best
+    implementation is picked on dev data; final_score is its score on held-out data (built-in
+    tasks) and is what baselines and the top herd family are compared against."""
     def work(herd):
         task = Task.resolve(task_description)
         study = ensure_map(herd, task)
@@ -96,22 +99,24 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
         evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
         scores = ensure_family_scores(herd, task, study, [by_name[family]], evaluator, k)
         s, out = scores[family], herd.out_dir(task)
-        herd_scores = {f: v["best_score"] for f, v in scores.items()
-                       if v["kind"] == "herd" and v["best_score"] is not None}
+        herd_scores = {f: v["final_score"] for f, v in scores.items()
+                       if v["kind"] == "herd" and v.get("final_score") is not None}
         baselines = baseline_scores(task, evaluator, baseline_files or ())
         result = {"family": family, "kind": s["kind"], "share": s["share"], "k": s["k"],
                   "n_valid": s["n_valid"], "n_invalid": s["n_invalid"],
-                  "best_score": s["best_score"], "median_score": s["median_score"],
+                  "dev_best_score": s["best_score"], "dev_median_score": s["median_score"],
+                  "final_score": s["final_score"], "scored_on": s["final_split"],
                   "invalid_errors": [m["error"] for m in s["implementations"] if not m["valid"]],
                   "baselines": baselines}
-        if s["best_score"] is not None:
+        if s["final_score"] is not None:
             result["beats_baselines"] = [b for b, v in baselines.items()
-                                         if v is not None and evaluator.beats(s["best_score"], v)]
+                                         if v is not None and evaluator.beats(s["final_score"], v)]
+        if s["best_code_path"]:
             result["best_code"] = (out / s["best_code_path"]).read_text()
         if herd_scores:
             top = evaluator.best(herd_scores.values())
             result["best_tested_herd"] = {"family": next(f for f, v in herd_scores.items() if v == top),
-                                          "best_score": top}
+                                          "final_score": top}
         return result
     return await run_tool(ctx, budget_usd, work)
 
@@ -120,8 +125,10 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
 async def herd_check(task_description: str, my_approach: str, ctx: Context, evaluator_cmd: str = "",
                      k: int = 3, lower_is_better: bool = True, budget_usd: float = 5.0) -> str:
     """Which family does my_approach belong to and how common is it? With an evaluator (or a
-    registered task), also tests it against the blind spots and top herd families and returns
-    verdict "keep", "try_blind_spot" (with the winning family) or "try_other_family"."""
+    registered task), also tests generated implementations of that family against the blind
+    spots and top herd families (held-out scores for built-in tasks), picks the best family,
+    and returns verdict "keep", "try_blind_spot" or "try_other_family" (plus a
+    diverse_alternative when a blind spot also beat yours)."""
     def work(herd):
         task = Task.resolve(task_description)
         study = ensure_map(herd, task)

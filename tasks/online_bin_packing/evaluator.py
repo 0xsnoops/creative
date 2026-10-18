@@ -1,7 +1,7 @@
 """Online bin packing evaluator. Lower score is better.
 
-    python evaluator.py CANDIDATE.py   -> prints {"valid", "score", "detail"} as JSON
-    python evaluator.py --baselines    -> scores the reference first_fit and best_fit
+    python evaluator.py CANDIDATE.py [--split heldout]  -> prints {"valid", "score", "detail"} as JSON
+    python evaluator.py --baselines [--split heldout]   -> scores the reference first_fit and best_fit
 
 Score = mean over 5 fixed instances of the % excess bins over the lower bound
 ceil(sum(items) / CAPACITY). The candidate runs isolated (tasks/_sandbox.py) with a
@@ -21,7 +21,9 @@ from _sandbox import emit, evaluate_isolated, read_nonce  # noqa: E402
 
 CAPACITY = 100
 N_ITEMS = 5000
-SEEDS = [0, 1, 2, 3, 4]
+# "dev" instances are used for all scoring and selection. "heldout" instances are only used
+# to report final numbers for candidates already selected on dev. Both fixed before any results.
+SPLITS = {"dev": [0, 1, 2, 3, 4], "heldout": [1000, 1001, 1002, 1003, 1004]}
 TIMEOUT_S = 60
 ENTRYPOINT = "priority"  # what candidate code must define
 HERE = Path(__file__).resolve().parent
@@ -56,9 +58,9 @@ def pack(priority, items):
     return n_bins
 
 
-def score_candidate(path):
+def score_candidate(path, split="dev"):
     per_instance = []
-    for seed in SEEDS:
+    for seed in SPLITS[split]:
         items = make_items(seed)
         lower_bound = math.ceil(items.sum() / CAPACITY)
         bins = pack(load_function(path, ENTRYPOINT), items)  # fresh module state per instance
@@ -75,29 +77,30 @@ def load_function(path, name):
     return getattr(module, name)
 
 
-def _inner(path):
+def _inner(path, split):
     nonce = read_nonce()  # before any candidate code runs
     start = time.time()
-    score, per_instance = score_candidate(path)
-    detail = {"instances": per_instance, "runtime_s": round(time.time() - start, 2)}
+    score, per_instance = score_candidate(path, split)
+    detail = {"split": split, "instances": per_instance, "runtime_s": round(time.time() - start, 2)}
     emit(nonce, {"valid": True, "score": score, "detail": detail})
 
 
-def evaluate(path, timeout=TIMEOUT_S):
+def evaluate(path, timeout=TIMEOUT_S, split="dev"):
     """Run the candidate in an isolated subprocess (see tasks/_sandbox.py). Crashes and
     timeouts are invalid."""
-    return evaluate_isolated(Path(__file__).resolve(), path, timeout)
+    return evaluate_isolated(Path(__file__).resolve(), path, timeout, ["--split", split])
 
 
-def baselines():
-    return {p.stem: evaluate(p) for p in sorted((HERE / "baselines").glob("*.py"))}
+def baselines(split="dev"):
+    return {p.stem: evaluate(p, split=split) for p in sorted((HERE / "baselines").glob("*.py"))}
 
 
 if __name__ == "__main__":
+    split = sys.argv[sys.argv.index("--split") + 1] if "--split" in sys.argv else "dev"
     if sys.argv[1] == "--inner":
-        _inner(sys.argv[2])
+        _inner(sys.argv[2], split)
     elif sys.argv[1] == "--baselines":
-        for name, result in baselines().items():
+        for name, result in baselines(split).items():
             print(f"{name}: {result['score']:.3f}% excess bins")
     else:
-        print(json.dumps(evaluate(sys.argv[1])))
+        print(json.dumps(evaluate(sys.argv[1], split=split)))

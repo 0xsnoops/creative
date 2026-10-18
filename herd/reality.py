@@ -42,10 +42,15 @@ class Evaluator:
         self.lower_is_better = lower_is_better if command else True
         self.key = f"cmd:{command}" if command else f"builtin:{task.name}"
         self.id = hashlib.sha256(self.key.encode()).hexdigest()[:10]
+        self.has_heldout = not command  # external commands have a single data split
 
-    def __call__(self, path):
+    def __call__(self, path, split="dev"):
+        """Score on the dev split (all scoring and selection) or, for built-in tasks, on the
+        held-out split (final numbers for an already selected candidate)."""
         if not self.command:
-            return self.task.evaluate(path)
+            return self.task.evaluate(path, split)
+        if split != "dev":
+            raise ValueError("external evaluators have no held-out split")
         proc = sandbox.run_isolated(shlex.split(self.command) + [str(path.resolve())], self.timeout,
                                     keep_path=True)
         if proc is None:
@@ -59,6 +64,14 @@ class Evaluator:
                 return {"valid": bool(result["valid"]), "score": result.get("score"),
                         "detail": result.get("detail", {})}
         return sandbox.invalid(f"no JSON result (exit {proc.returncode})", stderr_tail=proc.stderr[-1000:])
+
+    def final(self, path, dev_score):
+        """(score, split) to report for a candidate selected on dev: its held-out score when the
+        task has a held-out split (None if it fails there), else its dev score."""
+        if not self.has_heldout:
+            return dev_score, "dev"
+        result = self(path, "heldout")
+        return (result["score"] if result["valid"] else None), "heldout"
 
     def best(self, scores):
         return min(scores) if self.lower_is_better else max(scores)
@@ -104,13 +117,16 @@ def reality_check(task, family, evaluator, llm, cfg, out_dir, k, progress=print)
             except Exception as e:
                 implementations.append({"path": None, "valid": False, "score": None, "error": str(e)})
     valid = [m for m in implementations if m["valid"]]
-    best = None
+    best, final_score, final_split = None, None, None
     if valid:
         best_score = evaluator.best([m["score"] for m in valid])
         best = next(m for m in valid if m["score"] == best_score)
+        # Selected on dev; the number used to compare families comes from data it was not selected on.
+        final_score, final_split = evaluator.final(out_dir / best["path"], best["score"])
     return {"family": family["family"], "k": k, "n_valid": len(valid),
             "n_invalid": len(implementations) - len(valid),
-            "best_score": best["score"] if best else None,
+            "best_score": best["score"] if best else None,  # dev score of the selected implementation
             "median_score": statistics.median(m["score"] for m in valid) if valid else None,
+            "final_score": final_score, "final_split": final_split,
             "best_code_path": best["path"] if best else None,
             "implementations": implementations}

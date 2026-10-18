@@ -31,9 +31,18 @@ uv run python -m herd spend
 
 Stages: sample each model on `tasks/<task>/prompt.md`, search the literature (Exa),
 build a sourced taxonomy, label each sample by mechanism, build the herd map, find blind
-spots (sourced families with < 2% share), then implement the top 3 herd families and every
-blind spot K=3 times with one shared prompt template and score them. Outputs go to
-`results/<task>/`. `labels_audit.csv` holds 20 random labels for a human to spot-check.
+spots, then implement the top 3 herd families and every blind spot K=3 times with one
+shared prompt template and score them. Outputs go to `results/<task>/`.
+`labels_audit.csv` holds 20 random labels for a human to spot-check.
+
+A blind spot is a sourced family with an observed share under 2%. With few samples that
+only means "rarely or never seen", so each one is reported as a count ("0 of 25 labeled
+samples"), with per-model counts and a 95% upper bound on its true share (0 of 25 still
+allows up to 11%). These are shares of model samples, not of real-world solutions.
+
+Every task has two fixed sets of instances. All scoring and selection use the **dev** set;
+a family's selected implementation is then scored once on the **held-out** set, and
+held-out numbers are the ones compared and reported (`final_score`).
 
 With fewer than 20 samples per model (`reality_check.min_samples_per_model`) the CLI skips
 the reality check: at small N every literature family nobody happened to use looks like a
@@ -44,7 +53,7 @@ such as First Fit Decreasing cannot run on an online task); dropped families are
 Tasks live in `tasks/<name>/` (`prompt.md` + `evaluator.py`). Evaluators print
 `{"valid": bool, "score": float, "detail": {...}}`, lower is better, and run each candidate
 isolated with a 60s timeout (see [Running model-written code](#running-model-written-code)).
-`python tasks/<name>/evaluator.py --baselines` prints the reference scores.
+`python tasks/<name>/evaluator.py --baselines [--split heldout]` prints the reference scores.
 
 ## Generation operators and the benchmark
 
@@ -52,7 +61,7 @@ isolated with a 60s timeout (see [Running model-written code](#running-model-wri
 uv run python -m herd bench online_bin_packing --budget 0.5   # USD per operator per repeat
 ```
 
-Five operators (`herd/operators/`) each turn a task and a budget into candidate solutions.
+Six operators (`herd/operators/`) each turn a task and a budget into candidate solutions.
 All of them use the same implementer model, implementation prompt template and evaluator.
 
 | operator | what it does |
@@ -61,20 +70,33 @@ All of them use the same implementer model, implementation prompt template and e
 | `hot` | the task prompt at the highest temperature that still yields valid code (calibrated per run; calibration samples count) |
 | `verbalized` | Verbalized Sampling: 5 approaches with stated probabilities, sampled from the tails (each < 0.10), each one implemented |
 | `blind_spot` | implements the families in `blind_spots.json` |
+| `literature_all` | the ablation: implements every sourced literature family, ignoring the herd map |
 | `transplant` | Exa search for mechanisms from biology, logistics, markets, physics and networking; the labeler restates each as a structural rule in the problem's own terms; sources are kept |
 
 `bench` runs every operator at the same budget for several seeded repeats, then labels all
 valid candidates with one labeler against one taxonomy, so family counts are comparable. It
-reports valid rate, distinct valid families, useful discoveries (families beating the best
-reference baseline), useful discoveries per dollar and best score, each as mean and range
-across repeats, plus `bench.png` and a verdict that only claims a win when the ranges do not
-overlap. Results go to `results/<task>/bench/`.
+reports valid rate, distinct valid families, useful discoveries (families whose held-out
+score beats the best held-out baseline), useful discoveries per dollar and best held-out
+score, each as mean and range across repeats, plus `bench.png` and a verdict. Results go to
+`results/<task>/bench/`.
+
+**The key comparison is `blind_spot` vs `literature_all`.** Both implement sourced literature
+families with the same implementer, template, evaluator and budget; only `blind_spot` uses
+the herd map to choose which. If `blind_spot` does better, knowing where models concentrate
+picked better experiments. If not, the gains come from literature retrieval alone. The
+verdict states this first, either way.
+
+Cost is reported two ways. **Cached** counts only an operator's own calls. **Cold-start**
+adds the setup it depends on, as if each repeat started from an empty cache: the full herd
+map for `blind_spot`, the literature search and taxonomy for `literature_all`. The verdict
+says "did better in every repeat" only when the ranges across repeats do not overlap, and
+3 repeats are still a small sample. The repeat seeds vary generation, not evaluation data.
 
 Fairness rules: each operator's budget is measured from zero, separately from the global
 cap, and the benchmark refuses to start if the global cap cannot fund every operator in
 full. Planning costs (searches, the verbalized-sampling call, hot's calibration) count
-against the operator. The herd map behind `blind_spot` and the labeling are reported but
-not billed to any operator. A failure while one operator plans ends only that operator's
+against the operator. Labeling the candidates is measurement and billed to no operator.
+A failure while one operator plans ends only that operator's
 run and is noted in the report. Cache hits are billed at their original cost inside a
 benchmark run, so reruns reproduce the table.
 
@@ -93,8 +115,8 @@ that, calls are served from `results/` and return immediately.
 | tool | arguments | returns (compact JSON) |
 |---|---|---|
 | `herd_map` | `task_description`, `budget_usd=5` | family shares overall and per model, `concentration_top3`, `top3` |
-| `blind_spots` | `task_description`, `budget_usd=5` | sourced families under 2% share, with mechanism and source URLs |
-| `reality_check` | `task_description`, `family`, `evaluator_cmd`, `k=3`, `lower_is_better`, `baseline_files`, `budget_usd=3` | best code, best and median score, invalid count and errors, baseline comparison, best tested herd family |
+| `blind_spots` | `task_description`, `budget_usd=5` | sourced families rarely or never observed: count of n samples, per-model counts, 95% upper bound on share, mechanism, source URLs |
+| `reality_check` | `task_description`, `family`, `evaluator_cmd`, `k=3`, `lower_is_better`, `baseline_files`, `budget_usd=3` | best code, dev best and median, `final_score` (held-out), invalid count and errors, baseline comparison, best tested herd family |
 | `herd_check` | `task_description`, `my_approach`, `evaluator_cmd`, `k=3`, `lower_is_better`, `budget_usd=5` | the family of `my_approach`, its share and rank, and a `verdict` |
 
 - `task_description` is the task as you would give it to an agent; it is sent to the
@@ -108,10 +130,13 @@ that, calls are served from `results/` and return immediately.
 - `budget_usd` caps what one call may spend. The global cap in `config.yaml` still applies.
   Every response includes `spent_usd`. A call that would exceed the cap returns
   `{"error":"budget_exceeded",...}` instead of a partial result.
-- `herd_check` verdicts:
+- `herd_check` picks the best tested family first, then says whether it is common or rare.
+  Families are compared on held-out scores for built-in tasks (`scored_on`). It tests
+  generated implementations of your approach's family, not your own code. Verdicts:
   - `keep`: your family scored best of all tested families ("common and best, keep it").
-  - `try_blind_spot`: a blind spot beat it; the response includes the family, its score, code path and sources.
-  - `try_other_family`: a herd family beat it.
+  - `try_blind_spot`: the best family is a blind spot; the response includes it, its score, code path and sources.
+  - `try_other_family`: the best family is a common one. If a blind spot also beat yours,
+    it is returned as `diverse_alternative`.
   - `inconclusive`: no valid implementation of your family.
   - `untested`: there was no evaluator, so only the map lookup ran.
 
@@ -143,11 +168,11 @@ A session in a repo that is tuning a cache:
   ⎿ progress: sample 50/50 · labeling against 11 families · reality LRU: implementation 3/3 …
   ⎿ {"family":"<family of my approach>","share":<its share>,"rank":<its rank>,
      "is_blind_spot":false,"concentration_top3":<top-3 share>,
-     "my_family_best_score":<score>,
+     "scored_on":"dev","my_family_score":<score>,
      "tested":{"<family of my approach>":<score>,"<herd family>":<score>,"<blind spot>":<score>},
      "verdict":"try_blind_spot",
-     "blind_spot":{"family":"<blind spot>","mechanism":"<one-line mechanism>",
-                   "share":<share>,"best_score":<score>,
+     "blind_spot":{"family":"<blind spot>","kind":"blind_spot","mechanism":"<one-line mechanism>",
+                   "share":<share>,"score":<score>,
                    "code_path":"/path/to/herd/results/desc-<hash>/reality/<evaluator id>/<family>-<i>.py",
                    "source_urls":["<url>"]},
      "spent_usd":<cost of this call>}

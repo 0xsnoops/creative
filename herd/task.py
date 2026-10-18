@@ -28,8 +28,8 @@ class Task:
         digest = hashlib.sha256(text.strip().encode()).hexdigest()[:12]
         return cls(f"desc-{digest}", text.strip())
 
-    def evaluate(self, code_path):
-        return self.evaluator.evaluate(code_path)
+    def evaluate(self, code_path, split="dev"):
+        return self.evaluator.evaluate(code_path, split=split)
 
-    def baselines(self):
-        return self.evaluator.baselines() if self.evaluator else {}
+    def baselines(self, split="dev"):
+        return self.evaluator.baselines(split) if self.evaluator else {}
