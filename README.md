@@ -119,8 +119,10 @@ comparison is still untested. Details: `docs/RESULTS-E1.md`. Following this, on 
 evaluator can fingerprint candidates (currently online_bin_packing) the loop decision uses the
 behavior signal; elsewhere it still uses strategy similarity. The live runs above used strategy similarity.
 
-**Escape has not been shown to beat fresh_start.** A small rescue test (escape vs fresh_start
-and other baselines on stalled trajectories) is running; its result is pending.
+**Escape has not been shown to beat fresh_start.** In a small rescue test (preliminary, n = 4 stuck
+Llama trajectories), herd_escape v2 rescued 1 of 4, the same as "try a fundamentally different
+approach" and a random-lever control; fresh_start rescued 0. No arm beat a best-fit plateau.
+See docs/RESULTS.md.
 
 Operator benchmarks: started, stopped, no results yet.
 

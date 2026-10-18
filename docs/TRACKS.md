@@ -27,8 +27,8 @@ it called a HERD tool. For what happened, see `docs/AUTONOMOUS_AGENT_DEMO.md`. O
 anecdote, not a rate.
 
 **Only supported, not demonstrated:** other clients than Claude Code (`onboard` supports
-`--client claude` only); that following a verdict improves the outcome (the rescue test
-comparing escape with fresh_start is pending).
+`--client claude` only); that following a verdict improves the outcome (the preliminary rescue test,
+n = 4, found no advantage: herd_escape v2 1/4, try_different 1/4, random lever 1/4, fresh_start 0/4).
 
 ## Manufact: best MCP server for agents
 
@@ -82,7 +82,7 @@ python3 -c "import json; print(json.dumps(json.load(open('docs/demo/autonomous-r
    before), `moment.tool` and `moment.input`, and `tools_before`. If the agent did not select
    HERD, say so; the outcome is written up in `docs/AUTONOMOUS_AGENT_DEMO.md`.
 
-Close: "Preliminary: it has not been shown to beat a fresh start; the rescue test is pending."
+Close: "Preliminary: it has not been shown to beat a fresh start; in a 4-state rescue test it tied simple baselines."
 
 ## Claims we do not make
 
