@@ -146,5 +146,49 @@ async def herd_check(task_description: str, my_approach: str, ctx: Context, eval
     return await run_tool(ctx, budget_usd, work)
 
 
+def escape_for_agent(herd, task, current_solution, previous_attempts, evaluator, k=1, counterexamples=True):
+    """herd.escape.escape plus what the agent needs to trust it: strategy counterexamples between its
+    attempts and the escape candidate (tasks with a probe mode), and how stable the herd map is
+    under rewording (the paraphrase test), when those exist."""
+    from . import counterexample
+    from .escape import escape
+    from .pipeline import read_json
+    from .strategy import llm_extractor
+    out = herd.out_dir(task)
+    result = escape(herd, task, current_solution, previous_attempts, evaluator,
+                    overlook=read_json(out / "overlook.json"), families=read_json(out / "blind_spots.json"),
+                    extract=llm_extractor(herd, task), k=k)
+    para = read_json(out / "paraphrase.json")
+    result["herd_stability"] = ({"verdict": para["verdict"], "paraphrase_tvd": para["mean_P"],
+                                 "resampling_tvd_max": para["max_R"]} if para else None)
+    if counterexamples and result.get("candidate") and task.evaluator and hasattr(task.evaluator, "probe"):
+        codes = [a if isinstance(a, str) else a["code"] for a in [*previous_attempts, current_solution]]
+        found = counterexample.find(task, {f"attempt-{i}": c for i, c in enumerate(codes)},
+                                    {"escape": result["candidate"]}, n=200, max_results=3)
+        result["counterexamples"] = found["counterexamples"]
+        result["counterexample_summary"] = found["summary"]
+    return result
+
+
+@mcp.tool()
+async def herd_escape(task_description: str, current_solution: str, ctx: Context,
+                      previous_attempts: list[str] | None = None, evaluator_cmd: str = "",
+                      lower_is_better: bool = True, k: int = 1, budget_usd: float = 2.0) -> str:
+    """Am I exploring new strategies, and what should I try when I'm not? Give your current
+    solution and earlier attempts (code). HERD fingerprints their strategies, says whether
+    they are different code but the same strategy, names the assumption they share and how
+    common it is in the herd, and when you are looping, implements one evidence-backed
+    alternative and scores it on the dev split (before/after), with tiny counterexamples where
+    your attempts all decide alike and the alternative does not. Needs an evaluator: a
+    registered task or evaluator_cmd."""
+    def work(herd):
+        task = Task.resolve(task_description)
+        if not evaluator_cmd and not task.evaluator:
+            return {"error": "evaluator_required", "detail": "pass evaluator_cmd or use a registered task"}
+        evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
+        return escape_for_agent(herd, task, current_solution, previous_attempts or [], evaluator, k)
+    return await run_tool(ctx, budget_usd, work)
+
+
 def serve():
     mcp.run("stdio")

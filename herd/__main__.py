@@ -47,6 +47,37 @@ def run(task_name, n, reality):
           f"of ${herd.ledger.global_cap:.2f}")
 
 
+def escape_cmd(args):
+    from pathlib import Path
+    from .reality import Evaluator
+    from .server import escape_for_agent
+    spec = Path(args.task)
+    task = Task.resolve(spec.read_text() if spec.is_file() else args.task)
+    if not args.evaluator and not task.evaluator:
+        raise SystemExit("this task has no built-in evaluator; pass --evaluator")
+    history = sorted(Path(args.history).glob("*.py")) if args.history else []
+    herd = Herd(budget_usd=args.budget)
+    evaluator = Evaluator(task, args.evaluator or None, not args.higher_is_better)
+    r = escape_for_agent(herd, task, Path(args.candidate).read_text(), [p.read_text() for p in history], evaluator)
+    ev = r["evaluation"]
+    print(f"Current score: {ev['before']}")
+    print(f"{len(history) + 1} attempts. Strategy similarity: {r['strategy_similarity']}  "
+          f"(code similarity: {r['code_similarity']})")
+    print(f"Loop detected: {r['loop_detected']}. Action: {r['action']}")
+    for reason in r["reasons"]:
+        print(f"  - {reason}")
+    if r.get("herd_prevalence") is not None:
+        print(f"Herd prevalence of this strategy profile: {r['herd_prevalence']}")
+    if r.get("herd_stability"):
+        print(f"Herd stability under rewording: {r['herd_stability']['verdict']}")
+    print(f"Recommended switch: {r['recommended_switch']['mechanism']}\n  why: {r['recommended_switch']['why']}")
+    if r.get("candidate"):
+        print(f"Candidate: {r['candidate_path']}  dev score {ev['after']} (improved: {ev['improved']})")
+    for ce in r.get("counterexamples", [])[:2]:
+        print(f"Counterexample: {ce['case']} -> {ce['explanation']}")
+    print(f"spent ${herd.ledger.new_spend:.4f}")
+
+
 def fingerprints_cmd(task_name):
     """Fingerprint the herd map's valid samples and compare behavior clusters with labels."""
     from . import fingerprint
@@ -98,6 +129,13 @@ def main():
     pp.add_argument("task")
     ov = sub.add_parser("overlook", help="Step 1: overlooked inputs, assumptions, grid gaps, minority and latent ideas")
     ov.add_argument("task")
+    es = sub.add_parser("escape", help="are my attempts one strategy? if so, try one evidence-backed alternative")
+    es.add_argument("--task", required=True, help="registered task name, or a path to a task description file")
+    es.add_argument("--candidate", required=True, help="current solution file")
+    es.add_argument("--history", help="directory of earlier attempt files (sorted by name = chronological)")
+    es.add_argument("--evaluator", default="", help="evaluator command (default: the task's built-in evaluator)")
+    es.add_argument("--higher-is-better", action="store_true")
+    es.add_argument("--budget", type=float, default=2.0, help="USD this run may spend")
     sub.add_parser("spend", help="show estimated spend so far")
     sub.add_parser("serve", help="run the MCP server on stdio")
     args = parser.parse_args()
@@ -110,6 +148,8 @@ def main():
                                           args.operators.split(",") if args.operators else None,
                                           allow_small_map=args.allow_small_map, n_per_model=args.n)
         print((bench_dir / "bench.md").read_text())
+    elif args.command == "escape":
+        escape_cmd(args)
     elif args.command == "overlook":
         from .overlook import build
         result = build(Herd(), Task.resolve(args.task))

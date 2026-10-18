@@ -1,10 +1,46 @@
 # HERD
 
-> Search engines find what exists. HERD finds what AI overlooks, and tests whether it's better.
+**Escape strategy loops in AI agents.**
 
-HERD samples many AI models on a task. It then maps which families of solutions the
-samples converge on, finds families from the literature that almost no sample uses
-(blind spots), and implements and scores those families with an objective evaluator.
+Agents can make different edits while repeating the same idea. HERD measures what models
+converge on, detects the assumptions your agent keeps repeating, and finds a different
+strategy worth testing.
+
+> Different code isn't always different thinking.
+
+| | Core question |
+|---|---|
+| ADHD | Can I generate more non-obvious ideas? |
+| AlphaEvolve | Can I iteratively evolve this program to score better? |
+| ShinkaEvolve | Can I explore and evolve programs more efficiently? |
+| **HERD** | **Am I actually exploring new strategies, and what should I try when I'm not?** |
+
+How it works, for a task with an evaluator:
+
+1. **Strategy fingerprints** (`herd/strategy.py`): what each attempt decides from (inputs it
+   actually uses, found by static analysis), the state it keeps, its primary signal, its
+   assumptions, and where it is weak on dev data.
+2. **Loop detection** (`herd/trajectory.py`): compares attempts by strategy, not code ("code
+   28% similar, strategy 91% similar") and flags a loop when progress has stalled.
+3. **The herd map and what it overlooks** (`herd/overlook.py`): from many models' samples,
+   inputs the task allows but the herd never uses, assumptions every common solution shares
+   although the task does not require them, unoccupied component combinations, and
+   mechanisms only one or two models produce.
+4. **Repair or escape** (`herd/diagnose.py`, `herd/escape.py`): keep improving the current
+   strategy, or stop repairing and switch to one evidence-backed lever.
+5. **Strategy counterexamples** (`herd/counterexample.py`): tiny cases where all your attempts
+   make the same decision and the alternative does not.
+
+**Is the herd real? Partly a prompt effect.** Rewording the task prompt (3 meaning-preserving
+paraphrases, 2 models, 5 samples each) moved the herd map more than resampling the original
+prompt did, on both tasks: mean total variation distance 0.51 vs at most 0.40 between
+original-prompt groups for bin packing, and 0.35 vs at most 0.10 for cache eviction (where one
+family went from 45% to 67% of samples). Groups are small (10 samples), so this only detects
+large shifts, but every herd-based claim here should be read as "what models converge on for
+this wording". Details: `herd paraphrase <task>`, `docs/PREREGISTRATION-overlook.md`.
+
+The original pipeline below (herd map, blind spots, operator benchmark) is the measurement
+foundation the escape workflow builds on.
 
 ## Setup
 
