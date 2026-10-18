@@ -3,7 +3,13 @@ external evaluator_cmd support.
 
 - The child process gets a minimal environment: no API keys or other secrets.
 - On macOS it runs under sandbox-exec with no network access and no file writes outside
-  a throwaway scratch directory. On other platforms there is no OS sandbox (see README).
+  a throwaway scratch directory. Built-in evaluators also get an allowlist for reads under
+  the home directory (Python, the venv, tasks/ and the candidate file only), so a candidate
+  cannot read the repo's .env or ~/.ssh, ~/.config, ~/.aws. External evaluator commands may
+  need the user's own files, so they get a denylist instead: any .env file and the usual
+  credential directories. On other platforms there is no OS sandbox (see README).
+- Error text that leaves the sandbox is redacted: known secret values and key-shaped
+  strings are replaced, so a candidate that does find a secret cannot report it back.
 - An evaluator's result line must carry a one-time nonce that the parent sends on stdin
   and the child reads before loading the candidate, so candidate code cannot simply print
   a fake result. A candidate that deliberately inspects the evaluator's own stack frames
@@ -11,6 +17,7 @@ external evaluator_cmd support.
 """
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -19,20 +26,74 @@ import tempfile
 
 RESULT_TAG = "__HERD_RESULT__"
 
+REPO = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
+HOME = os.path.realpath(os.path.expanduser("~"))
+CREDENTIAL_DIRS = [".ssh", ".config", ".aws", ".gnupg", ".netrc", ".docker", ".kube", ".git-credentials",
+                   ".npmrc", ".pypirc", ".azure", ".gcloud", "Library/Keychains"]
+
 SANDBOX_PROFILE = """(version 1)
 (allow default)
 (deny network*)
 (deny file-write*)
 (allow file-write* (subpath "{scratch}") (literal "/dev/null") (literal "/dev/stdout")
        (literal "/dev/stderr") (literal "/dev/tty") (literal "/dev/dtracehelper"))
+{reads}
 """
 
 
-def sandboxed(cmd, scratch):
+def _sb(path):
+    return path.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def read_rules(scratch, allow=None):
+    """allow=None: deny .env files and credential directories (external commands).
+    allow=[paths]: deny everything under HOME except these paths (built-in evaluators)."""
+    if allow is None:
+        denied = " ".join(f'(subpath "{_sb(os.path.join(HOME, d))}")' for d in CREDENTIAL_DIRS)
+        return f'(deny file-read-data {denied} (regex #"/\\.env$"))'
+    allowed = " ".join(f'(subpath "{_sb(os.path.realpath(p))}")' for p in [*allow, scratch])
+    # Later rules win: deny HOME, re-allow the needed paths, then deny .env files everywhere.
+    return (f'(deny file-read-data (subpath "{_sb(HOME)}"))\n(allow file-read-data {allowed})\n'
+            f'(deny file-read-data (regex #"/\\.env$"))')
+
+
+def sandboxed(cmd, scratch, allow=None):
     """cmd wrapped in the OS sandbox where one is available."""
     if sys.platform == "darwin" and shutil.which("sandbox-exec"):
-        return ["sandbox-exec", "-p", SANDBOX_PROFILE.format(scratch=scratch)] + cmd
+        profile = SANDBOX_PROFILE.format(scratch=_sb(scratch), reads=read_rules(scratch, allow))
+        return ["sandbox-exec", "-p", profile] + cmd
     return cmd
+
+
+SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.I)
+SECRET_PATTERNS = [r"sk-or-v1-[0-9a-f]{16,}", r"\bsk-[A-Za-z0-9_-]{20,}", r"github_pat_[A-Za-z0-9_]{20,}",
+                   r"\bgh[pousr]_[A-Za-z0-9]{20,}", r"\bAKIA[0-9A-Z]{16}\b", r"\bxox[abpr]-[A-Za-z0-9-]{10,}",
+                   r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+                   r"(?i)\b(api[_-]?key|token|secret|password)\s*[=:]\s*['\"]?[^\s'\"]{6,}"]
+
+
+def secret_values():
+    """Values of secret-looking environment variables and of the repo's .env (read by the
+    trusted parent process, never by the candidate)."""
+    values = {v for k, v in os.environ.items() if SECRET_NAME.search(k) and len(v) >= 8}
+    env_file = os.path.join(REPO, ".env")
+    if os.path.exists(env_file):
+        for line in open(env_file).read().splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                value = line.split("=", 1)[1].strip().strip("'\"")
+                if len(value) >= 8:
+                    values.add(value)
+    return sorted(values, key=len, reverse=True)
+
+
+def redact(text):
+    if not text:
+        return text
+    for value in secret_values():
+        text = text.replace(value, "[REDACTED]")
+    for pattern in SECRET_PATTERNS:
+        text = re.sub(pattern, "[REDACTED]", text)
+    return text
 
 
 def clean_env(scratch, keep_path=False):
@@ -42,15 +103,17 @@ def clean_env(scratch, keep_path=False):
 
 
 def invalid(error, **detail):
-    return {"valid": False, "score": None, "detail": {"error": error, **detail}}
+    detail = {k: redact(v) if isinstance(v, str) else v for k, v in detail.items()}
+    return {"valid": False, "score": None, "detail": {"error": redact(error), **detail}}
 
 
-def run_isolated(cmd, timeout, stdin="", keep_path=False):
-    """Run cmd sandboxed in a scratch directory. Returns (CompletedProcess or None on timeout)."""
+def run_isolated(cmd, timeout, stdin="", keep_path=False, allow=None):
+    """Run cmd sandboxed in a scratch directory. Returns a CompletedProcess, or None on timeout.
+    Callers must pass any text from it through redact() before storing or showing it."""
     with tempfile.TemporaryDirectory() as scratch:
         scratch = os.path.realpath(scratch)
         try:
-            return subprocess.run(sandboxed(cmd, scratch), input=stdin, capture_output=True, text=True,
+            return subprocess.run(sandboxed(cmd, scratch, allow), input=stdin, capture_output=True, text=True,
                                   timeout=timeout, env=clean_env(scratch, keep_path), cwd=scratch)
         except subprocess.TimeoutExpired:
             return None
@@ -59,8 +122,13 @@ def run_isolated(cmd, timeout, stdin="", keep_path=False):
 def evaluate_isolated(evaluator_script, candidate, timeout, args=()):
     """Run `python evaluator_script --inner candidate *args` in isolation and return its result."""
     nonce = secrets.token_hex(16)
-    proc = run_isolated([sys.executable, str(evaluator_script), "--inner", str(os.path.realpath(candidate)),
-                         *args], timeout, stdin=nonce + "\n")
+    candidate = os.path.realpath(candidate)
+    # Reads under HOME: only Python itself, the venv, tasks/ (evaluators) and the candidate file.
+    allow = [sys.prefix, sys.base_prefix, os.path.dirname(os.path.realpath(sys.executable)),
+             os.path.dirname(os.path.realpath(evaluator_script)), os.path.dirname(os.path.abspath(__file__)),
+             candidate]
+    proc = run_isolated([sys.executable, str(evaluator_script), "--inner", candidate, *args], timeout,
+                        stdin=nonce + "\n", allow=allow)
     if proc is None:
         return invalid(f"timeout after {timeout}s")
     tag = RESULT_TAG + nonce

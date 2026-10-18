@@ -61,8 +61,8 @@ class Evaluator:
             except ValueError:
                 continue
             if isinstance(result, dict) and "valid" in result:
-                return {"valid": bool(result["valid"]), "score": result.get("score"),
-                        "detail": result.get("detail", {})}
+                detail = json.loads(sandbox.redact(json.dumps(result.get("detail", {}))))
+                return {"valid": bool(result["valid"]), "score": result.get("score"), "detail": detail}
         return sandbox.invalid(f"no JSON result (exit {proc.returncode})", stderr_tail=proc.stderr[-1000:])
 
     def final(self, path, dev_score):

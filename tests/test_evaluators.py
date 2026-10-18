@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -121,3 +122,48 @@ def test_heldout_split_is_separate_and_keeps_baseline_order():
     assert heldout["best_fit"] < heldout["first_fit"] and heldout != dev
     assert set(bin_packing.SPLITS["dev"]).isdisjoint(bin_packing.SPLITS["heldout"])
     assert cache_eviction.make_traces("heldout")["zipf"] != cache_eviction.make_traces("dev")["zipf"]
+
+
+# --- Sandbox hardening (review I1): candidates must not read secrets or leak them via errors.
+
+REPO = TASKS.parent
+PROBE = '''import os
+def probe(path):
+    try:
+        if os.path.isdir(path):
+            os.listdir(path)
+        else:
+            open(path).read(1)
+        return "readable"
+    except Exception:
+        return "blocked"
+paths = {paths!r}
+raise RuntimeError("PROBE " + " ".join(p + "=" + probe(p) for p in paths))
+def priority(item, capacities):
+    return [0] * len(capacities)
+'''
+
+
+def probe_results(tmp_path, paths):
+    result = bin_packing.evaluate(write(tmp_path, PROBE.format(paths=paths)))
+    assert result["valid"] is False
+    line = result["detail"]["error"]
+    return dict(item.split("=", 1) for item in line.split("PROBE ", 1)[1].split())
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="OS sandbox is macOS-only")
+def test_candidate_cannot_read_repo_files_or_home_secrets(tmp_path):
+    home = Path.home()
+    paths = [str(REPO / "pyproject.toml")] + [str(p) for p in (REPO / ".env", home / ".ssh", home / ".config",
+                                                                 home / ".aws") if p.exists()]
+    results = probe_results(tmp_path, paths)
+    assert results == {p: "blocked" for p in paths}
+
+
+def test_secret_values_are_redacted_from_evaluator_errors(tmp_path, monkeypatch):
+    fake = "sk-or-v1-" + "0123456789abcdef" * 4
+    monkeypatch.setenv("OPENROUTER_API_KEY", fake)
+    code = f"raise RuntimeError('leaking {fake} and token=abc123secretvalue456')\n"
+    result = bin_packing.evaluate(write(tmp_path, code))
+    text = json.dumps(result)
+    assert fake not in text and "[REDACTED]" in result["detail"]["error"]

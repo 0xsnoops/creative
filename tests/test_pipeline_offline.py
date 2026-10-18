@@ -333,3 +333,16 @@ def test_verdict_with_a_single_operator():
     one = {"mean": 1.0, "min": 1.0, "max": 1.0, "sd": 0.0, "n": 1}
     table = {"plain": {"useful_discoveries": one, "useful_discovery_rate": one, "best_score": one}}
     assert "plain" in verdict(table, "best_fit", 4.0)  # used to raise IndexError on ranked[1]
+
+
+@pytest.mark.skipif(__import__("sys").platform != "darwin", reason="OS sandbox is macOS-only")
+def test_external_evaluator_cmd_cannot_read_env_files(fake_world, tmp_path):
+    import sys
+    (tmp_path / ".env").write_text("OPENROUTER_API_KEY=sk-or-v1-" + "f" * 64 + "\n")
+    script = tmp_path / "eval.py"
+    script.write_text("import json, sys\n"
+                      f"try:\n    open({str(tmp_path / '.env')!r}).read()\n    ok = False\n"
+                      "except OSError:\n    ok = True\n"
+                      "print(json.dumps({'valid': ok, 'score': 1.0}))\n")
+    task = Task.resolve("Some free-text task")
+    assert Evaluator(task, f"{sys.executable} {script}")(tmp_path / "candidate.py")["valid"] is True
