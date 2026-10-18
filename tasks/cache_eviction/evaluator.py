@@ -2,6 +2,7 @@
 
     python evaluator.py CANDIDATE.py [--split heldout]  -> prints {"valid", "score", "detail"} as JSON
     python evaluator.py --baselines [--split heldout]   -> scores the reference LRU and FIFO
+    probe(path, cases)                                   -> misses and evictions on tiny traces
 
 Score = mean miss ratio over 3 seeded synthetic traces x 2 cache sizes (1% and 10%
 of the trace's unique keys). The policy only ever sees past requests. The candidate
@@ -16,7 +17,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _sandbox import emit, evaluate_isolated, read_nonce  # noqa: E402
+from _sandbox import emit, evaluate_isolated, read_nonce, read_nonce_and_payload  # noqa: E402
 
 N_REQUESTS = 50_000
 UNIVERSE = 5_000        # keys with Zipf popularity
@@ -98,6 +99,37 @@ def load_class(path, name):
     return getattr(module, name)
 
 
+class _Recorder:
+    """Wraps a policy for simulate() and logs its misses and evictions."""
+
+    def __init__(self, policy, log):
+        self.policy, self.log = policy, log
+
+    def on_hit(self, key):
+        self.policy.on_hit(key)
+
+    def on_miss(self, key):
+        self.log["misses"] += 1
+        self.policy.on_miss(key)
+
+    def evict(self):
+        victim = self.policy.evict()
+        self.log["evictions"].append(victim)
+        return victim
+
+
+def probe_candidate(path, cases):
+    """For each case {"trace": [keys], "capacity": n}: run simulate() itself with a fresh Policy
+    and return {"misses", "evictions": victims in order}."""
+    outputs = []
+    for case in cases:
+        trace, capacity = [int(k) for k in case["trace"]], int(case["capacity"])
+        policy_cls, log = load_class(path, ENTRYPOINT), {"misses": 0, "evictions": []}
+        simulate(lambda size, cls=policy_cls, log=log: _Recorder(cls(size), log), trace, capacity)
+        outputs.append({"misses": log["misses"], "evictions": [int(v) for v in log["evictions"]]})
+    return outputs
+
+
 def score_candidate(path, split="dev"):
     runs = []
     for name, trace in make_traces(split).items():
@@ -118,6 +150,17 @@ def _inner(path, split):
     emit(nonce, {"valid": True, "score": score, "detail": detail})
 
 
+def _inner_probe(path):
+    nonce, cases = read_nonce_and_payload()  # before any candidate code runs
+    emit(nonce, {"valid": True, "score": None, "detail": {"outputs": probe_candidate(path, cases)}})
+
+
+def probe(path, cases, timeout=TIMEOUT_S):
+    """Run the candidate on tiny traces (see probe_candidate) in the same sandbox as evaluation.
+    The cases reach the child on stdin after the nonce."""
+    return evaluate_isolated(Path(__file__).resolve(), path, timeout, ["--probe"], payload=cases)
+
+
 def evaluate(path, timeout=TIMEOUT_S, split="dev"):
     """Run the candidate in an isolated subprocess (see tasks/_sandbox.py). Crashes and
     timeouts are invalid."""
@@ -130,7 +173,9 @@ def baselines(split="dev"):
 
 if __name__ == "__main__":
     split = sys.argv[sys.argv.index("--split") + 1] if "--split" in sys.argv else "dev"
-    if sys.argv[1] == "--inner":
+    if sys.argv[1] == "--inner" and "--probe" in sys.argv:
+        _inner_probe(sys.argv[2])
+    elif sys.argv[1] == "--inner":
         _inner(sys.argv[2], split)
     elif sys.argv[1] == "--baselines":
         for name, result in baselines(split).items():

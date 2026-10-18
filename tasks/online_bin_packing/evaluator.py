@@ -2,6 +2,7 @@
 
     python evaluator.py CANDIDATE.py [--split heldout]  -> prints {"valid", "score", "detail"} as JSON
     python evaluator.py --baselines [--split heldout]   -> scores the reference first_fit and best_fit
+    probe(path, cases)                                   -> per-case choices on tiny item sequences
 
 Score = mean over 5 fixed instances of the % excess bins over the lower bound
 ceil(sum(items) / CAPACITY). The candidate runs isolated (tasks/_sandbox.py) with a
@@ -17,7 +18,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _sandbox import emit, evaluate_isolated, read_nonce  # noqa: E402
+from _sandbox import emit, evaluate_isolated, read_nonce, read_nonce_and_payload  # noqa: E402
 
 CAPACITY = 100
 N_ITEMS = 5000
@@ -98,6 +99,35 @@ def fingerprint_candidate(path):
     return choices
 
 
+def probe_candidate(path, cases):
+    """For each case {"items": [sizes]}: run pack() itself with a fresh module and record each
+    choice. "chosen" is the free space of the chosen bin before placing (CAPACITY = a new bin),
+    so picks between equal bins do not count as different; "bins" is the matching bin index
+    (lowest among equal bins) and "n_bins" what pack() returned."""
+    outputs = []
+    for case in cases:
+        items = [int(x) for x in case["items"]]
+        if not all(1 <= x <= CAPACITY for x in items):
+            raise ValueError("probe item sizes must be in 1..CAPACITY")
+        priority, chosen = load_function(path, ENTRYPOINT), []
+
+        def recording(item, capacities, priority=priority, chosen=chosen):
+            before = list(capacities)  # the candidate may mutate its argument
+            scores = priority(item, capacities)
+            chosen.append(int(before[int(np.argmax(np.asarray(scores, dtype=float)))]))
+            return scores
+        n_bins = pack(recording, np.asarray(items, dtype=int))
+        remaining, bins = [], []
+        for item, free in zip(items, chosen):
+            i = remaining.index(free) if free < CAPACITY else len(remaining)
+            if i == len(remaining):
+                remaining.append(CAPACITY)
+            remaining[i] -= item
+            bins.append(i)
+        outputs.append({"chosen": chosen, "bins": bins, "n_bins": int(n_bins)})
+    return outputs
+
+
 def score_candidate(path, split="dev"):
     per_instance = []
     for seed in SPLITS[split]:
@@ -130,6 +160,17 @@ def _inner_fingerprint(path):
     emit(nonce, {"valid": True, "score": None, "detail": {"choices": fingerprint_candidate(path)}})
 
 
+def _inner_probe(path):
+    nonce, cases = read_nonce_and_payload()  # before any candidate code runs
+    emit(nonce, {"valid": True, "score": None, "detail": {"outputs": probe_candidate(path, cases)}})
+
+
+def probe(path, cases, timeout=TIMEOUT_S):
+    """Run the candidate on tiny cases (see probe_candidate) in the same sandbox as evaluation.
+    The cases reach the child on stdin after the nonce."""
+    return evaluate_isolated(Path(__file__).resolve(), path, timeout, ["--probe"], payload=cases)
+
+
 def fingerprint(path, timeout=TIMEOUT_S):
     """Behavioral fingerprint of a candidate, computed in the same sandbox as evaluation."""
     return evaluate_isolated(Path(__file__).resolve(), path, timeout, ["--fingerprint"])
@@ -147,7 +188,9 @@ def baselines(split="dev"):
 
 if __name__ == "__main__":
     split = sys.argv[sys.argv.index("--split") + 1] if "--split" in sys.argv else "dev"
-    if sys.argv[1] == "--inner" and "--fingerprint" in sys.argv:
+    if sys.argv[1] == "--inner" and "--probe" in sys.argv:
+        _inner_probe(sys.argv[2])
+    elif sys.argv[1] == "--inner" and "--fingerprint" in sys.argv:
         _inner_fingerprint(sys.argv[2])
     elif sys.argv[1] == "--inner":
         _inner(sys.argv[2], split)

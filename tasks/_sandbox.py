@@ -119,8 +119,10 @@ def run_isolated(cmd, timeout, stdin="", keep_path=False, allow=None):
             return None
 
 
-def evaluate_isolated(evaluator_script, candidate, timeout, args=()):
-    """Run `python evaluator_script --inner candidate *args` in isolation and return its result."""
+def evaluate_isolated(evaluator_script, candidate, timeout, args=(), payload=None):
+    """Run `python evaluator_script --inner candidate *args` in isolation and return its result.
+    payload (JSON-serializable, e.g. probe cases) follows the nonce line on stdin; it adds no
+    read permissions. The child takes it with read_nonce_and_payload()."""
     nonce = secrets.token_hex(16)
     candidate = os.path.realpath(candidate)
     # Reads under HOME: only Python itself, the venv, tasks/ (evaluators) and the candidate file.
@@ -128,7 +130,8 @@ def evaluate_isolated(evaluator_script, candidate, timeout, args=()):
              os.path.dirname(os.path.realpath(evaluator_script)), os.path.dirname(os.path.abspath(__file__)),
              candidate]
     proc = run_isolated([sys.executable, str(evaluator_script), "--inner", candidate, *args], timeout,
-                        stdin=nonce + "\n", allow=allow)
+                        stdin=nonce + "\n" + (json.dumps(payload) if payload is not None else ""),
+                        allow=allow)
     if proc is None:
         return invalid(f"timeout after {timeout}s")
     tag = RESULT_TAG + nonce
@@ -144,6 +147,14 @@ def read_nonce():
     nonce = sys.stdin.readline().strip()
     sys.stdin.close()
     return nonce
+
+
+def read_nonce_and_payload():
+    """In the child: take the nonce and the JSON payload after it, before any candidate code is loaded."""
+    nonce = sys.stdin.readline().strip()
+    payload = json.loads(sys.stdin.read() or "null")
+    sys.stdin.close()
+    return nonce, payload
 
 
 def emit(nonce, result):
