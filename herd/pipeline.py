@@ -42,14 +42,14 @@ class Herd:
     """Wiring for one CLI run or one tool call: config, budget ledger, cached clients.
     budget_usd caps this call's spend; the config's budget_usd caps total spend."""
 
-    def __init__(self, budget_usd=None, progress=print):
+    def __init__(self, budget_usd=None, progress=print, bill_cached=False):
         load_env()
         self.cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
         cache_dir = ROOT / self.cfg["paths"]["cache"]
         llm_cache, exa_cache = shared_cache(cache_dir / "llm.jsonl"), shared_cache(cache_dir / "exa.jsonl")
         spent = llm_cache.total_cost() + exa_cache.total_cost()
         cap = self.cfg["budget_usd"] if budget_usd is None else min(self.cfg["budget_usd"], spent + budget_usd)
-        self.ledger = Ledger(cap, spent)
+        self.ledger = Ledger(cap, spent, bill_cached)
         self.llm = LLM(llm_cache, load_model_catalog(cache_dir), self.ledger)
         self.exa = Exa(exa_cache, self.ledger, self.cfg["exa"]["cost_per_search_usd"])
         self.progress = progress

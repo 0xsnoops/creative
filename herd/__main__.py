@@ -1,4 +1,6 @@
-"""python -m herd run <task> [--n N] [--no-reality]  |  python -m herd spend  |  python -m herd serve"""
+"""python -m herd run <task> [--n N] [--no-reality]
+python -m herd bench <task> [--budget USD] [--repeats R] [--operators a,b]
+python -m herd spend  |  python -m herd serve"""
 import argparse
 import json
 
@@ -45,12 +47,22 @@ def main():
     p.add_argument("task")
     p.add_argument("--n", type=int, help="samples per model (overrides config)")
     p.add_argument("--no-reality", action="store_true", help="stop after the herd map and blind spots")
+    b = sub.add_parser("bench", help="benchmark the generation operators at equal budget")
+    b.add_argument("task")
+    b.add_argument("--budget", type=float, help="USD per operator per repeat (overrides config)")
+    b.add_argument("--repeats", type=int, help="repeats on different seeds (overrides config)")
+    b.add_argument("--operators", help="comma-separated subset, e.g. plain,verbalized")
     sub.add_parser("spend", help="show estimated spend so far")
     sub.add_parser("serve", help="run the MCP server on stdio")
     args = parser.parse_args()
 
     if args.command == "run":
         run(args.task, args.n, not args.no_reality)
+    elif args.command == "bench":
+        from .bench import run_bench
+        _, verdict, bench_dir = run_bench(args.task, args.budget, args.repeats,
+                                          args.operators.split(",") if args.operators else None)
+        print((bench_dir / "bench.md").read_text())
     elif args.command == "spend":
         ledger = Herd().ledger
         print(f"estimated spend: ${ledger.spent:.4f} of ${ledger.cap:.2f}")

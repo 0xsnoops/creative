@@ -17,10 +17,20 @@ from herd.task import Task
 FIRST_FIT = "def priority(item, capacities):\n    return [-i for i in range(len(capacities))]\n"
 BEST_FIT = "def priority(item, capacities):\n    return [-(c - item) for c in capacities]\n"
 CRASHES = "def priority(item, capacities):\n    raise RuntimeError('broken')\n"
+# FunSearch's published Weibull heuristic: genuinely beats best_fit on the real evaluator.
+FUNSEARCH = """import numpy as np
+def priority(item, capacities):
+    bins = np.asarray(capacities, dtype=float)
+    max_bin_cap = max(bins)
+    score = (bins - max_bin_cap) ** 2 / item + bins ** 2 / item ** 2 + bins ** 2 / item ** 3
+    score[bins > item] = -score[bins > item]
+    score[1:] -= score[:-1]
+    return score
+"""
 MODELS = ["lab-a/model", "lab-b/model"]
 
 
-def reply_to(prompt):
+def reply_to(prompt, temperature=1.0):
     """Canned replies keyed on which pipeline prompt is being asked."""
     if prompt.startswith("You are surveying"):
         return json.dumps({"queries": ["bin packing heuristics", "online bin packing survey"]})
@@ -32,19 +42,40 @@ def reply_to(prompt):
                                         fam("Harmonic", "https://c.example"),
                                         fam("Invented", "https://not-in-results.example")]})
     if prompt.startswith("Assign each candidate"):
-        ids = re.findall(r'<solution id="([^"]+)">', prompt)
-        return json.dumps({"labels": [{"sample_id": i, "justification": "j",
-                                       "family": "emergent:odd" if i.endswith("-001") else "First Fit"}
-                                      for i in ids]})
+        def family(sid, code):
+            if "max_bin_cap" in code:
+                return "emergent:quadratic"
+            if "-(c - item)" in code:
+                return "Best Fit"
+            return "emergent:odd" if sid.endswith("-001") else "First Fit"
+        solutions = re.findall(r'<solution id="([^"]+)">\n(.*?)</solution>', prompt, re.S)
+        return json.dumps({"labels": [{"sample_id": i, "justification": "j", "family": family(i, code)}
+                                      for i, code in solutions]})
     if prompt.startswith("Different labelers"):
         return json.dumps({"families": [{"family": "emergent:odd", "one_line_mechanism": "odd",
                                          "merged_from": ["emergent:odd"]}]})
     if prompt.startswith("Which family"):
         return json.dumps({"family": "First Fit", "justification": "takes the first bin that fits"})
+    if "Generate 5 responses" in prompt:
+        return "".join(f"<response><name>Idea {i}</name><text>Approach {i}.</text>"
+                       f"<probability>0.0{i + 1}</probability></response>" for i in range(5))
+    if prompt.startswith("Here is a computational problem"):
+        return json.dumps({"problem_class": "online assignment to containers",
+                           "queries": [{"field": "biology", "query": "slime mould foraging"}]})
+    if prompt.startswith("Problem:"):
+        return json.dumps({"mechanisms": [
+            {"family": "Slime-mould reinforcement", "field": "biology", "one_line_mechanism": "m",
+             "source_summary": "s", "source_urls": ["https://a.example"]},
+            {"family": "Unsourced idea", "field": "markets", "one_line_mechanism": "m",
+             "source_summary": "s", "source_urls": ["https://nowhere.example"]}]})
+    if "Family: Slime-mould reinforcement" in prompt:
+        return f"```python\n{FUNSEARCH}```"
     if "Family: Best Fit" in prompt:
         return f"```python\n{BEST_FIT}```"
     if "Family: Harmonic" in prompt:
         return f"```python\n{CRASHES}```"
+    if temperature >= 2.0:
+        return "zx#q plk ~~ vor"  # too hot: garbage
     return f"Here is my solution:\n```python\n{FIRST_FIT}```"  # samplers, and the remaining families
 
 
@@ -54,6 +85,8 @@ def fake_world(tmp_path, monkeypatch):
     cfg["models"] = {"samplers": MODELS, "labeler": MODELS[0], "implementer": MODELS[0]}
     cfg["sampling"]["n_per_model"] = 3
     cfg["reality_check"]["k"] = 2
+    cfg["sampling"]["concurrency"] = 4
+    cfg["bench"]["max_candidates"] = 4
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(cfg))
     (tmp_path / "cache").mkdir()
     catalog = {"data": [{"id": m, "pricing": {"prompt": "0.000001", "completion": "0.000002"},
@@ -66,7 +99,7 @@ def fake_world(tmp_path, monkeypatch):
 
     def fake_llm_post(self, body, attempts=4):
         calls["llm"] += 1
-        return {"choices": [{"message": {"content": reply_to(body["messages"][0]["content"])},
+        return {"choices": [{"message": {"content": reply_to(body["messages"][0]["content"], body["temperature"])},
                              "finish_reason": "stop"}],
                 "usage": {"cost": 0.001, "completion_tokens": 10}}
 
@@ -145,3 +178,26 @@ def test_mcp_tools(fake_world):
 def test_mcp_budget_cap(fake_world):
     result, _ = call_tool("herd_map", {"task_description": "online_bin_packing", "budget_usd": 0.0001})
     assert result["error"] == "budget_exceeded"
+
+
+def test_bench_operators_at_equal_budget(fake_world):
+    from herd.bench import run_bench
+    table, verdict, bench_dir = run_bench("online_bin_packing", budget_usd=0.25, repeats=2,
+                                          progress=lambda m: None)
+    assert set(table) == {"plain", "hot", "verbalized", "blind_spot", "transplant"}
+    data = json.loads((bench_dir / "bench.json").read_text())
+    for r in data["per_run"]:
+        assert 0 < r["spent_usd"] <= 0.25 and r["n_candidates"] > 0
+    hot = [r for r in data["per_run"] if r["operator"] == "hot"]
+    assert all(r["notes"]["temperature"] == 1.6 for r in hot)  # 2.0 produced garbage
+    assert table["transplant"]["useful_discoveries"]["min"] == 1  # the FunSearch-style mechanism
+    assert table["plain"]["useful_discoveries"]["max"] == 0
+    run = json.loads((bench_dir / "seed0" / "transplant" / "run.json").read_text())
+    assert [m["family"] for m in run["notes"]["rejected_unsourced"]] == ["Unsourced idea"]
+    assert "transplant beats verbalized" in verdict
+    assert (bench_dir / "bench.png").stat().st_size > 10_000 and "## Verdict" in (bench_dir / "bench.md").read_text()
+
+    calls = dict(fake_world)
+    table_again, _, _ = run_bench("online_bin_packing", budget_usd=0.25, repeats=2, progress=lambda m: None)
+    assert fake_world == calls  # all cached
+    assert table_again == table  # cached reruns are billed the same, so they stop in the same place

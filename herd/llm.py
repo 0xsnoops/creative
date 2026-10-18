@@ -24,12 +24,15 @@ class BudgetExceeded(RuntimeError):
 
 
 class Ledger:
-    """Estimated spend. Every uncached call reserves its worst-case cost up front, so
-    concurrent calls cannot push the total past the cap."""
+    """Estimated spend. Every call reserves its worst-case cost up front, so concurrent calls
+    cannot push the total past the cap. With bill_cached, cache hits are charged their recorded
+    cost too, so a rerun of a budgeted run (e.g. a benchmark operator) stops where the original did."""
 
-    def __init__(self, cap_usd, spent_usd):
+    def __init__(self, cap_usd, spent_usd, bill_cached=False):
         self.cap, self.spent, self.reserved = cap_usd, spent_usd, 0.0
-        self.spent_this_run = 0.0
+        self.bill_cached = bill_cached
+        self.spent_this_run = 0.0  # includes billed cache hits
+        self.new_spend = 0.0       # money actually sent to the APIs in this run
         self.lock = threading.Lock()
 
     def reserve(self, amount):
@@ -39,11 +42,18 @@ class Ledger:
                                      f"in flight ${self.reserved:.4f}, next call up to ${amount:.4f})")
             self.reserved += amount
 
-    def settle(self, reserved, actual):
+    def settle(self, reserved, actual, cached=False):
         with self.lock:
             self.reserved -= reserved
             self.spent += actual
             self.spent_this_run += actual
+            if not cached:
+                self.new_spend += actual
+
+    def charge_cached(self, worst_case, cost):
+        if self.bill_cached:
+            self.reserve(worst_case)
+            self.settle(worst_case, cost, cached=True)
 
 
 def load_model_catalog(cache_dir):
@@ -74,12 +84,13 @@ class LLM:
         request = {"model": model, "messages": messages, "temperature": temperature,
                    "max_tokens": max_tokens, "sample_idx": sample_idx}
         key = request_key(request)
-        if hit := self.cache.get(key):
-            return {**hit, "cached": True}
-
         price_in, price_out = float(info["pricing"]["prompt"]), float(info["pricing"]["completion"])
         prompt_tokens_estimate = sum(len(m["content"]) for m in messages) / 3
         worst_case = prompt_tokens_estimate * price_in + max_tokens * price_out
+        if hit := self.cache.get(key):
+            self.ledger.charge_cached(worst_case, hit["cost_usd"])
+            return {**hit, "cached": True}
+
         self.ledger.reserve(worst_case)
         cost = 0.0
         try:
@@ -130,11 +141,12 @@ def parse_json(text):
     return json.loads(candidate)
 
 
-def ask_json(llm, model, prompt, max_tokens=16000, attempts=3):
-    """Ask for a JSON object; a reply that does not parse is re-asked under a new cache key."""
+def ask_json(llm, model, prompt, max_tokens=16000, attempts=3, key=None, temperature=0.0):
+    """Ask for a JSON object; a reply that does not parse is re-asked under a new cache key.
+    key separates otherwise identical requests (e.g. benchmark repeats) in the cache."""
     for attempt in range(attempts):
-        entry = llm.chat(model, [{"role": "user", "content": prompt}], temperature=0.0,
-                         max_tokens=max_tokens, sample_idx=attempt)
+        entry = llm.chat(model, [{"role": "user", "content": prompt}], temperature=temperature,
+                         max_tokens=max_tokens, sample_idx=attempt if key is None else f"{key}:{attempt}")
         try:
             return parse_json(message_text(entry))
         except ValueError:

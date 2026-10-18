@@ -20,7 +20,9 @@ class Exa:
         if published_before:
             request["endPublishedDate"] = f"{published_before}T00:00:00Z"
         key = request_key(request)
-        if not (entry := self.cache.get(key)):
+        if entry := self.cache.get(key):
+            self.ledger.charge_cached(self.cost_estimate, entry["cost_usd"])
+        else:
             self.ledger.reserve(self.cost_estimate)
             cost = 0.0
             try:
