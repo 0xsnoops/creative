@@ -1,5 +1,5 @@
-"""DIVERGE as an MCP server for coding agents. Every tool returns compact JSON (diverge_escape: a
-VERDICT line, then JSON, plus the same object as structuredContent), streams progress
+"""DIVERGE as an MCP server for coding agents. Every tool returns compact JSON (diverge_escape and
+diverge_check: a VERDICT line, a short markdown summary, then JSON, plus the same object as structuredContent), streams progress
 notifications, and is capped by its own budget_usd (and the config's global cap). Failures come
 back as structured errors with what is missing and a next_action; diverge_status is free."""
 import asyncio
@@ -49,7 +49,8 @@ def failure(error, detail, next_action, missing=(), partial=None, can_continue=F
     """A structured error an agent can act on (never contains key values)."""
     from .demo import OFFLINE_DEMO, REPO
     out = {"error": error, "detail": detail, "missing": list(missing), "complete": False,
-           "live_calls_available": bool(os.environ.get("OPENROUTER_API_KEY")),
+           "live_calls_available": bool(os.environ.get("ANTHROPIC_API_KEY" if os.environ.get("DIVERGE_PROVIDER", "")
+                                                       .lower() == "anthropic" else "OPENROUTER_API_KEY")),
            "offline_demo_available": (REPO / "fixtures" / "runs" / f"{OFFLINE_DEMO}.json").exists(),
            "can_continue_autonomously": can_continue, "next_action": next_action}
     if partial:
@@ -205,27 +206,97 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
     return await run_tool(ctx, budget_usd, work)
 
 
-@mcp.tool()
+ALTERNATIVES_PROMPT = """You are proposing alternative strategies for a programming task, before any code is written.
+
+Task:
+{task}
+
+The agent's planned approach:
+{approach}
+{herd}
+Propose {n} genuinely different strategies (different mechanisms, not tuned variants of the planned approach). \
+For each give: name (a short family name), mechanism (one sentence: how it decides), strength (when it should \
+beat the planned approach), trap (the most likely way it fails or misleads), how_to_test (one concrete \
+measurement that would confirm or refute it, against the planned approach).
+Return JSON only: {{"alternatives": [{{"name": "...", "mechanism": "...", "strength": "...", "trap": "...", \
+"how_to_test": "..."}}]}}"""
+ALT_FIELDS = ("name", "mechanism", "strength", "trap", "how_to_test")
+N_ALTERNATIVES = (3, 5)
+
+
+def cached_study(herd, task):
+    """The task's herd map if one is saved for the current inputs (exactly the case where ensure_map
+    returns it without building), else None. Never starts a cold-start build."""
+    from .pipeline import inputs_hash, read_json
+    cfg = herd.cfg
+    saved = read_json(herd.out_dir(task) / "herd_map.json")
+    inputs = {"samplers": cfg["models"]["samplers"], "labeler": cfg["models"]["labeler"],
+              "n_per_model": cfg["sampling"]["n_per_model"], "inputs_hash": inputs_hash(task, cfg)}
+    if not saved or {k: (saved.get("meta") or {}).get(k) for k in inputs} != inputs:
+        return None
+    return ensure_map(herd, task)
+
+
+def free_text_check(herd, task, my_approach):
+    """diverge_check without an evaluator: the herd comparison when a map is cached (no map is built),
+    plus untested alternatives from one extractor-model call, every one HYPOTHESIZED."""
+    from .llm import ask_json
+    from .overlook import extractor
+    study, herd_cmp = cached_study(herd, task), None
+    if study:
+        placed = check_approach(herd, task, study, my_approach, None, 0)
+        m = study["herd_map"]
+        herd_cmp = {"family": placed["family"], "why": placed.get("why", ""), "share": placed["share"],
+                    "rank": placed["rank"], "in_top_families": placed["family"] in m["top3"],
+                    "is_blind_spot": placed["is_blind_spot"],
+                    "top_families": [[r["family"], r["share"]] for r in m["families"] if r["family"] in m["top3"]],
+                    "concentration_top3": m["concentration_top3"], "n_samples": m["n_labeled"],
+                    "low_confidence": low_confidence(study, herd.cfg),
+                    "blind_spots": [b["family"] for b in study["blind_spots"]], "evidence_class": "MEASURED"}
+    herd_text = ("\nAI models asked this task mostly converge on: " + ", ".join(m["top3"]) +
+                 ". Prefer strategies outside these.\n") if study else ""
+    reply = ask_json(herd.llm, extractor(herd), ALTERNATIVES_PROMPT.format(
+        task=task.prompt, approach=my_approach, herd=herd_text, n=N_ALTERNATIVES[1]), required=("alternatives",))
+    alts = [{k: str(a.get(k) or "").strip() for k in ALT_FIELDS} | {"evidence_class": "HYPOTHESIZED"}
+            for a in reply.get("alternatives") or [] if isinstance(a, dict) and a.get("name")][:N_ALTERNATIVES[1]]
+    out = {"verdict": "untested", "mode": "free_text", "my_approach": my_approach, "herd_comparison": herd_cmp,
+           "alternatives": alts, "complete": True}
+    if not study:
+        out["herd_note"] = ("No cached herd map for this task, so the herd comparison was skipped; free-text mode "
+                            "never builds one (herd_map builds it: cold start, several minutes and real spend).")
+    if len(alts) < N_ALTERNATIVES[0]:
+        out["alternatives_note"] = f"the model returned {len(alts)} usable alternatives"
+    return out
+
+
+@mcp.tool(structured_output=False)
 async def diverge_check(task_description: str, my_approach: str, ctx: Context, evaluator_cmd: str = "",
                      k: int = 3, lower_is_better: bool = True, contrast: bool = False,
-                     budget_usd: float = 5.0) -> str:
+                     budget_usd: float = 5.0) -> CallToolResult:
     """Call before committing to a strategy: which family does my_approach (a plain-language
     description) belong to, how common is it among AI models, and does a tested family beat it?
     Not for debugging a failing solution; once scored attempts have stalled, use diverge_escape. Needs
     OPENROUTER_API_KEY (and EXA_API_KEY when the map is not cached yet). With an evaluator
     (evaluator_cmd, or a built-in task) it implements your family, the blind spots and the top herd
-    families k times each (default 3) and scores them (held-out on built-in tasks); without one it
-    only classifies (verdict "untested"). Default budget_usd 5.0. Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
-    Returns your family and share, and verdict keep | try_blind_spot | try_other_family (also
-    inconclusive, unclassified, untested), with blind_spot or better_family, diverse_alternative when
-    a blind spot also beat yours, and spent_usd. contrast=True is experimental (see README)."""
+    families k times each (default 3) and scores them (held-out on built-in tasks). Default budget_usd 5.0. Cold start: the first call on a task without a cached herd map builds one (samples from every configured model, an Exa literature search, labeling): several minutes and real spend, capped by budget_usd (recorded 100-samples-per-model builds cost about $3); cached after (diverge_status lists cached tasks).
+    Free-text mode (no evaluator): never builds a map; compares my_approach with the herd only if a map is
+    cached, and returns 3-5 untested alternatives {name, mechanism, strength, trap, how_to_test}, all
+    HYPOTHESIZED, from one cheap model call (about $0.01; verdict "untested").
+    Returns "VERDICT: <verdict>", a short markdown summary, then JSON (also the structuredContent):
+    verdict keep | try_blind_spot | try_other_family (also inconclusive, unclassified, untested), complete,
+    next_action, your family and share, blind_spot or better_family, diverse_alternative when a blind
+    spot also beat yours, and spent_usd. contrast=True is experimental (see README)."""
+    from .contract import check_result
+
     def work(herd):
         task = Task.resolve(task_description)
+        if not evaluator_cmd and not task.evaluator:
+            return free_text_check(herd, task, my_approach)
         study = ensure_map(herd, task)
-        evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better) \
-            if evaluator_cmd or task.evaluator else None
+        evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
         return check_approach(herd, task, study, my_approach, evaluator, k, contrast)
-    return await run_tool(ctx, budget_usd, work)
+    text, structured = check_result(json.loads(await run_tool(ctx, budget_usd, work)))
+    return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=structured)
 
 
 @mcp.tool()
@@ -290,7 +361,7 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
     the task's cached overlook study and blind spots (built-in tasks); without them a loop may end in
     escalate. Default budget_usd 2.0, k=1 candidate; recorded runs that generated no candidate spent
     under $0.01, generating one costs more.
-    Returns "VERDICT: keep|repair|escape|escalate|inconclusive", then JSON: next_action,
+    Returns "VERDICT: keep|repair|escape|escalate|inconclusive", a short markdown summary, then JSON: next_action,
     can_continue_autonomously, complete, missing_requirements, candidate_available,
     evidence_summary, lever, next_experiment (success and failure thresholds), evidence (each
     MEASURED, SOURCE_BACKED or HYPOTHESIZED), candidate_path, spent_usd; the same object (plus
@@ -328,14 +399,14 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
         loaded.update(overlook=read_json(out / "overlook.json"), paraphrase=read_json(out / "paraphrase.json"),
                       families=[*(read_json(out / "blind_spots.json") or []), *(read_json(out / "families.json") or [])])
         return result
-    # Text first line stays "VERDICT: <verdict>" (contract.parse reads it); the same object is also
+    # Text: "VERDICT: <verdict>" (contract.parse reads it), a markdown summary, then JSON; the same object is also
     # structuredContent. structured_output=False: no outputSchema, so the dict is passed through as is.
     text, structured = agent_result(json.loads(await run_tool(ctx, budget_usd, work)), **loaded)
     return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=structured)
 
 
 # Deprecated aliases from when the product was called HERD; same code, same arguments.
-for _old, _new, _structured in (("herd_escape", diverge_escape, False), ("herd_check", diverge_check, True),
+for _old, _new, _structured in (("herd_escape", diverge_escape, False), ("herd_check", diverge_check, False),
                                 ("herd_status", diverge_status, True)):
     mcp.tool(name=_old, structured_output=_structured,
              description=f"Deprecated alias of {_new.__name__} (DIVERGE was called HERD); call {_new.__name__}. "

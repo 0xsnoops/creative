@@ -169,7 +169,11 @@ def call_tool(name, args):
             result = await client.call_tool(name, args, progress_callback=on_progress)
             return result.content[0].text
 
-    return json.loads(anyio.run(go)), progress
+    text = anyio.run(go)
+    if text.startswith("VERDICT: "):  # diverge_check: VERDICT line, markdown, then the JSON object
+        from diverge.contract import parse
+        return parse(text)[1], progress
+    return json.loads(text), progress
 
 
 def test_mcp_tools(fake_world):
