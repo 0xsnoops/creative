@@ -1,0 +1,32 @@
+# HERD blind-spot experiment configuration.
+# Model slugs were chosen from OpenRouter's /models endpoint (fetched 2026-10-18).
+
+budget_usd: 15.0            # hard cap on estimated total spend (all cached responses count)
+
+models:
+  samplers:                 # one current model per lab
+    - anthropic/claude-sonnet-5.5
+    - openai/gpt-6.1-sol
+    - google/gemini-4-argon
+    - meta-llama/llama-4-maverick
+    - deepseek/deepseek-v4-pro-0813
+  labeler: anthropic/claude-opus-5.5
+  implementer: anthropic/claude-opus-5.5
+
+sampling:
+  n_per_model: 5            # plumbing check; then 20, then 100
+  temperature: 1.0
+  max_tokens: 32000         # clipped to each model's own completion limit
+  concurrency: 8
+
+reality_check:
+  k: 3                      # implementations per family
+
+blind_spot_max_share: 0.02
+
+exa:
+  cost_per_search_usd: 0.01 # estimate, used for budget tracking
+
+paths:
+  cache: cache
+  results: results

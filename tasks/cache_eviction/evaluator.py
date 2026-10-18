@@ -24,6 +24,7 @@ SCAN_EVERY = 10_000     # Zipf requests between scans
 ONE_HIT_FRACTION = 0.5  # share of requests to keys that are never requested again
 CACHE_FRACTIONS = [0.01, 0.10]
 TIMEOUT_S = 60
+ENTRYPOINT = "Policy"  # what candidate code must define
 HERE = Path(__file__).resolve().parent
 RESULT_TAG = "__HERD_RESULT__"
 
@@ -99,7 +100,7 @@ def score_candidate(path):
         unique = len(set(trace))
         for fraction in CACHE_FRACTIONS:
             size = max(1, round(fraction * unique))
-            policy_cls = load_class(path, "Policy")  # fresh module state per run
+            policy_cls = load_class(path, ENTRYPOINT)  # fresh module state per run
             runs.append({"trace": name, "cache_size": size, "unique_keys": unique,
                          "miss_ratio": simulate(policy_cls, trace, size)})
     return float(np.mean([r["miss_ratio"] for r in runs])), runs

@@ -20,6 +20,7 @@ CAPACITY = 100
 N_ITEMS = 5000
 SEEDS = [0, 1, 2, 3, 4]
 TIMEOUT_S = 60
+ENTRYPOINT = "priority"  # what candidate code must define
 HERE = Path(__file__).resolve().parent
 RESULT_TAG = "__HERD_RESULT__"
 
@@ -58,7 +59,7 @@ def score_candidate(path):
     for seed in SEEDS:
         items = make_items(seed)
         lower_bound = math.ceil(items.sum() / CAPACITY)
-        bins = pack(load_function(path, "priority"), items)  # fresh module state per instance
+        bins = pack(load_function(path, ENTRYPOINT), items)  # fresh module state per instance
         per_instance.append({"seed": seed, "bins": bins, "lower_bound": lower_bound,
                              "excess_pct": 100.0 * (bins - lower_bound) / lower_bound})
     score = float(np.mean([r["excess_pct"] for r in per_instance]))
