@@ -25,7 +25,7 @@ This run predates the rename, so the transcript shows the old tool names.
 before it:
 
 > Gains are now within noise: 0.094 → 0.085 on the tuning seeds, flat on the validation seeds.
-> I'll check HERD for a different strategy before tuning any further.
+> I'll check DIVERGE for a different strategy before tuning any further.
 
 **Calls**
 1. **Readiness tool (`diverge_status` today), no arguments.** Result: ready, with
@@ -90,9 +90,11 @@ own tuning. The agent's words just before it:
    - Evidence: 12 MEASURED claims and 2 HYPOTHESIZED. The lever on record, unused here, was
      `n_open_bins`, used by 5 of 95 consensus samples.
 
-**What the agent did next.** It followed the verdict, kept its strategy, and finished at
-**0.1496 dev** against 0.658 for the best previous attempt. That gain is the agent's own work.
-DIVERGE's contribution was a correct "do not switch".
+**What the agent did next.** It had already reached **0.1496 dev** before calling DIVERGE,
+against 0.658 for the best previous attempt. That gain is the agent's own work. After the `keep`
+verdict, it kept its strategy, saved the solution it had, and stopped. It made no further
+improvement. DIVERGE's contribution was a correct "do not switch". It changed nothing in the
+outcome; it confirmed the agent was not looping.
 
 **Costs.** The agent itself cost $2.58, as reported by `claude -p`; DIVERGE made 2 model calls,
 both on the Anthropic API, for $0.0017 (trace: `results/traces/autonomous-demo-run3/`). Run time was 39 minutes. No human intervened.
@@ -103,7 +105,7 @@ both on the Anthropic API, for $0.0017 (trace: `results/traces/autonomous-demo-r
 |---|---|---|---|
 | 1 | yes | inconclusive (evaluator could not be nested; fixed) | the agent improved on its own |
 | 2 | could not (tool allowlist bug; aborted) | none | none |
-| 3 | yes | keep | the agent followed it and kept improving |
+| 3 | yes | keep (do not switch) | the agent kept its strategy and finished (0.1496 dev, reached before the call) |
 
 In both completed runs the agent chose DIVERGE on its own, from a prompt that never mentions it.
 That is n = 2: it shows the behavior happens, not how often.

@@ -1,8 +1,8 @@
 """Mini rescue test (preliminary): does escape v2 get a naturally stuck agent unstuck better than
 simple alternatives at the same budget? online_bin_packing only.
 
-    HERD_TRACE_DIR=results/traces/rescue-20261018 uv run python scripts/rescue_test.py --pilot
-    HERD_TRACE_DIR=results/traces/rescue-20261018 uv run python scripts/rescue_test.py
+    DIVERGE_TRACE_DIR=results/traces/rescue-20261018 uv run python scripts/rescue_test.py --pilot
+    DIVERGE_TRACE_DIR=results/traces/rescue-20261018 uv run python scripts/rescue_test.py
 
 1. Trajectories: the implementer is one cheap sampler model (MODEL). Attempt 1 is a fresh
    sample from the task prompt; attempts 2-6 are revisions, each given the previous code and its
@@ -14,8 +14,8 @@ simple alternatives at the same budget? online_bin_packing only.
    same dollar cap per arm:
    - fresh_start: fresh context + a failure summary (scores, shared worst dev instances), no code;
    - try_different: all previous attempts with code and scores + "try a fundamentally different approach";
-   - random_lever: the escape v2 pipeline with a random input the herd already uses (control);
-   - herd_escape: escape v2 with the lever HERD chooses.
+   - random_lever: the escape v2 pipeline with a random input the consensus already uses (control);
+   - escape v2 with the lever DIVERGE chooses (arm label kept from recorded results).
    Selection is on dev only. Held-out is computed once per arm for its dev-best candidate and for
    the stuck best attempt. Rescue = held-out score better than the stuck best's held-out score.
 Writes results/rescue/{trajectories,arms,summary}.json.
@@ -31,19 +31,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from diverge.llm import BudgetExceeded, message_text  # noqa: E402
-from diverge.pipeline import Herd, read_json  # noqa: E402
+from diverge.pipeline import Session, read_json  # noqa: E402
 from diverge.reality import Evaluator, dev_detail  # noqa: E402
 from diverge.sample import extract_code  # noqa: E402
 from diverge.task import Task  # noqa: E402
 
 TASK = "online_bin_packing"
-MODEL = "meta-llama/llama-4-maverick"  # cheapest configured sampler; its best herd samples are exactly best fit
+MODEL = "meta-llama/llama-4-maverick"  # cheapest configured sampler; its best consensus samples are exactly best fit
 if os.environ.get("DIVERGE_PROVIDER", "").lower() == "anthropic":  # OpenRouter disabled: arms use Claude Haiku
     MODEL = "anthropic/claude-haiku-5.5"
 N_ATTEMPTS, EPS, K = 6, 0.01, 3
 TRAJ_BUDGET, ARM_BUDGET = 0.30, 0.40
 # --round R (default 1): R > 1 reruns every arm on the same stuck states with fresh generation
-# seeds (new sample tags), writing arms-r<R>.json; round 2 adds the herd_escape_v3 arm.
+# seeds (new sample tags), writing arms-r<R>.json; round 2 adds the escape v3 arm.
 ROUND = int(sys.argv[sys.argv.index("--round") + 1]) if "--round" in sys.argv else 1
 SUFFIX = "" if ROUND == 1 else f":r{ROUND}"
 OUT = ROOT / "results" / "rescue"
@@ -82,14 +82,14 @@ def feedback_for(result, baseline):
             f"the best-fit baseline scores {baseline:.4f}%.")
 
 
-def with_model(herd):
-    herd.cfg["models"]["implementer"] = MODEL  # same implementation model in every arm
-    return herd
+def with_model(session):
+    session.cfg["models"]["implementer"] = MODEL  # same implementation model in every arm
+    return session
 
 
-def implement(herd, prompt, tag, evaluator, task):
-    entry = herd.llm.chat(MODEL, [{"role": "user", "content": prompt}], temperature=1.0,
-                          max_tokens=herd.cfg["reality_check"]["max_tokens"], sample_idx=tag)
+def implement(session, prompt, tag, evaluator, task):
+    entry = session.llm.chat(MODEL, [{"role": "user", "content": prompt}], temperature=1.0,
+                          max_tokens=session.cfg["reality_check"]["max_tokens"], sample_idx=tag)
     code = extract_code(message_text(entry), task.entrypoint)
     if code is None:
         return None, {"valid": False, "score": None, "detail": {"error": "no code in reply"}}
@@ -100,7 +100,7 @@ def implement(herd, prompt, tag, evaluator, task):
 
 
 def trajectory(r, task, evaluator, base):
-    herd = with_model(Herd(budget_usd=TRAJ_BUDGET, progress=lambda m: None))
+    session = with_model(Session(budget_usd=TRAJ_BUDGET, progress=lambda m: None))
     attempts = []
     for i in range(N_ATTEMPTS):
         if not attempts:
@@ -109,7 +109,7 @@ def trajectory(r, task, evaluator, base):
             prev = attempts[-1]
             prompt = REVISE.format(task=task.prompt, code=prev["code"], feedback=prev["feedback"])
         try:
-            code, result = implement(herd, prompt, f"rescue:traj:{r}:{i}", evaluator, task)
+            code, result = implement(session, prompt, f"rescue:traj:{r}:{i}", evaluator, task)
         except BudgetExceeded:
             break
         if code is None:  # keep the previous code as the state; the agent got no code this turn
@@ -120,7 +120,7 @@ def trajectory(r, task, evaluator, base):
                          "valid": result["valid"], "dev_detail": dev_detail(result),
                          "feedback": feedback_for(result, base)})
         print(f"traj {r} attempt {i + 1}: dev {result['score']}", flush=True)
-    return {"run": r, "attempts": attempts, "cost_usd": round(herd.ledger.new_spend, 4)}
+    return {"run": r, "attempts": attempts, "cost_usd": round(session.ledger.new_spend, 4)}
 
 
 def stuck(attempts):
@@ -146,44 +146,44 @@ def failure_summary(attempts):
 
 
 def plain_arm(name, prompt, state, task, evaluator):
-    herd = with_model(Herd(budget_usd=ARM_BUDGET, progress=lambda m: None))
+    session = with_model(Session(budget_usd=ARM_BUDGET, progress=lambda m: None))
     cands = []
     for i in range(K):
         try:
-            code, result = implement(herd, prompt, f"rescue:{name}:{state['run']}:{i}{SUFFIX}", evaluator, task)
+            code, result = implement(session, prompt, f"rescue:{name}:{state['run']}:{i}{SUFFIX}", evaluator, task)
         except BudgetExceeded:
             break
         cands.append({"code": code, "dev_score": result["score"], "valid": result["valid"]})
     valid = [c for c in cands if c["valid"]]
     best = min(valid, key=lambda c: c["dev_score"]) if valid else None
     return {"arm": name, "candidates": cands, "code": best["code"] if best else None,
-            "dev_score": best["dev_score"] if best else None, "cost_usd": round(herd.ledger.new_spend, 4),
+            "dev_score": best["dev_score"] if best else None, "cost_usd": round(session.ledger.new_spend, 4),
             "implementer_calls": len(cands)}
 
 
 def escape_arm(name, state, task, evaluator, overlook, lever=None, version=2):
     from diverge.escape import escape_v2, escape_v3, escape_v4
-    herd = with_model(Herd(budget_usd=ARM_BUDGET, progress=lambda m: None))
+    session = with_model(Session(budget_usd=ARM_BUDGET, progress=lambda m: None))
     attempts = [{"id": a["id"], "code": a["code"], "score": a["dev_score"], "valid": a["valid"],
                  "dev_detail": a["dev_detail"]} for a in state["attempts"]]
     try:
         seed = state["run"] + 1000 * (ROUND - 1)
         if version == 4:  # sketches -> rubric critic -> deepen top 2 -> implement (+1 repair) -> evolve top 2 once
-            res = escape_v4(herd, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
+            res = escape_v4(session, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
                             n_sketches=5, n_deepen=2, max_resample=2, n_parents=2, seed=seed)
         elif version == 3:  # 5 isolated sketches -> critic -> deepen top 2; at most 2 scored + resamples
-            res = escape_v3(herd, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
+            res = escape_v3(session, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
                             n_sketches=5, n_deepen=2, max_resample=2, seed=seed)
         else:
-            res = escape_v2(herd, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
+            res = escape_v2(session, task, attempts[-1], attempts[:-1], evaluator, overlook=overlook, lever=lever,
                             k_sketches=K, max_resample=2, seed=seed)
     except BudgetExceeded as e:
         return {"arm": name, "code": None, "dev_score": None, "error": f"budget: {e}",
-                "cost_usd": round(herd.ledger.new_spend, 4)}
+                "cost_usd": round(session.ledger.new_spend, 4)}
     keep = {k: res.get(k) for k in ("lever", "failure_summary", "counterexample", "sketches", "kept_sketches",
                                     "rejections", "admitted", "calls", "critic", "deepened", "anchor_strip", "repairs", "evolve")}
     return {"arm": name, "code": res.get("candidate"), "dev_score": (res.get("evaluation") or {}).get("after"),
-            "cost_usd": round(herd.ledger.new_spend, 4), **keep}
+            "cost_usd": round(session.ledger.new_spend, 4), **keep}
 
 
 def heldout(evaluator, code):

@@ -1,5 +1,5 @@
 """Offline: re-run loop detection on the 3 recorded live runs with the behavior detector
-(herd.trajectory, detector "behavior") and compare with the recorded HERD verdicts.
+(diverge.trajectory, detector "behavior") and compare with the recorded DIVERGE verdicts.
 
 Detector fix found from run 3, validated by E1. No API calls: extract=None (no LLM captions);
 dev scoring and behavior fingerprints run locally in the sandbox (CPU only). Writes

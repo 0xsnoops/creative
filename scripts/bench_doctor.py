@@ -6,8 +6,8 @@ cache_eviction, and how to fix the generation pipeline without touching held-out
     uv run python scripts/bench_doctor.py cluster   # cluster diagnoses/fixes/lessons with one model call
     uv run python scripts/bench_doctor.py report    # synthesis.json + docs/BENCH_DOCTOR.md
 
-Every model call goes through Herd(budget_usd=8.0).llm.chat (cached, billed to the ledger).
-Set HERD_TRACE_DIR=results/traces/bench-doctor-20261018 to trace calls. The ADHD repo clone is
+Every model call goes through Session(budget_usd=8.0).llm.chat (cached, billed to the ledger).
+Set DIVERGE_TRACE_DIR=results/traces/bench-doctor-20261018 to trace calls. The ADHD repo clone is
 read as untrusted text only; nothing from it is executed."""
 import ast
 import json
@@ -20,10 +20,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-os.environ.setdefault("HERD_TRACE_DIR", str(ROOT / "results/traces/bench-doctor-20261018"))
+os.environ.setdefault("DIVERGE_TRACE_DIR", str(ROOT / "results/traces/bench-doctor-20261018"))
 
 from diverge.llm import BudgetExceeded, finish_reason, message_text  # noqa: E402
-from diverge.pipeline import Herd  # noqa: E402
+from diverge.pipeline import Session  # noqa: E402
 
 OUT = ROOT / "results/bench_doctor"
 TASK = ROOT / "results/cache_eviction"
@@ -77,7 +77,7 @@ def signatures(path):
 
 
 def bench_excerpt():
-    src = (ROOT / "herd/bench.py").read_text()
+    src = (ROOT / "diverge/bench.py").read_text()
     tree = ast.parse(src)
     keep = {"run_metrics", "run_bench"}
     lines = src.splitlines()
@@ -215,14 +215,14 @@ def build_packet():
     p += section("Evaluator (tasks/cache_eviction/evaluator.py)", read(ROOT / "tasks/cache_eviction/evaluator.py"), "python")
     for name in ["__init__", "plain", "blind_spot", "blind_spot_contrast", "blind_spot_feedback",
                  "literature_random", "literature_all", "adhd_frames", "hot", "verbalized", "transplant"]:
-        p += section(f"herd/operators/{name}.py", read(ROOT / f"herd/operators/{name}.py"), "python")
-    p += section("herd/operators/ADHD_LICENSE (header)", head_lines(ROOT / "herd/operators/ADHD_LICENSE", 3), "")
-    p += section("herd/contrast.py", read(ROOT / "herd/contrast.py"), "python")
-    p += section("herd/reality.py (IMPLEMENT_TEMPLATE, implementation_prompt, reality_check)",
-                 read(ROOT / "herd/reality.py"), "python")
-    p += section("herd/bench.py (docstring, run_metrics, run_bench)", bench_excerpt(), "python")
-    p += section("herd/literature.py (signatures + docstrings)", signatures(ROOT / "herd/literature.py"), "python")
-    p += section("herd/herdmap.py (signatures + docstrings)", signatures(ROOT / "herd/herdmap.py"), "python")
+        p += section(f"diverge/operators/{name}.py", read(ROOT / f"diverge/operators/{name}.py"), "python")
+    p += section("diverge/operators/ADHD_LICENSE (header)", head_lines(ROOT / "diverge/operators/ADHD_LICENSE", 3), "")
+    p += section("diverge/contrast.py", read(ROOT / "diverge/contrast.py"), "python")
+    p += section("diverge/reality.py (IMPLEMENT_TEMPLATE, implementation_prompt, reality_check)",
+                 read(ROOT / "diverge/reality.py"), "python")
+    p += section("diverge/bench.py (docstring, run_metrics, run_bench)", bench_excerpt(), "python")
+    p += section("diverge/literature.py (signatures + docstrings)", signatures(ROOT / "diverge/literature.py"), "python")
+    p += section("diverge/consensus.py (signatures + docstrings)", signatures(ROOT / "diverge/consensus.py"), "python")
     p += section("ADHD frames run, seed 0: frames and ideas generated", adhd_ideas(), "json")
     p += section("Best plain candidate (seed0/plain/004.py)", head_lines(BENCH / "seed0/plain/004.py", 150), "python")
     p += section("Best blind_spot candidate (seed0/blind_spot/001.py, LeCaR/CACHEUS)",
@@ -262,10 +262,10 @@ def messages(packet, lens):
     return [{"role": "user", "content": packet + "\n\n---\n\n" + ASK.format(lens_text=LENSES[lens])}]
 
 
-def estimate(herd, jobs, packet):
+def estimate(session, jobs, packet):
     total, rows = 0.0, []
     for model, lens in jobs:
-        info = herd.llm.catalog[model]
+        info = session.llm.catalog[model]
         pin, pout = float(info["pricing"]["prompt"]), float(info["pricing"]["completion"])
         tokens_in = len(messages(packet, lens)[0]["content"]) / 3.5
         cost = tokens_in * pin + MAX_TOKENS * pout
@@ -329,27 +329,27 @@ def lenient_json(text):
 def prior_spend():
     """New money already spent by earlier bench-doctor runs (from the trace), so the $8 cap holds
     across invocations and not just within one."""
-    path = Path(os.environ["HERD_TRACE_DIR"]) / "calls.jsonl"
+    path = Path(os.environ["DIVERGE_TRACE_DIR"]) / "calls.jsonl"
     if not path.exists():
         return 0.0
     rows = (json.loads(l) for l in path.read_text().splitlines())
     return sum(r.get("new_cost_usd") or 0 for r in rows if str(r.get("stage", "")).startswith("bench-doctor"))
 
 
-def budgeted_herd():
+def budgeted_session():
     before = prior_spend()
     print(f"bench-doctor spend so far ${before:.4f}; this run may spend up to ${BUDGET - before:.4f}")
-    return Herd(budget_usd=max(0.0, BUDGET - before))
+    return Session(budget_usd=max(0.0, BUDGET - before))
 
 
 def run_panel():
     packet = (OUT / "packet.md").read_text()
-    herd = budgeted_herd()
+    session = budgeted_session()
     jobs = panel_jobs()
-    missing = [m for m, _ in jobs if m not in herd.llm.catalog]
+    missing = [m for m, _ in jobs if m not in session.llm.catalog]
     if missing:
         print("not in catalog:", missing)
-    total, rows = estimate(herd, jobs, packet)
+    total, rows = estimate(session, jobs, packet)
     print(f"packet ~{len(packet) / 4:.0f} tokens; {len(jobs)} calls; worst-case estimate ${total:.2f}")
     for model, lens, cost in rows:
         print(f"  {model} [{lens}] ${cost:.4f}")
@@ -373,7 +373,7 @@ def run_panel():
         for max_tokens, suffix in schedule:
             idx = f"bench-doctor:{lens}{suffix}"
             try:
-                entry = herd.llm.chat(model, messages(packet, lens), temperature=0.7,
+                entry = session.llm.chat(model, messages(packet, lens), temperature=0.7,
                                       max_tokens=max_tokens, sample_idx=idx)
             except BudgetExceeded as e:
                 rec["attempts"].append({"error": f"BudgetExceeded: {e}"})
@@ -413,7 +413,7 @@ def run_panel():
             f.write(json.dumps(r) + "\n")
     spent = sum(r["cost_usd"] for r in results)
     print(f"done: {sum(r['ok'] for r in results)}/{len(results)} parsed; panel cost ${spent:.4f}; "
-          f"ledger this run ${herd.ledger.spent_this_run:.4f}")
+          f"ledger this run ${session.ledger.spent_this_run:.4f}")
     for r in results:
         print(f"  {r['ok']!s:5} {r['model']} [{r['lens']}] ${r['cost_usd']:.4f} "
               f"{[a.get('finish_reason') or a.get('error', '')[:80] for a in r['attempts']]}")
@@ -444,7 +444,7 @@ def text_of(x):
 
 def cluster():
     rows = [json.loads(l) for l in (OUT / "replies.jsonl").read_text().splitlines()]
-    herd = budgeted_herd()
+    session = budgeted_session()
     out = {}
     for kind, k, limit in (("diagnosis", "8-12", 400), ("fixes", "12-18", 600), ("adhd_lessons", "6-10", 350)):
         items = []
@@ -454,7 +454,7 @@ def cluster():
             for x in r["reply"].get(kind) or []:
                 items.append({"model": r["model"], "lens": r["lens"], "text": text_of(x)})
         listing = "\n".join(f"{i}. [{it['model']}] {it['text'][:limit]}" for i, it in enumerate(items))
-        entry = herd.llm.chat("anthropic/claude-sonnet-5.5",
+        entry = session.llm.chat("anthropic/claude-sonnet-5.5",
                               [{"role": "user", "content": CLUSTER_ASK.format(k=k, items=listing)}],
                               temperature=0.0, max_tokens=8000, sample_idx=f"bench-doctor:cluster:{kind}")
         parsed = lenient_json(message_text(entry))

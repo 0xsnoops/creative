@@ -178,7 +178,7 @@ def _sourced(lever, index):
     return item
 
 
-def _herd_counts(lever):
+def _consensus_counts(lever):
     """MEASURED consensus counts carried by a lever's detail, if any."""
     d, name, t = lever.get("detail") or {}, lever.get("name"), lever.get("type")
     if t == "unused_signal" and d.get("used_by") is not None and d.get("decided"):
@@ -228,7 +228,7 @@ def evidence(result, lever, families=None):
     levers = result.get("overlooked_levers") or []
     if lever and levers:
         first = levers[0]
-        if counts := _herd_counts(first):
+        if counts := _consensus_counts(first):
             out.append(counts)
         if src := _sourced(first, index):
             out.append(src)
@@ -427,17 +427,17 @@ def check_markdown(obj):
         lines.append(f"**Error:** {_md_text(obj['error'])}: {_md_text(obj.get('detail', ''))}")
         lines.append(f"**Next action:** {_md_text(obj.get('next_action'), 600)}")
         return "\n".join(lines) + "\n"
-    herd = obj.get("herd_comparison") if obj.get("mode") == "free_text" else obj
-    if herd and herd.get("family"):
-        line = f"**Your approach:** {_md_text(herd['family'])}, consensus share {_md_num(herd.get('share'))}"
-        if herd.get("rank") is not None:
-            line += f", rank {_md_num(herd['rank'])}"
-        if "in_top_families" in herd:
-            line += f" (one of the consensus top families: {_yes(herd['in_top_families'])})"
+    consensus = obj.get("herd_comparison") if obj.get("mode") == "free_text" else obj
+    if consensus and consensus.get("family"):
+        line = f"**Your approach:** {_md_text(consensus['family'])}, consensus share {_md_num(consensus.get('share'))}"
+        if consensus.get("rank") is not None:
+            line += f", rank {_md_num(consensus['rank'])}"
+        if "in_top_families" in consensus:
+            line += f" (one of the consensus top families: {_yes(consensus['in_top_families'])})"
         lines.append(line)
-        if herd.get("top_families"):
+        if consensus.get("top_families"):
             lines.append("**Consensus top families:** " + ", ".join(
-                f"{_md_text(f)} ({_md_num(s)})" for f, s in herd["top_families"]))
+                f"{_md_text(f)} ({_md_num(s)})" for f, s in consensus["top_families"]))
     elif obj.get("herd_note"):
         lines.append(f"**Consensus comparison:** {_md_text(obj['herd_note'])}")
     if obj.get("my_family_score") is not None:

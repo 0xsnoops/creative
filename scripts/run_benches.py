@@ -1,13 +1,13 @@
 """Applies docs/PREREGISTRATION.md step 2 to the actual map spend, checks the stop rules, then
 runs both benchmarks. Budgets depend only on map costs, never on benchmark outcomes.
 
-    HERD_TRACE_DIR=results/traces/phase2-20261018 uv run python scripts/run_benches.py
+    DIVERGE_TRACE_DIR=results/traces/phase2-20261018 uv run python scripts/run_benches.py
 
 Completed calls are cached, so rerunning resumes where a stopped run left off."""
 import json, math, subprocess, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from diverge.pipeline import Herd
+from diverge.pipeline import Session
 
 CAP, RESERVE, BATCH, LABEL_PER_BATCH, EXPECTED_CANDIDATES = 25.0, 1.00, 8, 0.10, 8
 TASKS = {"cache_eviction": (0.65, ["plain", "adhd_frames", "blind_spot", "blind_spot_contrast",
@@ -15,7 +15,7 @@ TASKS = {"cache_eviction": (0.65, ["plain", "adhd_frames", "blind_spot", "blind_
                                    "literature_all", "literature_random"]),
          "online_bin_packing": (0.35, ["blind_spot", "blind_spot_contrast", "blind_spot_feedback", "adhd_frames",
                                        "literature_random"])}
-spent = Herd().ledger.total_spent
+spent = Session().ledger.total_spent
 maps = spent - 0.50  # smoke test excluded
 plan = {"spent_after_maps": round(spent, 4), "maps_cost": round(maps, 4)}
 if maps > 10:
@@ -42,4 +42,4 @@ for task in TASKS:
     print("running:", " ".join(cmd[1:]), flush=True)
     with open(f"results/phase2/bench_{task}.log", "w") as log:
         code = subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT)
-    print(f"{task} exited {code}; total spend now ${Herd().ledger.total_spent:.4f}", flush=True)
+    print(f"{task} exited {code}; total spend now ${Session().ledger.total_spent:.4f}", flush=True)

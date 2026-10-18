@@ -177,9 +177,9 @@ def _clean(reply, inputs=()):
             "mechanism_family": _text(reply.get("mechanism_family"))}
 
 
-def llm_extractor(herd, task):
+def llm_extractor(session, task):
     """extract(code) backed by the extractor model (the labeler if none is configured)."""
-    model = extractor(herd)
+    model = extractor(session)
     inputs = INPUTS.get(task.name, {})
     listing = "\n".join(f"- {k}: {v}" for k, v in inputs.items()) or "- (not listed; name them in free text)"
     naming = "use one of the input names above where possible" if inputs else "free text"
@@ -188,7 +188,7 @@ def llm_extractor(herd, task):
         prompt = EXTRACT_PROMPT.format(task=task.prompt, inputs=listing, code=code, naming=naming)
         key = f"strategy:{hashlib.sha256(code.encode()).hexdigest()[:12]}"
         try:
-            reply = ask_json(herd.llm, model, prompt, key=key, required=("primary_signal", "assumptions",
+            reply = ask_json(session.llm, model, prompt, key=key, required=("primary_signal", "assumptions",
                                                                          "mechanism_family"))
         except ValueError:
             reply = {}

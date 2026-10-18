@@ -58,7 +58,7 @@ code similarity and 0.16 above AST strategy similarity, but the absolute behavio
 - **Signals:**
   - behavior = 1 − `fingerprint.distance` over the 200 probe states;
   - code = `strategy.code_similarity`;
-  - LLM strategy = `strategy.similarity(...)["overall"]` with `extract=llm_extractor(Herd(budget_usd=0.0))`;
+  - LLM strategy = `strategy.similarity(...)["overall"]` with `extract=llm_extractor(Session(budget_usd=0.0))`;
   - AST strategy = the same with `extract=None`, which uses only the inputs and state parts.
   
   In both strategy fingerprints `behavior=False`, so the strategy signals do not include behavior.

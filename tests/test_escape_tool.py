@@ -31,7 +31,7 @@ BEST_FITS = [
 
 
 def test_diverge_escape_detects_the_loop_and_tests_an_alternative(fake_world, monkeypatch):
-    pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), Task.resolve(BIN))
+    pipeline.ensure_map(pipeline.Session(progress=lambda m: None), Task.resolve(BIN))
 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]

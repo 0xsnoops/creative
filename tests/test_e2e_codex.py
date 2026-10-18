@@ -60,7 +60,7 @@ def offline_policy(monkeypatch):
 
 @pytest.mark.parametrize("fallback,rejections", [(False, 0), (True, 1)])
 def test_escape_v3_end_to_end_and_prompt_privacy(world, monkeypatch, fallback, rejections):
-    herd, task, state = world
+    session, task, state = world
     assert DEFAULT_MODE == "v2" and {"v1", "v2", "v3"} <= set(MODES)
     if fallback:
         state["anchor"] = None
@@ -93,7 +93,7 @@ def test_escape_v3_end_to_end_and_prompt_privacy(world, monkeypatch, fallback, r
         return real_evaluate(path, split)
 
     monkeypatch.setattr(task, "evaluate", dev_only)
-    result = run_escape("v3", herd, task, attempts[-1], attempts[:-1], Evaluator(task),
+    result = run_escape("v3", session, task, attempts[-1], attempts[:-1], Evaluator(task),
                         overlook=overlook(["s-000"]), k=7)
     assert result["version"] == 3
     assert result["diagnosis"]["action"] == "switch_strategy"
@@ -194,7 +194,7 @@ def test_anthropic_cold_start_does_not_contact_openrouter(fake_world, monkeypatc
         return httpx.Response(200, text=catalog, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(httpx, "get", get)
-    pipeline.Herd(progress=lambda message: None)
+    pipeline.Session(progress=lambda message: None)
     assert not seen, f"Anthropic-only cold initialization contacted another provider: {seen}"
 
 
@@ -210,7 +210,7 @@ def assert_readable(text, structured, tool):
 
 
 def test_escape_mcp_readable_success(fake_world, monkeypatch):
-    pipeline.ensure_map(pipeline.Herd(progress=lambda message: None), Task.resolve("online_bin_packing"))
+    pipeline.ensure_map(pipeline.Session(progress=lambda message: None), Task.resolve("online_bin_packing"))
 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]

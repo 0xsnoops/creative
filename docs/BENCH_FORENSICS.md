@@ -44,7 +44,7 @@ Invalid reasons across every bench record on disk: 3 IndentationError, 1 "no cod
 `plain-s0-001` has a 9-space indent at line 104 of 105 (`finish_reason=stop`, 0 code fences left in the code);
 `blind_spot-s0-002` has an "unexpected indent" at line 9 of 197 (a docstring continuation), `finish_reason=stop`.
 `finish_reason=length` never occurs in `bench3` (0/36 implementer calls); it occurs once in `bench3b` (plain, after the
-budget shrank `max_tokens` to 14873) and 12/100 times in the herd-map samples (`samples.jsonl`).
+budget shrank `max_tokens` to 14873) and 12/100 times in the consensus-map samples (`samples.jsonl`).
 
 ## 2. Timeouts: none in the benchmark
 
@@ -55,7 +55,7 @@ budget shrank `max_tokens` to 14873) and 12/100 times in the herd-map samples (`
   files were produced while the machine was loaded and still sit 16x under the limit.
 - `grep -i timeout` over `bench/*.json`, `candidates.jsonl` and the three trace files: 0 hits in error fields
   (the two hits in `phase2` are inside generated prose about latency).
-- The only evaluator timeouts anywhere are 6 herd-map samples in `results/cache_eviction/samples.jsonl`, all
+- The only evaluator timeouts anywhere are 6 consensus-map samples in `results/cache_eviction/samples.jsonl`, all
   `meta-llama/llama-4-maverick` (ids 007, 009, 011, 016, 017, 019; 350-524 completion tokens, i.e. tiny programs that
   scan the cache on every evict). They affect the consensus map's effective n, not the operator benchmark, and
   would have been invalid on an idle machine too (O(n) evict over 50k requests is the failure, not load).
@@ -67,13 +67,13 @@ So the "timeouts invalidated the overlooked operators" hypothesis is rejected by
 Workload (`tasks/cache_eviction/evaluator.py`): stationary Zipf(0.9) over 5,000 keys, a 1,000-key sequential scan
 every 10,000 requests, and a trace where 50% of requests are one-hit keys; cache = 1% and 10% of unique keys.
 
-`blind_spots.json` picks 4 families with herd share 0.00-0.01 (LRU-K, LeCaR/CACHEUS, LIRS/CLOCK-Pro,
-CLOCK/SIEVE). The herd (`herd_map.json`) concentrates 75% on W-TinyLFU (33%), 2Q/S3-FIFO (24%), LFU (18%).
+`blind_spots.json` picks 4 families with consensus share 0.00-0.01 (LRU-K, LeCaR/CACHEUS, LIRS/CLOCK-Pro,
+CLOCK/SIEVE). The consensus (`herd_map.json`) concentrates 75% on W-TinyLFU (33%), 2Q/S3-FIFO (24%), LFU (18%).
 
-Dev score by family, pooled over every implementation on disk (herd samples via `samples.jsonl`+`labels.jsonl`;
+Dev score by family, pooled over every implementation on disk (consensus samples via `samples.jsonl`+`labels.jsonl`;
 template implementations via all `run.json` + `candidates.jsonl` by `intended_family`):
 
-| family | herd share | herd samples (n, median, best) | template implementations (approx. n, median, best) |
+| family | consensus share | consensus samples (n, median, best) | template implementations (approx. n, median, best) |
 |---|---|---|---|
 | W-TinyLFU (consensus) | 0.33 | 30, **0.5772**, 0.5730 | 1, 0.6752 (degenerated to LRU) |
 | 2Q / S3-FIFO (consensus) | 0.24 | 24, 0.5889, 0.5856 | 4, 0.5857, 0.5856 |
@@ -86,7 +86,7 @@ template implementations via all `run.json` + `candidates.jsonl` by `intended_fa
 
 Reading: no blind-spot family has ever produced a dev score below 0.579, while the consensus family W-TinyLFU
 sits at 0.577 median from plain sampling and the winning plain draw (an aged-LFU heap plus a FIFO tier for
-first-seen keys, labeled LFU) reaches 0.5666. The workload rewards exactly what the herd already does: frequency
+first-seen keys, labeled LFU) reaches 0.5666. The workload rewards exactly what the consensus already does: frequency
 with aging for Zipf, a probation tier for one-hit keys, and scan isolation. LRU-K and LIRS classify by reuse
 distance, which is uninformative when half the keys never recur; LeCaR mixes LRU and LFU experts and inherits
 LRU's scan damage. Absence from the consensus was treated as an opportunity signal; here it is a quality signal.
@@ -102,7 +102,7 @@ their prompts, 0% of plain's; `code_features.py`).
 | group | n | median chars | ghost/history | probation or window queue | scan / one-hit handling | adaptive |
 |---|---|---|---|---|---|---|
 | plain (bench3 + sonnet draws) | 23 | 1672 | 1.00 | 1.00 | 0.00 | 0.33-0.67 |
-| herd samples (5 models) | 87 | 1578-5241 | 0.00-1.00 | 0.38-1.00 | 0.00-1.00 | 0.00-0.65 |
+| consensus samples (5 models) | 87 | 1578-5241 | 0.00-1.00 | 0.38-1.00 | 0.00-1.00 | 0.00-0.65 |
 | blind_spot (sonnet) | 6 | 2717 | 0.67 | 0.50 | 0.33 | 0.50 |
 | blind_spot_* gemini ablations | 29 | 5699-6701 | 0.83-1.00 | 0.80-1.00 | 0.67-1.00 | 0.33-0.80 |
 | literature_random (sonnet) | 9 | 1880 | 0.89 | 0.33 | 0.22 | 0.44 |
@@ -147,7 +147,7 @@ metrics do not flag them.
   LRU 0.6747 (`diverge/bench.py` `run_metrics`, `evaluator.beats`). 17 of 18 valid candidates in the frozen run
   beat LRU; the exceptions are the LRU-equivalent programs. On this metric blind_spot (3) and literature_random
   (4) beat plain (2), but the verdict ranks by discoveries per dollar, and blind_spot's cold-start denominator
-  includes the $3.455 herd map (`bench.md` Notes), giving 0.84/$ against literature_random's 9.75/$ and plain's
+  includes the $3.455 consensus map (`bench.md` Notes), giving 0.84/$ against literature_random's 9.75/$ and plain's
   15.27/$. The map cost is charged to one repeat of one operator, so blind_spot cannot win cold-start at any
   budget under $3.
 
@@ -171,8 +171,8 @@ metrics do not flag them.
 |---|---|---|
 | Hybrid template as the default arm for family operators | `diverge/operators/blind_spot_hybrid.py` (exists), `reality.py` `HYBRID_TEMPLATE`; add `literature_random_hybrid` as the matched control | the only programs under 0.575 are hybrids (plain-s0-004, plain s0/s1 draws); keep `blind_spot` as the purity control and report purity |
 | A different direction per retry | `diverge/operators/blind_spot_directions.py` (exists; `hybrid_jobs` combines both levers) | LRU-K at 0.5966 in 8/11 attempts and 4x identical ARC scores show round-robin resampling is a no-op |
-| Filter blind spots by workload fit before spending | `diverge/blind_spots` selection: require one probe implementation per family (one call) and drop families whose probe is more than 0.01 behind the herd's best family median, or weight by `share_upper_95` | blind-spot medians 0.590-0.597 vs W-TinyLFU 0.577; none of the four has ever beaten 0.579 |
+| Filter blind spots by workload fit before spending | `diverge/blind_spots` selection: require one probe implementation per family (one call) and drop families whose probe is more than 0.01 behind the consensus' best family median, or weight by `share_upper_95` | blind-spot medians 0.590-0.597 vs W-TinyLFU 0.577; none of the four has ever beaten 0.579 |
 | Report medians, best-of-k curves and paired seeds, not one max | `diverge/bench.py` `report`, `verdict`, `aggregate`: add median valid dev, bootstrapped E[best-of-k] for k=1..n, share of candidates within 0.005 of the run best; require `repeats >= 3` before a verdict | plain median 0.657 vs blind_spot 0.594 in the same run the verdict calls plain's win |
-| Raise the usefulness bar and flag degenerate programs | `bench.py` `run_metrics`: count a family as useful only if it beats the herd's best family median (0.577 here) or the run's best plain draw; mark candidates whose score equals a baseline to 1e-6 as `degenerate` | 17/18 valid candidates beat LRU; 5 candidates on disk score exactly LRU and are counted as valid discoveries |
-| Charge the map fairly | `bench.py` `setup_cost`: amortise the herd map over the number of operators and repeats that use it, or report cold-start only when the map was actually built in the run (`new_spend_usd` was $0 here) | cold-start turns 27.1 discoveries/$ into 0.84/$ for a map that cost $0 new this run |
+| Raise the usefulness bar and flag degenerate programs | `bench.py` `run_metrics`: count a family as useful only if it beats the consensus' best family median (0.577 here) or the run's best plain draw; mark candidates whose score equals a baseline to 1e-6 as `degenerate` | 17/18 valid candidates beat LRU; 5 candidates on disk score exactly LRU and are counted as valid discoveries |
+| Charge the map fairly | `bench.py` `setup_cost`: amortise the consensus map over the number of operators and repeats that use it, or report cold-start only when the map was actually built in the run (`new_spend_usd` was $0 here) | cold-start turns 27.1 discoveries/$ into 0.84/$ for a map that cost $0 new this run |
 | Evaluator timeout handling: no change needed for this task | `tasks/cache_eviction/evaluator.py` | max runtime 3.7 s of 60 s under heavy load; record `runtime_s` in the bench table so this check is one grep next time |

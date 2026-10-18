@@ -4,8 +4,8 @@ LLM-description strategy similarity? See docs/RESEARCH-loop-escape.md (E1) and d
 
     ~/.local/bin/uv run python scripts/e1_detector_validity.py [--reps 300]
 
-No paid calls: the LLM extractor runs under Herd(budget_usd=0.0) with the HTTP call disabled,
-so only cached replies are used, and the script asserts herd.ledger.new_spend == 0.
+No paid calls: the LLM extractor runs under Session(budget_usd=0.0) with the HTTP call disabled,
+so only cached replies are used, and the script asserts session.ledger.new_spend == 0.
 Writes results/e1/results.json."""
 import argparse
 import hashlib
@@ -25,7 +25,7 @@ from diverge import fingerprint as behavioral  # noqa: E402
 from diverge import strategy  # noqa: E402
 from diverge.failures import auc, failure_set, jaccard, relative_detail  # noqa: E402
 from diverge.llm import BudgetExceeded  # noqa: E402
-from diverge.pipeline import Herd  # noqa: E402
+from diverge.pipeline import Session  # noqa: E402
 from diverge.task import Task  # noqa: E402
 
 TASK_DIR = ROOT / "results" / "online_bin_packing"
@@ -52,7 +52,7 @@ def collect():
 
 
 def np_auc(scores, labels):
-    """Vectorised Mann-Whitney AUC with tie-averaged ranks (same as herd.failures.auc)."""
+    """Vectorised Mann-Whitney AUC with tie-averaged ranks (same as diverge.failures.auc)."""
     scores, labels = np.asarray(scores, float), np.asarray(labels, bool)
     n_pos = int(labels.sum())
     n_neg = len(labels) - n_pos
@@ -170,14 +170,14 @@ def main():
     print(json.dumps(counts), flush=True)
 
     # ---- LLM extractor: cache-only unless --paid gives a cap
-    herd = Herd(budget_usd=args.paid, progress=lambda *a, **k: None)
+    session = Session(budget_usd=args.paid, progress=lambda *a, **k: None)
     if args.extractor:
-        herd.cfg["models"]["extractor"] = args.extractor
+        session.cfg["models"]["extractor"] = args.extractor
     if not args.paid:
         def no_network(*a, **k):
             raise BudgetExceeded("E1 is cache-only: an uncached model call was attempted")
-        herd.llm._post = no_network
-    E = strategy.llm_extractor(herd, task)
+        session.llm._post = no_network
+    E = strategy.llm_extractor(session, task)
     blocked = 0
 
     def extract(code):
@@ -193,10 +193,10 @@ def main():
         p["sfp_llm"] = strategy.fingerprint(task, p["code"], extract=extract)
         p["has_llm"] = bool(p["sfp_llm"]["mechanism_family"] or p["sfp_llm"]["decision_rule"]["primary_signal"])
         p["sfp_ast"] = strategy.fingerprint(task, p["code"], extract=None)
-    assert args.paid or herd.ledger.new_spend == 0, herd.ledger.new_spend
+    assert args.paid or session.ledger.new_spend == 0, session.ledger.new_spend
     llm_ids = [i for i, p in enumerate(kept) if p["has_llm"]]
     print(f"LLM fields for {len(llm_ids)}/{len(kept)} programs (uncached extracts blocked: {blocked}); "
-          f"new spend ${herd.ledger.new_spend}", flush=True)
+          f"new spend ${session.ledger.new_spend}", flush=True)
 
     # ---- pair signals and targets
     n = len(kept)
@@ -221,7 +221,7 @@ def main():
         "secondary_vs_best_fit_llm_pairs": analyse(mats, target_rel, llm_ids, args.reps, 3, diff=("behavior", "llm_strategy")),
     }
     results["primary_all_pairs"]["diff_code"] = analyse(mats, target, all_ids, args.reps, 0, diff=("behavior", "code"))["diff"]
-    # Sanity: the numpy AUC agrees with herd.failures.auc on the full pair set.
+    # Sanity: the numpy AUC agrees with diverge.failures.auc on the full pair set.
     iu = np.triu_indices(n, 1)
     for name, m in mats.items():
         a, b = auc(m[iu].tolist(), target[iu].tolist()), np_auc(m[iu], target[iu])
@@ -231,9 +231,9 @@ def main():
         "settings": {"k": K, "same_threshold": SAME, "reps": args.reps, "probe_states": len(kept[0]["fp"]) if kept else 0,
                      "dev_seeds": [r["seed"] for r in best_fit["detail"]["instances"]],
                      "llm_strategy_behavior_part": "off (strategy.fingerprint behavior=False)"},
-        "extractor": herd.cfg["models"].get("extractor"), "paid_cap_usd": args.paid,
+        "extractor": session.cfg["models"].get("extractor"), "paid_cap_usd": args.paid,
         "counts": {**counts, "llm_covered": len(llm_ids), "uncached_extracts_blocked": blocked,
-                   "new_spend_usd": herd.ledger.new_spend},
+                   "new_spend_usd": session.ledger.new_spend},
         "failure_set_distribution": {",".join(sorted(s)): fs.count(s) for s in sorted(set(fs), key=sorted)},
         "failure_set_rel_distribution": {",".join(sorted(s)): fs_rel.count(s) for s in sorted(set(fs_rel), key=sorted)},
         "best_fit_dev": best_fit["detail"]["instances"],

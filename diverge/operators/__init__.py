@@ -11,7 +11,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 
 from ..llm import BudgetExceeded, message_text
-from ..pipeline import Herd, ensure_map
+from ..pipeline import Session, ensure_map
 from ..reality import Evaluator, dev_detail, implementation_prompt
 from ..sample import extract_code
 
@@ -19,10 +19,10 @@ from ..sample import extract_code
 class OperatorContext:
     def __init__(self, name, task, budget_usd, seed, study, progress):
         self.name, self.task, self.seed, self.study, self.progress = name, task, seed, study, progress
-        self.herd = Herd(budget_usd, progress, bill_cached=True)
-        self.llm, self.exa, self.cfg = self.herd.llm, self.herd.exa, self.herd.cfg
+        self.session = Session(budget_usd, progress, bill_cached=True)
+        self.llm, self.exa, self.cfg = self.session.llm, self.session.exa, self.session.cfg
         self.evaluator = Evaluator(task)
-        self.out_dir = self.herd.out_dir(task) / "bench" / f"seed{seed}" / name
+        self.out_dir = self.session.out_dir(task) / "bench" / f"seed{seed}" / name
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.notes = {}
         self._next_idx = itertools.count()
@@ -54,7 +54,7 @@ class OperatorContext:
                 path = self.out_dir / f"{idx:03d}.py"
                 path.write_text(code)
                 result = self.evaluator(path)
-                candidate = {**candidate, "code_path": str(path.relative_to(self.herd.out_dir(self.task))),
+                candidate = {**candidate, "code_path": str(path.relative_to(self.session.out_dir(self.task))),
                              "valid": result["valid"], "score": result["score"],
                              "error": result["detail"].get("error"), "dev_detail": dev_detail(result)}
             if on_done:
@@ -118,7 +118,7 @@ def run_jobs(ctx, jobs):
                     candidates.append({"operator": ctx.name, "seed": ctx.seed, "valid": False, "score": None,
                                        "code_path": None, "error": f"{type(e).__name__}: {e}"})
         ctx.progress(f"{ctx.name} seed {ctx.seed}: {len(candidates)} candidates, "
-                     f"${ctx.herd.ledger.spent_this_run:.3f} spent")
+                     f"${ctx.session.ledger.spent_this_run:.3f} spent")
         if refused:
             if len(wave) == 1:
                 break  # refused alone: out of budget
@@ -148,11 +148,11 @@ def run_operator(name, task, budget_usd, seed=0, study=None, progress=print):
     candidates}; spent_usd counts cache hits at their original cost, so reruns match."""
     operators = registry()
     if study is None:
-        study = ensure_map(Herd(progress=progress), task)
+        study = ensure_map(Session(progress=progress), task)
     ctx = OperatorContext(name, task, budget_usd, seed, study, progress)
     candidates = run_jobs(ctx, operators[name](ctx))
     run = {"operator": name, "seed": seed, "budget_usd": budget_usd,
-           "spent_usd": round(ctx.herd.ledger.spent_this_run, 6),
-           "new_spend_usd": round(ctx.herd.ledger.new_spend, 6), "notes": ctx.notes, "candidates": candidates}
+           "spent_usd": round(ctx.session.ledger.spent_this_run, 6),
+           "new_spend_usd": round(ctx.session.ledger.new_spend, 6), "notes": ctx.notes, "candidates": candidates}
     (ctx.out_dir / "run.json").write_text(json.dumps(run, indent=2))
     return run

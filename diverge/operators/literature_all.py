@@ -1,5 +1,5 @@
 """literature_all: the ablation for blind_spot. Implements every sourced family from the
-literature taxonomy, round-robin, ignoring the herd map. Same implementer, template, evaluator
+literature taxonomy, round-robin, ignoring the consensus map. Same implementer, template, evaluator
 and budget as blind_spot, so if blind_spot does better, knowing where models concentrate chose
 better experiments; if not, the gain came from literature retrieval alone."""
 from ..label import EMERGENT

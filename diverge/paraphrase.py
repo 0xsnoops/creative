@@ -1,4 +1,4 @@
-"""Step 0 of the overlooked-ideas phase: is the herd a property of the problem or of the prompt?
+"""Step 0 of the overlooked-ideas phase: is the consensus a property of the problem or of the prompt?
 
 Meaning-preserving paraphrases of a task prompt are sampled on two models and labeled with the
 map's taxonomy. Their family shares are compared, by total variation distance (TVD), with the
@@ -55,11 +55,11 @@ def check(original, paraphrase):
     return problems
 
 
-def make_paraphrases(herd, task):
+def make_paraphrases(session, task):
     """Three paraphrases; one regeneration if any fails the automatic checks."""
     record = {"attempts": []}
     for attempt in range(2):
-        reply = ask_json(herd.llm, herd.cfg["models"]["labeler"],
+        reply = ask_json(session.llm, session.cfg["models"]["labeler"],
                          PARAPHRASE_PROMPT.format(n=N_PARAPHRASES, task=task.prompt),
                          key=f"paraphrase:{attempt}", required=("paraphrases",))
         texts = [p.strip() for p in reply["paraphrases"]][:N_PARAPHRASES]
@@ -98,12 +98,12 @@ def original_groups(out, models=MODELS, per_group=PER_GROUP, n=20):
     return groups
 
 
-def run(herd, task):
-    cfg = herd.cfg
-    out = herd.out_dir(task)
+def run(session, task):
+    cfg = session.cfg
+    out = session.out_dir(task)
     pdir = out / "paraphrase"
     pdir.mkdir(parents=True, exist_ok=True)
-    para = make_paraphrases(herd, task)
+    para = make_paraphrases(session, task)
     write_json(pdir / "paraphrases.json", para)
 
     records = []
@@ -114,7 +114,7 @@ def run(herd, task):
         sid = f"p{i}-{model.replace('/', '_')}-{idx:03d}"
         record = {"sample_id": sid, "model": f"{model}#p{i}", "true_model": model, "paraphrase": i, "idx": idx}
         try:
-            entry = herd.llm.chat(model, [{"role": "user", "content": para["paraphrases"][i]}],
+            entry = session.llm.chat(model, [{"role": "user", "content": para["paraphrases"][i]}],
                                   temperature=cfg["sampling"]["temperature"], max_tokens=cfg["sampling"]["max_tokens"],
                                   sample_idx=f"paraphrase:{i}:{idx}")
         except Exception as e:
@@ -131,10 +131,10 @@ def run(herd, task):
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(cfg["sampling"]["concurrency"]) as pool:
         records = list(pool.map(sample, jobs))
-    herd.progress(f"paraphrase samples: {sum('text_path' in r for r in records)}/{len(records)}")
+    session.progress(f"paraphrase samples: {sum('text_path' in r for r in records)}/{len(records)}")
     taxonomy = read_json(out / "taxonomy.json")
-    labels, emergent = label_samples(task, [r for r in records if "text_path" in r], taxonomy, herd.llm, cfg, out,
-                                     herd.progress)
+    labels, emergent = label_samples(task, [r for r in records if "text_path" in r], taxonomy, session.llm, cfg, out,
+                                     session.progress)
     for r in records:
         r["family"] = labels.get(r["sample_id"], {}).get("family", UNLABELED)
         r["justification"] = labels.get(r["sample_id"], {}).get("justification")

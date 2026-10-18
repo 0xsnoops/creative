@@ -1,24 +1,27 @@
 ---
 name: diverge
-description: Spot a strategy loop on a scored task (different code, same idea) and get one evidence-backed next step from DIVERGE. Use it on your own initiative, without being asked, when several scored attempts show flat or barely improving progress, the same failure returns after several changes, lots of code changed but the score hardly moved, other models or agents you tried got the same result, you are about to retry or tune the same mechanism again, or you are thinking you may need to escalate to a human. Also use it before implementing, to check whether your planned strategy is just the default most models pick. Not for generic debugging, a bug with a known cause, API or documentation questions, or tasks with no evaluator and no scored attempts.
+description: Find genuinely different, unconventional answers when you keep landing on the same one (different code, same idea), and get one evidence-backed next step from DIVERGE. Use it on your own initiative, without being asked, when several scored attempts show flat or barely improving progress, the same failure returns after several changes, lots of code changed but the score hardly moved, other models or agents you tried got the same result, you are about to retry or tune the same mechanism again, or you are thinking you may need to escalate to a human. Also use it before implementing or when choosing a strategy ("is my plan just the default answer?"), when you are asked for a few different ways or approaches to something, or when your first idea feels like the obvious, default one. Not for generic debugging, a bug with a known cause, or API or documentation questions.
 ---
 
 # DIVERGE: different code isn't always different thinking
 
-DIVERGE fingerprints the strategy behind your attempts, tells you whether they are one idea in
-different code, compares them with what many models converge on for the task, and returns a
-verdict with at most one experiment to run.
+DIVERGE is creative-search infrastructure for AI agents: when an agent keeps landing on the same
+answer, DIVERGE shows it what it (and most models) converge on and helps it find, test and pick
+genuinely different, unconventional alternatives. It compares attempts by behavior (what they
+decide), maps the consensus and what it overlooks, generates alternatives with a separate critic
+and an admission check that rejects the old strategy in new code, and returns a verdict with
+`next_action` and at most one experiment to run.
 
 **Do not wait for the user to ask you to use DIVERGE. If you recognize this situation yourself,
 invoke it.** **Before escalating a scored strategy problem to a human, call `diverge_escape`.**
 
-DIVERGE is for strategy stagnation on a task with a score, not for generic debugging. It has not
-been shown to beat continuing, a fresh start or another model (see `docs/RESULTS.md` in the
-DIVERGE repo); treat its output as one well-founded experiment, not a guaranteed fix.
+It has not been shown to beat continuing, a fresh start or another model, and it is not proven to
+make answers more creative (see `docs/RESULTS.md` in the DIVERGE repo for the preliminary
+measurements). Treat its output as one well-founded experiment, not a guaranteed fix.
 
 ## Setup (once per project)
 
-If the `diverge_*` MCP tools (e.g. `diverge_status`) are missing, onboard yourself from the DIVERGE repo (no human needed):
+If the `diverge_*` MCP tools (e.g. `diverge_status`) are missing, onboard yourself (no human needed):
 
 ```sh
 uv --directory <diverge repo> run python -m diverge onboard --client claude --target <project> --json
@@ -26,14 +29,16 @@ uv --directory <diverge repo> run python -m diverge onboard --client claude --ta
 
 Then follow its `next_steps` (reload the client and approve the `diverge` MCP server). Never
 invent an API key: if one is missing, ask the user to set `OPENROUTER_API_KEY` in the DIVERGE
-repo's `.env`. To see DIVERGE work offline at $0: `uv --directory <diverge repo> run python -m diverge demo strategy_loop`.
+repo's `.env`. To see DIVERGE work offline at $0:
+`uv --directory <diverge repo> run python -m diverge demo strategy_loop`.
+(Bare `python -m diverge ...` only works from inside the DIVERGE repo.)
 
 ## Tools
 
 | tool | when | cost |
 |---|---|---|
 | `diverge_status` | first, every session: are budget, keys and models ready? Stop and tell the user if not. | $0 |
-| `diverge_check` | before implementing: is my planned strategy the obvious/default one? Args: `task_description`, `my_approach` (one or two sentences on the mechanism), `evaluator_cmd` if any. | paid |
+| `diverge_check` | before implementing, or when asked for several approaches: is my planned strategy the obvious/default one? Args: `task_description`, `my_approach` (one or two sentences on the mechanism), `evaluator_cmd` if any. Without an evaluator (free-text mode) it returns 3-5 untested alternatives, each with `strength`, `trap` and `how_to_test` (about $0.01). | paid |
 | `diverge_escape` | after 2+ scored attempts stall. Args: `task_description`, `current_solution` (code), `previous_attempts` (code, oldest first), `evaluator_cmd`, `lower_is_better`, `budget_usd` (default 2). | paid |
 | `diverge_map`, `blind_spots`, `reality_check` | lower-level research primitives (what models converge on, what they miss, scoring one family). Use only when asked for that research. | paid |
 
@@ -41,8 +46,9 @@ repo's `.env`. To see DIVERGE work offline at $0: `uv --directory <diverge repo>
 its last JSON line, and needs absolute paths. It runs inside DIVERGE's sandbox (no network, no writes
 outside a scratch directory, no reading `.env`, no nested sandbox), so it must be self-contained.
 If the task is a registered one (`online_bin_packing`, `cache_eviction`), pass exactly that name as
-`task_description` and omit `evaluator_cmd`: DIVERGE uses its own prompt and evaluator. Without MCP, the CLI equivalents are
-`python -m diverge preflight` and `python -m diverge escape --task ... --candidate ... --history ... --evaluator "..."`.
+`task_description` and omit `evaluator_cmd`: DIVERGE uses its own prompt and evaluator. Without MCP,
+the CLI equivalents are `uv --directory <diverge repo> run python -m diverge preflight` and
+`uv --directory <diverge repo> run python -m diverge escape --task ... --candidate ... --history ... --evaluator "..."`.
 
 ## Act on the verdict
 
@@ -58,8 +64,10 @@ If the task is a registered one (`online_bin_packing`, `cache_eviction`), pass e
 | `inconclusive` | Get more scored attempts (run the evaluator), then call again. |
 
 `diverge_check` returns a `verdict` field: `keep` implement your plan; `try_blind_spot` or
-`try_other_family` consider the returned family (it scored better in DIVERGE's own
-implementations, not yours); `inconclusive` or `untested` treat it as context only.
+`try_other_family` consider the returned family (it scored higher in DIVERGE's own
+implementations, not yours); `inconclusive` or `untested` treat it as context only. In free-text
+mode (`untested`), pick an alternative whose `strength` fits the task, watch for its `trap`, and
+run its `how_to_test` before trusting it.
 
 ## Report honestly
 

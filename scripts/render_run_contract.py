@@ -1,4 +1,4 @@
-"""Offline: (re)render the herd_escape contract stored in fixtures/runs/<name>.json, adding the
+"""Offline: (re)render the DIVERGE escape contract stored in fixtures/runs/<name>.json, adding the
 attempts' recorded dev scores (as the MCP tool's RecordingEvaluator would). No API calls.
 
     uv run python scripts/render_run_contract.py strategy_loop"""

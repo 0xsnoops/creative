@@ -1,4 +1,4 @@
-"""diverge_check without an evaluator (free-text mode), offline: no map is built, the herd comparison
+"""diverge_check without an evaluator (free-text mode), offline: no map is built, the consensus comparison
 appears only when a map is cached, and every alternative is HYPOTHESIZED with strength/trap/how_to_test."""
 import json
 
@@ -66,9 +66,9 @@ def test_no_evaluator_no_cached_map_returns_alternatives_without_building(fake_w
     assert s["spent_usd"] > 0
 
 
-def test_no_evaluator_with_cached_map_compares_against_the_herd(fake_world, monkeypatch):
+def test_no_evaluator_with_cached_map_compares_against_the_consensus(fake_world, monkeypatch):
     task = Task.resolve(FREE)
-    pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), task)  # fake_world builds and caches it
+    pipeline.ensure_map(pipeline.Session(progress=lambda m: None), task)  # fake_world builds and caches it
     exa_before = fake_world["exa"]
     prompts = install(monkeypatch)
     text, s = call({"task_description": FREE, "my_approach": "first fit"})
@@ -81,7 +81,7 @@ def test_no_evaluator_with_cached_map_compares_against_the_herd(fake_world, monk
     assert not any(p.startswith("Assign each candidate") or p.startswith("Here is") for _, p in prompts)
     assert sum(p.startswith("You are proposing alternative") for _, p in prompts) == 1
     alt_prompt = next(p for _, p in prompts if p.startswith("You are proposing alternative"))
-    assert "First Fit" in alt_prompt  # the herd's top families are named to steer away from
+    assert "First Fit" in alt_prompt  # the consensus top families are named to steer away from
     assert all(a["evidence_class"] == "HYPOTHESIZED" for a in s["alternatives"])
     assert "**Your approach:** First Fit" in text
 

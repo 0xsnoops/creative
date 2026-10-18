@@ -44,10 +44,10 @@ hold on this workload; several reviewers (Opus, Sonnet, nemotron, stepfun, kimi)
 Each model received the same packet of about 31.5k tokens and one of three lenses:
 (a) prompt and generation design, (b) selection, budget and evaluation mechanics, (c) what ADHD,
 FunSearch, AlphaEvolve/OpenEvolve and ShinkaEvolve do better. The packet held the operators,
-reality.py, the bench.py excerpts, literature/consensus-map (`herdmap.py`) signatures, the task prompt, the evaluator,
+reality.py, the bench.py excerpts, literature/consensus-map (`consensus.py`) signatures, the task prompt, the evaluator,
 blind spots and the consensus map, a per-candidate table for all 9 operators, per-trace dev scores, the
 best plain and blind_spot code, and ADHD's README, how-it-works, engine.ts, frames.ts and types.ts
-(clone @7b91ce6, read as text only). Calls used `Herd(budget_usd=8.0).llm.chat`, temperature 0.7.
+(clone @7b91ce6, read as text only). Calls used `Session(budget_usd=8.0).llm.chat`, temperature 0.7.
 
 | model | lens | cost $ | status |
 |---|---|---|---|

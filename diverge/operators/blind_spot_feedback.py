@@ -50,7 +50,7 @@ def note_for(candidate, ctx, baseline):
     """A short dev-only note about one previous attempt; None if there is nothing to say."""
     if not candidate or not candidate.get("code_path"):
         return None
-    code = (ctx.herd.out_dir(ctx.task) / candidate["code_path"]).read_text()[:4000]
+    code = (ctx.session.out_dir(ctx.task) / candidate["code_path"]).read_text()[:4000]
     if not candidate["valid"]:
         error = sandbox.redact(str(candidate.get("error") or "unknown error"))[:300]
         return NOTE_INVALID.format(error=error, code=code)

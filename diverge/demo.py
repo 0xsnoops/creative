@@ -29,19 +29,34 @@ def _pct(v):
 
 
 def code_summary(code, width=72):
-    """One line: size and the first return expression (or the first def line)."""
-    lines = [l.strip() for l in (code or "").splitlines() if l.strip() and not l.strip().startswith("#")]
+    """One line: size and the first return expression (joined across lines, whitespace collapsed),
+    else the first def line; just the size when neither says anything."""
+    raw = [l.strip() for l in (code or "").splitlines()]
+    lines = [l for l in raw if l and not l.startswith("#")]
     if not lines:
         return "(no code)"
-    key = next((l for l in lines if l.startswith("return ")), None) or next(
-        (l for l in lines if l.startswith("def ")), lines[0])
-    key = key if len(key) <= width else key[:width - 3] + "..."
+    key = ""
+    start = next((i for i, l in enumerate(lines) if l.startswith("return ")), None)
+    if start is not None:
+        parts, depth = [], 0
+        for l in lines[start:start + 12]:
+            parts.append(l)
+            depth += sum(l.count(c) for c in "([{") - sum(l.count(c) for c in ")]}")
+            if depth <= 0:
+                break
+        key = re.sub(r"\s+", " ", " ".join(parts))
+        key = re.sub(r"([(\[{]) ", r"\1", re.sub(r" ([)\]}])", r"\1", key))
+    if not key or key in ("return", "return None"):
+        key = next((l for l in lines if l.startswith("def ")), "")
+    if not key:
+        return f"{len(lines)} lines"
+    key = key if len(key) <= width else key[:width - 3].rstrip() + "..."
     return f"{len(lines)} lines; {key}"
 
 
-def _first_line(text):
+def _first_line(text, empty="(no feedback)"):
     text = (text or "").strip()
-    return text.splitlines()[0] if text else "(no feedback)"
+    return text.splitlines()[0] if text else empty
 
 
 def comparison(escape_score, fresh_score):
@@ -72,12 +87,17 @@ _OLD_NAMES = ((re.compile(r"\bherd_(escape|check|status|map)\b(?!\.json)"), r"di
               (re.compile(r"\bherd(?=[ _]|\b)(?!_map\.json)"), "consensus"))
 
 
+# Lever mechanisms wrap an input description that may itself end in a parenthesis:
+# "n_open_bins (how many ... offered (len(capacities)))" reads as "(how many ... offered: len(capacities))".
+_NESTED_PAREN = re.compile(r"\(([^()]*?) \(([^()]*\([^()]*\))\)\)")
+
+
 def current_wording(text):
-    """Recorded fixtures predate the HERD -> DIVERGE rename: show their text in current wording
+    """Recorded fixtures predate the product rename to DIVERGE: show their text in current wording
     (product DIVERGE, the concept "consensus"). Display only; fixture files are left as recorded."""
     for pattern, new in _OLD_NAMES:
         text = pattern.sub(new, text)
-    return text
+    return _NESTED_PAREN.sub(r"(\1: \2)", text)
 
 
 def run(name, root=REPO, out=print):
@@ -103,9 +123,11 @@ def run(name, root=REPO, out=print):
         out(f"attempts: {traj['how_generated']}")
 
     out("\n== 1. The agent's attempts (dev score, lower is better) ==")
-    for a in traj.get("attempts", []):
+    attempts = traj.get("attempts", [])
+    for i, a in enumerate(attempts):
         out(f"  {a.get('id')}  dev {_fmt(a.get('dev_score'))}  [{a.get('source')}]")
-        out(f"      feedback: {_first_line(a.get('feedback'))}")
+        last = i == len(attempts) - 1
+        out(f"      feedback: {_first_line(a.get('feedback'), '(current attempt)' if last else '(no feedback)')}")
         out(f"      code: {code_summary(a.get('code'))}")
 
     out("\n== 2. Loop diagnosis ==")
@@ -168,7 +190,9 @@ def run(name, root=REPO, out=print):
     out("\n== 7. Results (% excess bins, lower is better) ==")
     base = rec.get("baselines") or {}
     best = rec.get("best_attempt") or {}
+    no_candidate = esc.get("dev_score") is None and esc.get("heldout_score") is None and verdict != "escape"
     rows = [(f"best attempt ({best.get('id')})", best.get("dev_score"), best.get("heldout_score"), ""),
+            ("escape candidate", None, None, f"not generated (verdict {verdict})") if no_candidate else
             ("escape candidate", esc.get("dev_score"), esc.get("heldout_score"),
              f"${esc.get('cost_usd', 0):.4f} / {esc.get('calls') or 0} calls"),
             ("fresh_start candidate", fresh.get("dev_score"), fresh.get("heldout_score"),
@@ -179,9 +203,13 @@ def run(name, root=REPO, out=print):
                      f"${forced.get('cost_usd', 0):.4f} / {forced.get('calls') or 0} calls"))
     for b in ("best_fit", "first_fit"):
         rows.append((b, (base.get("dev") or {}).get(b), (base.get("heldout") or {}).get(b), ""))
-    out(f"  {'':24} {'dev':>9} {'held-out':>9}  cost")
+    width = max(24, *(len(r[0]) for r in rows))
+    out(f"  {'':{width}} {'dev':>9} {'held-out':>9}  cost")
     for label, dev, held, cost in rows:
-        out(f"  {label:24} {_fmt(dev):>9} {_fmt(held):>9}  {cost}".rstrip())
+        if cost.startswith("not generated"):
+            out(f"  {label:{width}} {cost}")
+        else:
+            out(f"  {label:{width}} {_fmt(dev):>9} {_fmt(held):>9}  {cost}".rstrip())
 
     out(f"\nPRELIMINARY: {rec.get('n_runs') or 1} run" + ("s" if (rec.get('n_runs') or 1) != 1 else ""))
     if verdict is not None and verdict != "escape":
@@ -218,18 +246,20 @@ def _live_model_ids(timeout=10):
 OFFLINE_DEMO = "strategy_loop"
 OFFLINE_DEMO_COMMAND = f"python -m diverge demo {OFFLINE_DEMO}"
 PRIMARY_TOOL = "diverge_escape"
-WHEN_TO_CALL = ("diverge_escape when several scored attempts have stalled, the same failure keeps coming back, code "
-                "changes a lot but the score barely moves, or you are about to retry another variation or escalate; "
-                "diverge_check before committing to a strategy. Not for generic debugging.")
+WHEN_TO_CALL = ("diverge_escape when you keep getting the same answer: several scored attempts have stalled, the same "
+                "failure keeps coming back, code changes a lot but the score barely moves, or you are about to retry "
+                "another variation or escalate; diverge_check before committing to a strategy, to see whether it is "
+                "the default answer most models give and get alternatives (free-text mode needs no evaluator). Not for "
+                "generic debugging.")
 KEYS = (("openrouter", "OPENROUTER_API_KEY", True, "every model call (fingerprinting, implementing, map builds)"),
         ("exa", "EXA_API_KEY", False, "literature search, only when a consensus map is built for a new task"))
 
 
-def _status(herd, env):
-    """(cfg, spent, cap) without a network call: a given Herd, or config plus cache totals."""
+def _status(session, env):
+    """(cfg, spent, cap) without a network call: a given Session, or config plus cache totals."""
     from . import pipeline
-    if herd is not None:
-        return herd.cfg, herd.ledger.total_spent, herd.ledger.global_cap
+    if session is not None:
+        return session.cfg, session.ledger.total_spent, session.ledger.global_cap
     if env is None:
         pipeline.load_env()  # same .env the tools read; values are only checked for presence
     import yaml
@@ -252,13 +282,13 @@ def _catalog_check(models, ids):
     return {"present": len(models) - len(missing), "configured": len(models), "missing": missing}
 
 
-def readiness(herd=None, env=None, live=False, root=REPO):
+def readiness(session=None, env=None, live=False, root=REPO):
     """Can DIVERGE's live tools run here? A dict an agent can act on. Zero cost: no model or search call,
     and no network call unless live=True (then one unauthenticated GET of OpenRouter's public model
     list, reported under "model_catalog" and optional). Reports whether each key is configured, never
     its value."""
     from . import pipeline
-    cfg, spent, cap = _status(herd, env)
+    cfg, spent, cap = _status(session, env)
     env = os.environ if env is None else env
     remaining = cap - spent
     requirements, missing = {}, []
@@ -283,7 +313,7 @@ def readiness(herd=None, env=None, live=False, root=REPO):
                       if catalog_path.exists() else {"error": f"{cfg['paths']['cache']}/openrouter_models.json not found"})
     if live_ok:
         action = (f"DIVERGE is configured. Call {PRIMARY_TOOL} yourself when attempts stall (see when_to_call); "
-                  f"diverge_check before choosing a strategy.")
+                  f"diverge_check before committing to a strategy, to get alternatives to the default answer.")
     elif any(k in missing for k in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")):
         needed = "ANTHROPIC_API_KEY" if "ANTHROPIC_API_KEY" in missing else "OPENROUTER_API_KEY"
         action = (f"Live DIVERGE calls need {needed}, which only the user can provide (in .env); ask them, and "
@@ -307,10 +337,10 @@ def readiness(herd=None, env=None, live=False, root=REPO):
     return out
 
 
-def preflight(herd=None, out=print, live=True, env=None):
+def preflight(session=None, out=print, live=True, env=None):
     """Budget, keys and model slugs before a live run, printed from readiness(). Returns 1 when
     remaining budget is under $1 or OPENROUTER_API_KEY is missing, else 0. Never prints key values."""
-    r = readiness(herd, env, live)
+    r = readiness(session, env, live)
     b = r["budget"]
     out(f"spend ${b['spent_usd']:.4f} of cap ${b['cap_usd']:.2f}; remaining ${r['remaining_budget_usd']:.4f}")
     if r["remaining_budget_usd"] < MIN_REMAINING_USD:

@@ -13,8 +13,10 @@ sketches, a critic, and deepening of the top 2.
 - `fresh_start`: fresh context plus a failure summary, with no code.
 - `try_different`: the previous attempts plus the instruction "try a fundamentally different approach".
 - `random_lever`: the escape v2 pipeline with a random input the consensus already uses (control).
-- `herd_escape`: escape v2, the current default.
-- `herd_escape_v3`: the new mode, opt-in.
+- escape v2: the current default.
+- escape v3: the new mode, opt-in.
+
+(Raw result files label these two arms with their pre-rename names.)
 
 **Seeds and budget**
 - **Fresh seeds:** every arm uses new generation sample tags, `--round 2` in `scripts/rescue_test.py`. No candidate from the first rescue test is reused.

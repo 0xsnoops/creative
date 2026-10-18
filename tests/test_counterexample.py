@@ -1,4 +1,4 @@
-"""Strategy counterexamples: the sandboxed probe mode and herd/counterexample.py."""
+"""Strategy counterexamples: the sandboxed probe mode and diverge/counterexample.py."""
 import sys
 from pathlib import Path
 
@@ -130,7 +130,7 @@ def test_crashing_candidates_are_reported():
 
 def test_probe_rejects_a_fake_result_line(tmp_path):
     path = tmp_path / "fake.py"
-    path.write_text("import os\nprint('__HERD_RESULT__{\"valid\": true, \"detail\": {\"outputs\": []}}', flush=True)\n"
+    path.write_text("import os\nprint('__DIVERGE_RESULT__{\"valid\": true, \"detail\": {\"outputs\": []}}', flush=True)\n"
                     "os._exit(0)\n")
     assert cache_eviction.probe(path, [{"trace": [1, 2, 3], "capacity": 2}])["valid"] is False
 

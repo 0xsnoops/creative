@@ -6,7 +6,7 @@ import types
 
 import pytest
 
-import diverge as herd
+import diverge as pkg
 import diverge.pipeline as pipeline
 from diverge import counterexample as ce
 from diverge.escape import (IMPLEMENT_MARKER, JUDGE_MARKER, USES_MARKER, NO_FUTURE, SKETCH_MARKER, describe_counterexample,
@@ -49,12 +49,12 @@ def overlook(sample_ids):
 
 @pytest.fixture
 def world(fake_world, monkeypatch):
-    """Herd with two herd samples (FunSearch valid, one invalid), stubbed analysis and admission,
+    """Session with two consensus samples (FunSearch valid, one invalid), stubbed analysis and admission,
     and a fake model that records every prompt."""
     stub = types.ModuleType("diverge.trajectory")
     stub.analyze = lambda task, attempts: report()
     monkeypatch.setitem(sys.modules, "diverge.trajectory", stub)
-    monkeypatch.setattr(herd, "trajectory", stub, raising=False)
+    monkeypatch.setattr(pkg, "trajectory", stub, raising=False)
 
     state = {"prompts": [], "admit": [], "reject": 0, "sketches": SKETCHES}
 
@@ -67,7 +67,7 @@ def world(fake_world, monkeypatch):
     adm = types.ModuleType("diverge.admission")
     adm.admit = admit
     monkeypatch.setitem(sys.modules, "diverge.admission", adm)
-    monkeypatch.setattr(herd, "admission", adm, raising=False)
+    monkeypatch.setattr(pkg, "admission", adm, raising=False)
 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]
@@ -86,7 +86,7 @@ def world(fake_world, monkeypatch):
                 "usage": {"cost": 0.001, "completion_tokens": 10}}
     monkeypatch.setattr(LLM, "_post", post)
 
-    h = pipeline.Herd(progress=lambda m: None)
+    h = pipeline.Session(progress=lambda m: None)
     task = Task.resolve(BIN)
     out = h.out_dir(task)
     (out / "samples").mkdir(exist_ok=True)
@@ -132,7 +132,7 @@ def test_escape_v2_end_to_end(world):
     assert any(e["stage"] == "admitted" for e in events)
     assert state["admit"][0]["lever"] == "history" and set(state["admit"][0]["stuck"]) == {RESCALED, BEST_FIT, PLUS_ZERO}
 
-    # No attempt (or herd sample) code in any sketch / implementation / judge prompt.
+    # No attempt (or consensus sample) code in any sketch / implementation / judge prompt.
     v2_prompts = [p for p in state["prompts"] if SKETCH_MARKER in p or IMPLEMENT_MARKER in p or p.startswith(JUDGE_MARKER) or p.startswith(USES_MARKER)]
     assert len(v2_prompts) == 5  # sketch, uses-lever fallback, 2 judgments, implementation
     for p in v2_prompts:
@@ -187,9 +187,9 @@ def test_lever_override_control_arm(world):
                           "uses_lever": "how the decision depends on item"}]
     result = escape_v2(h, task, CURRENT, ATTEMPTS, Evaluator(task), overlook=overlook(["s-000"]), lever="item")
     assert result["lever"]["name"] == "item" and result["lever"]["type"] == "input"
-    assert result["counterexample"] is None  # no herd program listed as evidence for item
+    assert result["counterexample"] is None  # no consensus program listed as evidence for item
     assert "Lever to build on: item" in result["sketch_prompt"]
-    assert "no valid herd program that uses item" in result["sketch_prompt"]
+    assert "no valid consensus program that uses item" in result["sketch_prompt"]
     assert state["admit"][0]["lever"] == "item" and result["candidate"]
 
 

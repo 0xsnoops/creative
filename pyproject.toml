@@ -1,6 +1,7 @@
 [project]
 name = "diverge"
 version = "0.1.0"
+description = "Creative-search infrastructure for AI agents: find, test and pick alternatives to the answer agents keep converging on."
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.28.1",

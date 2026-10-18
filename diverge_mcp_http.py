@@ -9,8 +9,6 @@ Exposure guard: DIVERGE's tools spend the owner's API budget and run `evaluator_
 so a public endpoint must not be open. When DIVERGE_HTTP_TOKEN is set, every request needs
 `Authorization: Bearer <token>`. When it is unset, requests are refused (503) unless
 DIVERGE_HTTP_ALLOW_OPEN=1 (the local entry point sets this, since it only binds loopback).
-Each DIVERGE_* variable here falls back to its legacy HERD_* name (HERD_HTTP_TOKEN,
-HERD_HTTP_ALLOW_OPEN, HERD_ALLOWED_HOSTS) when unset.
 """
 import argparse
 import hmac
@@ -23,7 +21,7 @@ from diverge.server import mcp
 
 
 def _env(name, default=""):
-    """DIVERGE_<name>, else the legacy HERD_<name>, else default."""
+    """DIVERGE_<name>, else the legacy name, else default."""
     return os.environ.get(f"DIVERGE_{name}") or os.environ.get(f"HERD_{name}") or default
 
 
@@ -45,7 +43,7 @@ def _reject(status, error, detail):
 
 
 class BearerGuard:
-    """ASGI middleware: require the DIVERGE_HTTP_TOKEN (or HERD_HTTP_TOKEN) bearer token on every HTTP request."""
+    """ASGI middleware: require the DIVERGE_HTTP_TOKEN bearer token on every HTTP request."""
 
     def __init__(self, inner):
         self.inner = inner

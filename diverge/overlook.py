@@ -1,14 +1,14 @@
 """Overlooked ideas below the family level (protocol: docs/PREREGISTRATION-overlook.md).
 
-From the herd's own samples, per task:
-1. decision-input audit: which inputs available at decision time the herd's code actually uses
+From the consensus samples, per task:
+1. decision-input audit: which inputs available at decision time the consensus code actually uses
    (static backward slice first; the extractor model only for cases marked ambiguous);
 2. shared assumptions of the top families' code, hard (quoted verbatim from the prompt) vs
    incidental;
 3. component grid: each sample decomposed into fixed components; combinations that literature
-   occupies or that are coherent but no herd sample uses;
+   occupies or that are coherent but no consensus sample uses;
 4. minority report: families and component values produced by only one or two sampler models;
-5. latent tail: approaches models name when shown the herd (vs not), verified.
+5. latent tail: approaches models name when shown the consensus (vs not), verified.
 Everything is written to results/<task>/overlook.json with its evidence."""
 import ast
 import json
@@ -360,7 +360,7 @@ comments. Inputs:
 Return JSON: {{"results": [{{"sample_id": "...", "input": "...", "used": true, "evidence": "line N: why"}}]}}"""
 
 
-def resolve_ambiguous(herd, task, items, codes):
+def resolve_ambiguous(session, task, items, codes):
     """items: [(sample_id, input_name)] the static pass could not decide."""
     by_sample = defaultdict(list)
     for sid, inp in items:
@@ -373,7 +373,7 @@ def resolve_ambiguous(herd, task, items, codes):
                             if any(k in by_sample[s] for s in chunk))
         sols = "\n\n".join(f'<solution id="{s}" inputs="{",".join(by_sample[s])}">\n{codes[s]}\n</solution>' for s in chunk)
         try:
-            reply = ask_json(herd.llm, extractor(herd), RESOLVE_PROMPT.format(task=task.prompt, inputs=listing,
+            reply = ask_json(session.llm, extractor(session), RESOLVE_PROMPT.format(task=task.prompt, inputs=listing,
                                                                               solutions=sols), required=("results",))
         except ValueError:
             return {}
@@ -386,8 +386,8 @@ def resolve_ambiguous(herd, task, items, codes):
     return out
 
 
-def extractor(herd):
-    return herd.cfg["models"].get("extractor") or herd.cfg["models"]["labeler"]
+def extractor(session):
+    return session.cfg["models"].get("extractor") or session.cfg["models"]["labeler"]
 
 
 def valid_samples(out):
@@ -400,7 +400,7 @@ def valid_samples(out):
     return valid
 
 
-def input_audit(herd, task, valid):
+def input_audit(session, task, valid):
     auditor = AUDITORS[task.name]
     per_sample, ambiguous = {}, []
     for s in valid:
@@ -411,7 +411,7 @@ def input_audit(herd, task, valid):
         per_sample[s["sample_id"]] = {k: {"status": v[0], "evidence": v[1], "method": "static"} for k, v in res.items()}
         ambiguous += [(s["sample_id"], k) for k, v in res.items() if v[0] == "ambiguous"]
     if ambiguous:
-        resolved = resolve_ambiguous(herd, task, ambiguous, {s["sample_id"]: s["code"] for s in valid})
+        resolved = resolve_ambiguous(session, task, ambiguous, {s["sample_id"]: s["code"] for s in valid})
         for sid, k in ambiguous:
             r = resolved.get((sid, k))
             if r is not None and isinstance(r.get("used"), bool):
@@ -478,13 +478,13 @@ def classify_assumption(assumption, prompt):
     return "incidental", quote if quote else None
 
 
-def shared_assumptions(herd, task, valid, top3, max_samples=12):
+def shared_assumptions(session, task, valid, top3, max_samples=12):
     chosen = []
     for fam in top3:
         chosen += sorted((s for s in valid if s["family"] == fam), key=lambda s: s["sample_id"])[:max_samples // 3]
     chosen = chosen[:max_samples]
     sols = "\n\n".join(f'<solution id="{s["sample_id"]}" family="{s["family"]}">\n{s["code"]}\n</solution>' for s in chosen)
-    proposed = ask_json(herd.llm, extractor(herd), PROPOSE_PROMPT.format(task=task.prompt, solutions=sols),
+    proposed = ask_json(session.llm, extractor(session), PROPOSE_PROMPT.format(task=task.prompt, solutions=sols),
                         required=("assumptions",))["assumptions"]
     proposed = [a for a in proposed if isinstance(a, dict) and a.get("assumption")]
     listing = "\n".join(f"{i + 1}. {a['assumption']}" for i, a in enumerate(proposed))
@@ -493,7 +493,7 @@ def shared_assumptions(herd, task, valid, top3, max_samples=12):
     for start in range(0, len(chosen), 4):
         part = "\n\n".join(f'<solution id="{s["sample_id"]}" family="{s["family"]}">\n{s["code"]}\n</solution>'
                             for s in chosen[start:start + 4])
-        checks += ask_json(herd.llm, extractor(herd), VERIFY_PROMPT.format(assumptions=listing, solutions=part),
+        checks += ask_json(session.llm, extractor(session), VERIFY_PROMPT.format(assumptions=listing, solutions=part),
                            required=("checks",))["checks"]
     holds = defaultdict(dict)
     for c in checks:
@@ -559,7 +559,7 @@ necessarily good)? Answer for every pair.
 Return JSON: {{"pairs": [{{"n": 1, "coherent": true, "reason": "..."}}]}}"""
 
 
-def decompose(herd, task, items, kind):
+def decompose(session, task, items, kind):
     comps = COMPONENTS[task.name]
     fields = ", ".join(f'"{c}": "..."' for c in comps)
     listing = "\n".join(f"- {c}: {d}" for c, d in comps.items())
@@ -568,7 +568,7 @@ def decompose(herd, task, items, kind):
     def batch(chunk):
         body = "\n\n".join(f'<{kind} id="{i}">\n{text}\n</{kind}>' for i, text in chunk)
         try:
-            reply = ask_json(herd.llm, extractor(herd), DECOMPOSE_PROMPT.format(components=listing, task=task.prompt,
+            reply = ask_json(session.llm, extractor(session), DECOMPOSE_PROMPT.format(components=listing, task=task.prompt,
                                                                                 solutions=body, fields=fields),
                              required=("items",))
         except ValueError:
@@ -583,13 +583,13 @@ def decompose(herd, task, items, kind):
     return out
 
 
-def canonicalize(herd, task, raw, k=8):
+def canonicalize(session, task, raw, k=8):
     comps = COMPONENTS[task.name]
     maps = {}
     for c, desc in comps.items():
         values = sorted({v[c] for v in raw.values()})
         try:
-            reply = ask_json(herd.llm, extractor(herd), CANON_PROMPT.format(
+            reply = ask_json(session.llm, extractor(session), CANON_PROMPT.format(
                 component=c, desc=desc, k=k, values="\n".join(f"- {v}" for v in values)), required=("mapping",))
             mapping = {str(a).strip().lower(): str(b).strip().lower() for a, b in reply["mapping"].items()}
         except ValueError:
@@ -598,14 +598,14 @@ def canonicalize(herd, task, raw, k=8):
     return {i: {c: maps[c][v[c]] for c in comps} for i, v in raw.items()}, maps
 
 
-def grid_gaps(herd_cells, literature_cells, min_support=2):
-    """Gap candidates: (a) full combinations occupied by literature but no herd sample;
-    (b) value pairs, each value seen in >= min_support herd samples, never seen together."""
-    herd_tuples = {tuple(sorted(v.items())) for v in herd_cells.values()}
-    lit = [{"family": f, "cell": v} for f, v in literature_cells.items() if tuple(sorted(v.items())) not in herd_tuples]
-    support = Counter((c, v) for cells in herd_cells.values() for c, v in cells.items())
+def grid_gaps(consensus_cells, literature_cells, min_support=2):
+    """Gap candidates: (a) full combinations occupied by literature but no consensus sample;
+    (b) value pairs, each value seen in >= min_support consensus samples, never seen together."""
+    consensus_tuples = {tuple(sorted(v.items())) for v in consensus_cells.values()}
+    lit = [{"family": f, "cell": v} for f, v in literature_cells.items() if tuple(sorted(v.items())) not in consensus_tuples]
+    support = Counter((c, v) for cells in consensus_cells.values() for c, v in cells.items())
     seen_pairs = Counter()
-    for cells in herd_cells.values():
+    for cells in consensus_cells.values():
         items = sorted(cells.items())
         for i in range(len(items)):
             for j in range(i + 1, len(items)):
@@ -622,22 +622,22 @@ def grid_gaps(herd_cells, literature_cells, min_support=2):
     return lit, pairs
 
 
-def component_grid(herd, task, valid, families, max_pairs=20):
-    raw = decompose(herd, task, [(s["sample_id"], s["code"]) for s in valid], "solution")
+def component_grid(session, task, valid, families, max_pairs=20):
+    raw = decompose(session, task, [(s["sample_id"], s["code"]) for s in valid], "solution")
     lit_items = [(f["family"], f"{f['family']}: {f['one_line_mechanism']}") for f in families
                  if f.get("source_urls") and not f["family"].startswith(EMERGENT)]
-    lit_raw = decompose(herd, task, lit_items, "family")
-    canon, maps = canonicalize(herd, task, {**raw, **{f"lit::{k}": v for k, v in lit_raw.items()}})
-    herd_cells = {k: v for k, v in canon.items() if not k.startswith("lit::")}
+    lit_raw = decompose(session, task, lit_items, "family")
+    canon, maps = canonicalize(session, task, {**raw, **{f"lit::{k}": v for k, v in lit_raw.items()}})
+    consensus_cells = {k: v for k, v in canon.items() if not k.startswith("lit::")}
     lit_cells = {k[5:]: v for k, v in canon.items() if k.startswith("lit::")}
-    lit_gaps, pair_gaps = grid_gaps(herd_cells, lit_cells)
+    lit_gaps, pair_gaps = grid_gaps(consensus_cells, lit_cells)
     judged = []
     if pair_gaps:
         top = pair_gaps[:max_pairs]
         listing = "\n".join(f"{i + 1}. {p['pair'][0][0]} = {p['pair'][0][1]}  +  {p['pair'][1][0]} = {p['pair'][1][1]}"
                             for i, p in enumerate(top))
         try:
-            reply = ask_json(herd.llm, extractor(herd), COHERENT_PROMPT.format(task=task.prompt, pairs=listing),
+            reply = ask_json(session.llm, extractor(session), COHERENT_PROMPT.format(task=task.prompt, pairs=listing),
                              required=("pairs",))
             verdicts = {r.get("n"): r for r in reply["pairs"] if isinstance(r, dict)}
         except ValueError:
@@ -646,13 +646,13 @@ def component_grid(herd, task, valid, families, max_pairs=20):
             v = verdicts.get(i + 1, {})
             judged.append({**p, "coherent": v.get("coherent") is True, "reason": v.get("reason")})
     value_samples = defaultdict(list)
-    for sid, cells in herd_cells.items():
+    for sid, cells in consensus_cells.items():
         for c, v in cells.items():
             value_samples[f"{c}={v}"].append(sid)
     for g in judged:
         g["evidence"] = {f"{c}={v}": value_samples[f"{c}={v}"][:4] for c, v in g["pair"]}
     return {"components": COMPONENTS[task.name], "vocabulary": {c: sorted(set(m.values())) for c, m in maps.items()},
-            "herd_cells": herd_cells, "literature_cells": lit_cells,
+            "herd_cells": consensus_cells, "literature_cells": lit_cells,
             "literature_only_cells": lit_gaps,
             "unoccupied_pairs": [g for g in judged if g["coherent"]],
             "incoherent_pairs": [g for g in judged if not g["coherent"]],
@@ -728,18 +728,18 @@ def mentions(name, result):
     return bool(words) and all(w in text for w in words)
 
 
-def latent_tail(herd, task, families, top3, max_exa=3):
+def latent_tail(session, task, families, top3, max_exa=3):
     by_name = {f["family"]: f for f in families}
-    herd_list = "\n".join(f"- {n}: {by_name[n]['one_line_mechanism']}" for n in top3 if n in by_name)
-    prompts = {"with_herd": LATENT_WITH.format(task=task.prompt, herd=herd_list),
+    consensus_list = "\n".join(f"- {n}: {by_name[n]['one_line_mechanism']}" for n in top3 if n in by_name)
+    prompts = {"with_herd": LATENT_WITH.format(task=task.prompt, herd=consensus_list),
                "without_herd": LATENT_WITHOUT.format(task=task.prompt)}
-    jobs = [(m, cond) for m in herd.cfg["models"]["samplers"] for cond in prompts]
+    jobs = [(m, cond) for m in session.cfg["models"]["samplers"] for cond in prompts]
 
     def ask(job):
         model, cond = job
         try:
-            entry = herd.llm.chat(model, [{"role": "user", "content": prompts[cond]}], temperature=1.0,
-                                  max_tokens=herd.cfg["sampling"]["max_tokens"], sample_idx=f"latent:{cond}")
+            entry = session.llm.chat(model, [{"role": "user", "content": prompts[cond]}], temperature=1.0,
+                                  max_tokens=session.cfg["sampling"]["max_tokens"], sample_idx=f"latent:{cond}")
             reply = parse_json(message_text(entry))
             approaches = [a for a in reply.get("approaches", []) if isinstance(a, dict) and a.get("name")]
             return model, cond, approaches, None
@@ -754,25 +754,25 @@ def latent_tail(herd, task, families, top3, max_exa=3):
     matches = {}
     if flat:
         try:
-            reply = ask_json(herd.llm, extractor(herd), MATCH_PROMPT.format(taxonomy=taxonomy, approaches=listing),
+            reply = ask_json(session.llm, extractor(session), MATCH_PROMPT.format(taxonomy=taxonomy, approaches=listing),
                              required=("matches",))
             matches = {r.get("n"): r for r in reply["matches"] if isinstance(r, dict)}
         except ValueError:
             pass
-    herd_set = set(top3)
+    consensus_set = set(top3)
     rows = []
     for i, (m, c, a) in enumerate(flat):
         mt = matches.get(i + 1, {})
         fam = mt.get("family") if mt.get("family") in by_name else None
         rows.append({"model": m, "condition": c, "name": a["name"], "mechanism": a.get("mechanism"),
                      "reference": a.get("reference"), "taxonomy_family": fam, "precise": mt.get("precise") is True,
-                     "in_herd": fam in herd_set})
+                     "in_herd": fam in consensus_set})
     # Exa checks for the most-named approaches outside the taxonomy.
     unmatched = Counter(r["name"].strip().lower() for r in rows if r["taxonomy_family"] is None)
     sources = {}
     for name, _ in unmatched.most_common(max_exa):
         try:
-            res = herd.exa.search(f"{name} {task.name.replace('_', ' ')} algorithm", num_results=3)
+            res = session.exa.search(f"{name} {task.name.replace('_', ' ')} algorithm", num_results=3)
             # A result only counts as a source if its title or highlights actually mention the approach.
             sources[name] = [{"url": r["url"], "title": r["title"], "mentions": mentions(name, r)} for r in res]
         except Exception as e:
@@ -781,45 +781,45 @@ def latent_tail(herd, task, families, top3, max_exa=3):
         r["sources"] = sources.get(r["name"].strip().lower(), [])
         r["verified"] = bool(r["taxonomy_family"]) or r["precise"] or any(s.get("mentions") for s in r["sources"])
     per_model = {}
-    for m in herd.cfg["models"]["samplers"]:
+    for m in session.cfg["models"]["samplers"]:
         per_model[m] = {c: len({(r["taxonomy_family"] or r["name"].lower()) for r in rows
                                 if r["model"] == m and r["condition"] == c and r["verified"] and not r["in_herd"]})
                         for c in prompts}
     more = sum(v["with_herd"] > v["without_herd"] for v in per_model.values())
     return {"answers": rows, "errors": {f"{m}|{c}": e for m, c, _, e in answers if e},
             "verified_non_herd_per_model": per_model, "models_with_more_when_shown_herd": more,
-            "conclusion": "showing the herd unlocks more verified non-herd approaches" if more >= 4 else "no evidence",
+            "conclusion": "showing the consensus unlocks more verified non-consensus approaches" if more >= 4 else "no evidence",
             "exa_checks": sources}
 
 
 # ---------------------------------------------------------------- driver
-def build(herd, task):
+def build(session, task):
     if task.name not in INPUTS:
         raise ValueError(f"overlook has an input list only for {sorted(INPUTS)}")
-    out = herd.out_dir(task)
-    herd_map = read_json(out / "herd_map.json")
+    out = session.out_dir(task)
+    consensus_map = read_json(out / "herd_map.json")
     families = read_json(out / "families.json")
     valid = valid_samples(out)
     all_samples = [json.loads(l) for l in (out / "samples.jsonl").read_text().splitlines()]
     labels = {json.loads(l)["sample_id"]: json.loads(l)["family"] for l in (out / "labels.jsonl").read_text().splitlines()}
     for s in all_samples:
         s["family"] = labels.get(s["sample_id"], UNLABELED)
-    models = herd.cfg["models"]["samplers"]
-    start = herd.ledger.new_spend
-    herd.progress("overlook: input audit")
-    inputs, per_sample = input_audit(herd, task, valid)
-    herd.progress("overlook: shared assumptions")
-    assumptions = shared_assumptions(herd, task, valid, herd_map["top3"])
-    herd.progress("overlook: component grid")
-    grid = component_grid(herd, task, valid, families)
+    models = session.cfg["models"]["samplers"]
+    start = session.ledger.new_spend
+    session.progress("overlook: input audit")
+    inputs, per_sample = input_audit(session, task, valid)
+    session.progress("overlook: shared assumptions")
+    assumptions = shared_assumptions(session, task, valid, consensus_map["top3"])
+    session.progress("overlook: component grid")
+    grid = component_grid(session, task, valid, families)
     minor = minority_report(valid, all_samples, models, grid)
-    herd.progress("overlook: latent tail")
-    latent = latent_tail(herd, task, families, herd_map["top3"])
+    session.progress("overlook: latent tail")
+    latent = latent_tail(session, task, families, consensus_map["top3"])
     result = {"task": task.name, "herd": {"samples": len(all_samples), "valid": len(valid), "models": models,
-                                          "top3": herd_map["top3"], "concentration_top3": herd_map["concentration_top3"]},
+                                          "top3": consensus_map["top3"], "concentration_top3": consensus_map["concentration_top3"]},
               "paraphrase_test": read_json(out / "paraphrase.json"),
               "inputs": inputs, "assumptions": assumptions, "grid": grid, "minority": minor, "latent_tail": latent,
-              "new_spend_usd": round(herd.ledger.new_spend - start, 4)}
+              "new_spend_usd": round(session.ledger.new_spend - start, 4)}
     write_json(out / "overlook.json", result)
     write_json(out / "overlook_audit_per_sample.json", per_sample)
     return result

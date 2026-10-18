@@ -1,7 +1,11 @@
 # DIVERGE and the hackathon tracks
 
-YC "Make Something Agents Want". This maps each track's criteria to what is in the repo, and
-separates what has been demonstrated from what is only supported by the code. All results are
+YC "Make Something Agents Want". DIVERGE is creative-search infrastructure for AI agents: when an
+agent keeps landing on the same answer, DIVERGE shows it what it (and most models) converge on and
+helps it find, test and pick genuinely different alternatives. It is built for agents first (MCP
+tools, self-onboarding, a verdict and `next_action` an agent can act on without a human). This maps
+each track's criteria to what is in the repo, and separates what has been demonstrated from what is
+only supported by the code. All results are
 preliminary; `escape` has not been shown to beat a fresh start (see `docs/RESULTS.md`).
 
 ## Armature: build something agents use
@@ -28,7 +32,8 @@ anecdote, not a rate.
 
 **Only supported, not demonstrated:** other clients than Claude Code (`onboard` supports
 `--client claude` only); that following a verdict improves the outcome (the preliminary rescue test,
-n = 4, found no advantage: diverge_escape v2 1/4, try_different 1/4, random lever 1/4, fresh_start 0/4).
+n = 4 each. In round 1 no arm beat a best-fit plateau. In round 2, fresh-context escape pipelines did, but the
+random-lever control rescued the most (3/4) and default escape v2 the fewest (1/4); see docs/RESULTS.md).
 
 ## Manufact: best MCP server for agents
 
@@ -36,7 +41,7 @@ n = 4, found no advantage: diverge_escape v2 1/4, try_different 1/4, random leve
 |---|---|
 | A real MCP server | `python -m diverge serve` (stdio) and `diverge_mcp_http.py` (streamable HTTP at `/mcp`, an ASGI `app` for `uvicorn 'diverge_mcp_http:app'`), both serving the same `diverge.server.mcp` object, so the tool list is identical. |
 | Designed for agents | Server `INSTRUCTIONS` that say when to use which tool; a free readiness tool (`diverge_status`); one primary tool (`diverge_escape`) with a verdict, `next_action` and structuredContent; structured errors; progress notifications on long calls; per-call `budget_usd` caps plus a global cap. |
-| Safe to host | Bearer token (`DIVERGE_HTTP_TOKEN`, with `HERD_HTTP_TOKEN` as a fallback; constant-time compare): missing or wrong token gives 401, unset token gives 503 (fails closed). Candidate code runs in `tasks/_sandbox.py` (macOS sandbox, no secrets in the child environment, redacted errors). |
+| Safe to host | Bearer token (`DIVERGE_HTTP_TOKEN`, constant-time compare): missing or wrong token gives 401, unset token gives 503 (fails closed). Candidate code runs in `tasks/_sandbox.py` (macOS sandbox, no secrets in the child environment, redacted errors). |
 
 **Demonstrated:** local HTTP. `tests/test_manufact.py` starts the app on loopback and checks
 that the HTTP tool list equals the stdio one and that 401/503 are returned; `docs/MANUFACT.md`
@@ -54,9 +59,10 @@ mkdir -p /tmp/x && uv run python -m diverge onboard --client claude --target /tm
 uv run python -m diverge demo strategy_loop    # offline replay: 4 stalled attempts -> VERDICT + next_action + labeled evidence
 ```
 
-Say: "An agent onboards itself with one command. When its scored attempts stall, DIVERGE tells it
-whether the attempts are one idea in different code and gives one experiment with pass/fail
-thresholds, every claim labeled measured, sourced or hypothesized."
+Say: "Agents keep landing on the same answer. Here one onboards itself with one command; when its
+scored attempts stall, DIVERGE shows it that the attempts are one idea in different code, points to
+what most models overlook, and gives it one alternative to test with pass/fail thresholds, every
+claim labeled measured, sourced or hypothesized. No human in the loop."
 
 ## 60-second demo
 
@@ -69,11 +75,14 @@ uv run python scripts/autonomous_demo.py --run N       # PAID and slow: run it b
 python3 -c "import json; print(json.dumps(json.load(open('docs/demo/autonomous-run-N.summary.json'))['moment'], indent=2))"
 ```
 
+Framing (one line before starting): "This is infrastructure for agents that keep converging on
+the same answer: it helps them find, test and pick an alternative, and an agent drives all of it."
+
 1. Onboarding (10 s): show the three files written and the `next_steps` in the JSON.
 2. Readiness (5 s): `ready`, `missing`, `recommended_primary_tool: diverge_escape`; key status
    only, never values.
 3. Offline demo (20 s): the four stalled attempts, strategy vs code similarity, the overlooked
-   input `n_open_bins` (5 of 95 consensus-map samples), then section 6, the contract: `VERDICT: repair`
+   input `n_open_bins` (5 of 95 consensus-map samples: the alternative most models miss), then section 6, the contract: `VERDICT: repair`
    and evidence by class. Point out that DIVERGE said repair, not escape, and that the lever it
    would have tried lost to fresh_start when implemented as an ablation (`README.md`, Measured
    so far).
@@ -82,7 +91,9 @@ python3 -c "import json; print(json.dumps(json.load(open('docs/demo/autonomous-r
    before), `moment.tool` and `moment.input`, and `tools_before`. If the agent did not select
    DIVERGE, say so; the outcome is written up in `docs/AUTONOMOUS_AGENT_DEMO.md`.
 
-Close: "Preliminary: it has not been shown to beat a fresh start; in a 4-state rescue test it tied simple baselines."
+Close: "Preliminary: steering toward overlooked ideas gave more distinct working approaches per
+dollar but not a better best program; it has not been shown to beat a fresh start, and in a 4-state
+rescue test it tied simple baselines."
 
 ## Claims we do not make
 

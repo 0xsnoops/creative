@@ -1,4 +1,4 @@
-"""Outline-only code review of HERD by a panel of inexpensive models via OpenRouter.
+"""Outline-only code review of DIVERGE by a panel of inexpensive models via OpenRouter.
 
     uv run python scripts/model_review.py packet  --run-id RUN   # freeze + scan the source packet
     uv run python scripts/model_review.py select  --run-id RUN   # pick models from the live catalog, print costs
@@ -7,8 +7,8 @@
     uv run python scripts/model_review.py critique --run-id RUN --jobs J.json      # optional cross-review
     uv run python scripts/model_review.py costs   --run-id RUN   # spend summary from the trace
 
-Reviewers only outline; nothing here changes HERD. Every call is cached in cache/review.jsonl
-(separate from HERD's experiment ledger) and traced in results/traces/<run>/calls.jsonl.
+Reviewers only outline; nothing here changes DIVERGE. Every call is cached in cache/review.jsonl
+(separate from DIVERGE's experiment ledger) and traced in results/traces/<run>/calls.jsonl.
 Credentials come from .env and are never written to traces, packets or outputs.
 """
 import argparse
@@ -372,7 +372,7 @@ def packet_files():
     for path in tracked:
         if path in ("README.md", "config.yaml", "pyproject.toml"):
             keep.append(path)
-        elif re.match(r"^(herd|tasks|tests)/.*\.(py|md)$", path):
+        elif re.match(r"^(diverge|tasks|tests)/.*\.(py|md)$", path):
             keep.append(path)
     return sorted(keep)
 
@@ -810,7 +810,7 @@ def costs(run_id):
     summary["openrouter_new_total_usd"] = round(sum(summary["openrouter_new_usd"].values()), 6)
     summary["total_new_usd"] = round(summary["openrouter_new_total_usd"] + summary["exa_new_usd"], 6)
     summary["note"] = ("new = money spent by calls made in this run; cached_historical = original cost of "
-                       "responses replayed from cache/review.jsonl (not spent again). Separate from HERD's "
+                       "responses replayed from cache/review.jsonl (not spent again). Separate from DIVERGE's "
                        "experiment ledger (cache/llm.jsonl, cache/exa.jsonl).")
     write_json(run_dir(run_id) / "costs.json", summary)
     print(f"cost so far: OpenRouter ${summary['openrouter_new_total_usd']:.4f} {summary['openrouter_new_usd']}, "
