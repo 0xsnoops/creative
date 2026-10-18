@@ -5,6 +5,15 @@ from pathlib import Path
 from diverge.contract import parse, render, verdict
 
 RESULTS = Path(__file__).resolve().parents[1] / "results" / "online_bin_packing"
+
+
+def _local(name):
+    """Local research output (gitignored): skip the test in a fresh checkout without it."""
+    import pytest
+    path = RESULTS / name
+    if not path.exists():
+        pytest.skip(f"needs local research output results/online_bin_packing/{name}")
+    return path
 URL = "https://doi.org/10.1145/3828.3833"
 
 
@@ -155,7 +164,7 @@ def test_source_backed_only_with_a_real_url():
 
 
 def test_real_taxonomy_families_give_urls():
-    families = json.loads((RESULTS / "families.json").read_text())
+    families = json.loads(_local("families.json").read_text())
     name = next(f["family"] for f in families if f.get("source_urls"))
     _, body = parse(render(result(levers=[lever("blind_spot", name)]), families=families))
     src = next(e for e in body["evidence"] if e["class"] == "SOURCE_BACKED")
@@ -164,7 +173,7 @@ def test_real_taxonomy_families_give_urls():
 
 # ------------------------------------------------------------------ scope note
 def test_scope_note_with_paraphrase():
-    para = json.loads((RESULTS / "paraphrase.json").read_text())
+    para = json.loads(_local("paraphrase.json").read_text())
     _, body = parse(render(result(), paraphrase=para))
     assert body["scope_note"] == ("Herd shares are for this prompt wording: rewording moved the map (paraphrase "
                                   "TVD 0.51 vs at most 0.40 between resamples; verdict: partly a prompt effect).")
@@ -177,7 +186,7 @@ def test_scope_note_without_paraphrase():
 
 
 def test_render_is_json_serializable_on_real_overlook():
-    overlook = json.loads((RESULTS / "overlook.json").read_text())
+    overlook = json.loads(_local("overlook.json").read_text())
     row = next(r for r in overlook["inputs"] if r["input"] == "n_open_bins")
     lv = lever("unused_signal", "n_open_bins", **{k: row[k] for k in ("used_by", "decided", "share", "used_by_models")})
     text = render(result(levers=[lv]), overlook=overlook)

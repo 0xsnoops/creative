@@ -85,3 +85,12 @@ def test_chat_shrinks_max_tokens_to_fit_the_run_cap_and_never_exceeds_it(tmp_pat
     assert sent[:2] == [16000, 16000] and all(MIN_SHRUNK_TOKENS <= t < 16000 for t in sent[2:])
     assert len(sent) >= 3  # the old rule stopped after 2 calls ($0.16 spent of $0.30)
     assert ledger.spent_this_run <= 0.30
+
+
+def test_long_free_text_task_is_not_treated_as_a_path():
+    """Found by the Codex tester: a 256+ character description raised 'File name too long'."""
+    from diverge.task import Task
+    t = Task.resolve("x" * 300)
+    assert t.name.startswith("desc-") and t.evaluator is None
+    assert Task.resolve("online_bin_packing").evaluator is not None
+    assert Task.resolve("online bin packing, but with " + "y" * 2000).name.startswith("desc-")
