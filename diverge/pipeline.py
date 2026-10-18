@@ -30,11 +30,15 @@ _caches, _task_locks = {}, defaultdict(threading.Lock)
 
 
 def load_env():
-    """Read KEY=VALUE lines from .env without overriding the real environment."""
-    path = ROOT / ".env"
-    if path.exists():
+    """Read KEY=VALUE lines from .env, and from the private file named by DIVERGE_ENV_FILE (lines may
+    start with "export "), without overriding the real environment."""
+    paths = [ROOT / ".env"] + ([Path(os.environ["DIVERGE_ENV_FILE"])] if os.environ.get("DIVERGE_ENV_FILE") else [])
+    for path in paths:
+        if not path.exists():
+            continue
         for line in path.read_text().splitlines():
-            if "=" in line and not line.lstrip().startswith("#"):
+            line = line.strip().removeprefix("export ").strip()
+            if "=" in line and not line.startswith("#"):
                 key, value = line.split("=", 1)
                 os.environ.setdefault(key.strip(), value.strip().strip("'\""))
 
