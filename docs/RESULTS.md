@@ -150,6 +150,25 @@ LRU scores 0.6752 and FIFO 0.7097. With one repeat of 4–8 candidates each, thi
 the operators. Resume with `scripts/run_benches.py`, which replays completed calls from the
 cache at no cost.
 
+### Three-operator run to held-out (1 repeat, preliminary)
+
+This is the core comparison: plain sampling, random literature, and literature chosen because the
+herd overlooked it. Each operator got $0.30 and 1 repeat (seed 0). Candidates were selected on dev,
+and each family's pick was then scored once on held-out. The dev calls were replayed from the
+cache, so the new spend was about $0.
+
+| operator | candidates | valid | useful families (beat LRU on held-out) | best held-out miss ratio |
+|---|---|---|---|---|
+| plain | 5 | 80% | 2 | **0.5667** |
+| literature_random | 7 | 100% | 4 | 0.5842 |
+| blind_spot | 6 | 83% | 3 | 0.5829 |
+
+Held-out baselines: LRU 0.6747, FIFO 0.7088. Lower is better.
+
+On held-out, **plain had the best score**. blind_spot did not beat random literature or plain on
+best score. Random literature produced the most distinct families that beat LRU. This is one
+repeat, so it is no verdict either way.
+
 ## Live strategy-loop runs (preliminary, 1 run each)
 
 Scores are % excess bins, as dev / held-out; lower is better.
@@ -176,6 +195,43 @@ Fixtures: `fixtures/trajectories/` and `fixtures/runs/`, as `strategy_loop`,
 `strategy_loop_tune` and `strategy_loop_unconstrained`. Reproduce with
 `scripts/strategy_loop_run.py --mode open|tune|plateau` and `scripts/forced_escape.py`; cached
 calls replay at no cost. Replay with `herd demo <fixture>`.
+
+## Mini rescue test (preliminary, n = 4 stuck states)
+
+`scripts/rescue_test.py`; raw data in `results/rescue/` (gitignored).
+
+**Setup**
+- **Agent model:** Llama 4 Maverick. It is the cheapest sampler, and its best herd samples are
+  exactly best fit.
+- **Trajectories:** it wrote 6 trajectories of 6 attempts with dev-score feedback. 4 were
+  naturally stuck: no dev improvement of more than 1% over the last 3 attempts.
+- **Arms:** each stuck state got four arms, all using the same model, at most 3 dev-scored
+  candidates per arm, and a $0.40 cap per arm.
+- **Rescue:** the arm's dev-selected candidate beats the stuck best on held-out.
+
+| stuck state (held-out of the stuck best) | fresh_start | try_different | random_lever | herd_escape v2 |
+|---|---|---|---|---|
+| 0 (148.12) | 148.12 no | **3.98 yes** | 6.88 yes | 4.02 yes |
+| 1 (3.98, best fit) | 12.97 no | 3.98 no | 4.89 no | 12.97 no |
+| 3 (3.98, best fit) | 3.98 no | 3.98 no | no admitted candidate | no admitted candidate |
+| 4 (3.96) | 12.97 no | 3.96 no | 10.53 no | 148.12 no |
+| **rescued** | 0/4 | 1/4 | 1/4 | 1/4 |
+
+**What this shows:** herd_escape v2 did not beat the simple "try a fundamentally different
+approach" arm. The only rescue came in state 0, which was stuck far from best fit, and three arms
+rescued it there; try_different did best. No arm beat a plateau at best fit.
+
+**Cost:** herd_escape cost $0.010 in total and was the most expensive arm, but every arm was cheap.
+
+**Lever:** HERD chose a family lever, "Worst Fit / Almost-Any-Fit variants", which is a weak
+direction for escaping best fit.
+
+**Admission check:** it rejected 17 escape and random-lever candidates for not differing enough
+from the stuck attempts or not depending on the lever.
+
+**Bug fixed before these numbers:** the first run of this test exposed a bug in the sketch filter.
+Family and paraphrased levers were always dropped. It was fixed in commit 6ba6309, and the table
+above comes from the rerun.
 
 ## Not yet measured
 

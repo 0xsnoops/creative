@@ -145,9 +145,17 @@ def main():
     es.add_argument("--budget", type=float, default=2.0, help="USD this run may spend")
     dm = sub.add_parser("demo", help="replay a recorded escape run offline (no API calls)")
     dm.add_argument("fixture", help="name under fixtures/trajectories and fixtures/runs, e.g. strategy_loop")
-    sub.add_parser("preflight", help="check budget, API keys and model slugs before a live run")
+    pf = sub.add_parser("preflight", help="check budget, API keys and model slugs before a live run")
+    pf.add_argument("--json", action="store_true", help="print the readiness dict (as herd_status returns it)")
+    pf.add_argument("--offline", action="store_true", help="skip the live model catalog check (no network)")
     sub.add_parser("spend", help="show estimated spend so far")
     sub.add_parser("serve", help="run the MCP server on stdio")
+    ob = sub.add_parser("onboard", help="install the HERD skill, /herd command and MCP config into a project")
+    ob.add_argument("--client", default="claude", help="coding agent client (only 'claude' is supported)")
+    ob.add_argument("--target", default=".", help="project directory to onboard (default: current directory)")
+    ob.add_argument("--dry-run", action="store_true", help="write nothing; list the planned actions")
+    ob.add_argument("--force", action="store_true", help="overwrite conflicting existing files or herd entry")
+    ob.add_argument("--json", action="store_true", help="print a structured JSON report")
     args = parser.parse_args()
 
     if args.command == "run":
@@ -178,7 +186,14 @@ def main():
         raise SystemExit(demo.run(args.fixture))
     elif args.command == "preflight":
         from . import demo
-        raise SystemExit(demo.preflight())
+        if args.json:
+            r = demo.readiness(live=not args.offline)
+            print(json.dumps(r, indent=2))
+            raise SystemExit(0 if r["ready"] else 1)
+        raise SystemExit(demo.preflight(live=not args.offline))
+    elif args.command == "onboard":
+        from . import onboard
+        raise SystemExit(onboard.main(args))
     elif args.command == "spend":
         ledger = Herd().ledger
         print(f"estimated spend: ${ledger.total_spent:.4f} of ${ledger.global_cap:.2f}")

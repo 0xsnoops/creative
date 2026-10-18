@@ -1,12 +1,58 @@
 # HERD
 
-**Escape strategy loops in AI agents.**
+Escape strategy loops in AI agents.
+
+Different code isn't always different thinking.
+
+## For coding agents
+
+Call `herd_escape` yourself, without waiting to be asked, when:
+
+- you have two or more scored attempts on a task with an evaluator;
+- progress stopped improving (flat scores, the same failure coming back, lots of code change for
+  little score change);
+- you are about to retry another variation of the same idea;
+- you are considering escalating to a human.
+
+Not for a first attempt, build errors or generic debugging.
+
+HERD returns `VERDICT: keep|repair|escape|escalate|inconclusive`, then JSON with `next_action`
+(what to do now), `lever`, `next_experiment` (success and failure thresholds) and `evidence`, each
+claim labeled `MEASURED` (evaluator runs, sample counts), `SOURCE_BACKED` (cited literature) or
+`HYPOTHESIZED` (HERD's untested reasoning; never treat it as measured).
+
+| VERDICT | `next_action` (from `herd/contract.py`) |
+|---|---|
+| `keep` | Continue the existing strategy; do not switch yet. Score each change with the evaluator and call herd_escape again if scores stall. |
+| `repair` | Fix the existing strategy and preserve its mechanism (do not switch approach); re-score it with the evaluator. |
+| `escape` | Implement the named lever (start from candidate_path when one exists), run the evaluator, and compare against the before score and next_experiment's success and failure thresholds. |
+| `escalate` | Stop autonomous retries and ask a human: HERD has no safe next move to name, or the evaluator looks contradictory (identical scores for different strategies, or nothing is valid). |
+| `inconclusive` | Get at least 2 valid, scored attempts (earlier ones as previous_attempts, the latest as current_solution), then call herd_escape again. |
+
+Agent quickstart:
+
+```sh
+uv --directory <herd repo> run python -m herd onboard --client claude --target <project> --json  # skill, /herd, .mcp.json
+herd_status                     # MCP tool, free: are keys, budget and cached tasks ready?
+herd_escape(task_description, current_solution, previous_attempts, evaluator_cmd)  # after 2+ scored attempts stall
+```
+
+Tool roles: `herd_status` is the free readiness check (no model or network call); `herd_check`
+asks, before you implement, whether your planned strategy is the default most models pick;
+`herd_escape` is the primary tool once attempts stall. `herd_map`, `blind_spots` and
+`reality_check` are lower-level research primitives. No API key? `python -m herd demo
+strategy_loop` replays a recorded run offline at $0.
+
+Results are preliminary: `escape` has not been shown to beat a fresh start (see
+[Measured so far](#measured-so-far)). Treat a verdict as one well-founded experiment, not a fix.
+Hackathon track mapping: `docs/TRACKS.md`. Headless agent run in a project whose prompt never
+mentions HERD: `scripts/autonomous_demo.py`, results in `docs/AUTONOMOUS_AGENT_DEMO.md`.
+
+## What HERD is for
 
 Agents can make different edits while repeating the same idea. HERD measures what models
 converge on, detects the assumptions your agent keeps repeating, and finds a different
 strategy worth testing.
-
-> Different code isn't always different thinking.
 
 Program-search systems ask a different core question from HERD. This is not a ranking, and
 HERD has not been compared against them:
@@ -19,8 +65,9 @@ HERD has not been compared against them:
 
 ## Measured so far
 
-The only measured numbers are in `docs/RESULTS.md` (protocols: `docs/PREREGISTRATION.md`,
-`docs/PREREGISTRATION-overlook.md`). Any other number in this README is illustrative.
+The only measured numbers are in `docs/RESULTS.md` and `docs/RESULTS-E1.md` (protocols:
+`docs/PREREGISTRATION.md`, `docs/PREREGISTRATION-overlook.md`). Any other number in this README
+is illustrative.
 
 **Herd maps (N=20 samples per model, 5 models).**
 
@@ -58,6 +105,24 @@ an ablation, at the same budget as fresh_start. It scored 1.096 / 0.973 and lost
 These runs are no evidence either way about escape vs fresh_start at scale. They show one weakness:
 strategy similarity partly depends on how the extractor model describes each attempt, so tuning
 revisions of the same code can measure as different strategies.
+
+**Detector validity (E1b, bin packing, 140 programs, $0.31).** Which similarity signal predicts
+that two programs fail on the same dev instances? Behavior similarity (the decisions two programs
+make on 200 probe states) reached AUC 0.65–0.66. LLM-description strategy similarity was at
+chance (0.50–0.53) with each of three small extractor models, and code similarity was 0.53. The
+behavior advantage (+0.14 to +0.16) has a 95% CI that excludes 0 for every extractor. The
+absolute AUC is modest and the target is coarse: 5 dev instances and the top-2 worst seeds give
+only 10 possible failure sets, one of which covers 55 of 140 programs, so part of "same failure
+set" is shared instance difficulty, not strategy. On a secondary target (failures relative to best
+fit) no signal is above chance, and no embedding baseline was computed, so the pre-registered E1
+comparison is still untested. Details: `docs/RESULTS-E1.md`. Following this, on tasks whose
+evaluator can fingerprint candidates (currently online_bin_packing) the loop decision uses the
+behavior signal; elsewhere it still uses strategy similarity. The live runs above used strategy similarity.
+
+**Escape has not been shown to beat fresh_start.** In a small rescue test (preliminary, n = 4 stuck
+Llama trajectories), herd_escape v2 rescued 1 of 4, the same as "try a fundamentally different
+approach" and a random-lever control; fresh_start rescued 0. No arm beat a best-fit plateau.
+See docs/RESULTS.md.
 
 Operator benchmarks: started, stopped, no results yet.
 
@@ -106,6 +171,8 @@ uv run python -m herd preflight
 
 It prints the budget remaining under the cap, whether the API keys are present and whether
 the configured models are available, and exits 1 if less than $1 remains or a key is missing.
+`preflight --json` prints the same readiness object the `herd_status` tool returns (key status,
+never key values); add `--offline` to skip the model-catalog check (no network).
 
 ## Escaping a strategy loop
 
@@ -125,25 +192,31 @@ produces no candidate, so its row in the results table shows `-`.
 `escape` takes the current solution and a directory of earlier attempts (sorted by name, oldest
 first), and an evaluator (a registered task's built-in one, or `--evaluator`). The MCP tool
 `herd_escape` takes the same inputs as code. Output starts with one line,
-`VERDICT: keep|repair|escape|escalate|inconclusive`, followed by JSON:
+`VERDICT: keep|repair|escape|escalate|inconclusive`, followed by JSON (the MCP tool also returns
+it as structuredContent, plus `verdict`):
 
+- `next_action`, `can_continue_autonomously` (false for `escalate` and for most errors), `complete`,
+  `missing_requirements`, `candidate_available`, `evidence_summary` (counts per class);
 - `lever`: the one thing to change;
 - `next_experiment`: `hypothesis`, `success_threshold`, `failure_threshold`;
 - `evidence`: a list of `{claim, class}`, where class is `MEASURED`, `SOURCE_BACKED` or
   `HYPOTHESIZED` (reasoning that has not been tested);
 - `scope_note`: herd shares describe this prompt wording (see the paraphrase test above).
 
-`keep` means continue the current strategy; `repair` means fix it without switching; `escape`
-means run `next_experiment` and judge it by its thresholds; `escalate` means a person should
-decide (no legal alternative under the task's rules, or a contradictory evaluator);
-`inconclusive` means score at least one attempt first.
+What each verdict asks the agent to do is in the table under
+[For coding agents](#for-coding-agents). Errors are structured too: `{"error", "detail",
+"missing", "next_action", ...}`, never containing key values.
 
 ### Claude Code skill and `/herd` command
 
 - `skills/herd/SKILL.md` is a Claude Code skill that runs this workflow: preflight, then
   `herd_escape` (with a trajectory and an evaluator) or `herd_check` (with only a planned
-  approach), then acts on the verdict and reports evidence by class. To make it available,
-  copy or symlink `skills/herd` into `~/.claude/skills/` (or a project's `.claude/skills/`).
+  approach), then acts on the verdict and reports evidence by class. Its description tells the
+  agent to use it on its own initiative when scored attempts stall. To install it,
+  `uv run python -m herd onboard --client claude --target <project> [--json]` copies the skill
+  and the `/herd` command into `<project>/.claude/` and registers the MCP server in
+  `<project>/.mcp.json` (idempotent; never overwrites different content without `--force`; no
+  secrets in the config). You can also copy or symlink `skills/herd` into `~/.claude/skills/`.
   It uses the MCP server below; without it, only the escape path works (through the CLI).
 - `.claude/commands/herd.md` adds `/herd <your situation>` when Claude Code runs in this repo;
   it tells the agent to follow the skill. To use it in another repo, copy it into that repo's
@@ -254,9 +327,15 @@ benchmark run, so reruns reproduce the table.
 ## MCP server for coding agents
 
 ```sh
+uv run python -m herd onboard --client claude --target /path/to/project   # writes .mcp.json, skill, /herd
+# or by hand:
 claude mcp add herd -- uv run --directory /absolute/path/to/herd python -m herd serve
 MCP_TOOL_TIMEOUT=1800000 claude   # or set it under "env" in ~/.claude/settings.json
 ```
+
+For a hosted (streamable HTTP) deployment such as Manufact Cloud, `herd_mcp_http.py` serves the
+same tools at `/mcp` behind a bearer token (`HERD_HTTP_TOKEN`). It has been verified locally
+only; nothing is deployed. See `docs/MANUFACT.md`.
 
 Building a herd map for a new task means sampling every model, so the first call can
 take several minutes. Progress is streamed while it runs, and the raised
@@ -265,11 +344,12 @@ that, calls are served from `results/` and return immediately.
 
 | tool | arguments | returns (compact JSON) |
 |---|---|---|
+| `herd_status` | `check_model_catalog=false` | free readiness: `ready`, key status (never values), `remaining_budget_usd`, `missing`, `cached_tasks`, the offline demo command, `recommended_primary_tool`, `next_action` |
 | `herd_map` | `task_description`, `budget_usd=5` | family shares overall and per model, `concentration_top3`, `top3` |
 | `blind_spots` | `task_description`, `budget_usd=5` | sourced families rarely or never observed: count of n samples, per-model counts, 95% upper bound on share, mechanism, source URLs |
 | `reality_check` | `task_description`, `family`, `evaluator_cmd`, `k=3`, `lower_is_better`, `baseline_files`, `contrast=false`, `budget_usd=3` | best code, dev best and median, `final_score` (held-out), invalid count and errors, baseline comparison, the herd families it was compared against |
 | `herd_check` | `task_description`, `my_approach`, `evaluator_cmd`, `k=3`, `lower_is_better`, `contrast=false`, `budget_usd=5` | the family of `my_approach`, its share and rank, and a `verdict` |
-| `herd_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=1`, `budget_usd=2` | a `VERDICT:` line, then JSON with `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
+| `herd_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=1`, `budget_usd=2` | a `VERDICT:` line, then JSON with `next_action`, `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
 
 - `task_description` is the task as you would give it to an agent; it is sent to the
   sampler models verbatim. A registered task name (`online_bin_packing`, `cache_eviction`)

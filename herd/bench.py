@@ -119,7 +119,7 @@ def aggregate(per_run, operators):
     table = {}
     for op in operators:
         rows = [r for r in per_run if r["operator"] == op]
-        table[op] = {k: spread([r[k] for r in rows]) for k in METRICS}
+        table[op] = {k: spread([r.get(k) for r in rows]) for k in METRICS}  # behavior_clusters: bin packing only
         table[op]["useful_families_any_repeat"] = sorted({f for r in rows for f in r["useful_families"]})
     return table
 

@@ -5,7 +5,8 @@ attempts) and fixtures/runs/<name>.json (what escape and a fresh-start baseline 
 recorded once with real API calls). The demo itself makes no API or network calls, never builds a
 Herd or a client, adds no timestamps and uses no randomness, so the same files print the same text.
 
-`python -m herd preflight` checks budget, API keys and model slugs before a live run."""
+`python -m herd preflight` checks budget, API keys and model slugs before a live run (`--json`
+prints readiness(), the same dict the herd_status MCP tool returns)."""
 import os
 from pathlib import Path
 
@@ -184,7 +185,7 @@ def _fmt2(x):
 
 def _configured_models(cfg):
     m = cfg["models"]
-    return list(dict.fromkeys([*m["samplers"], m["labeler"], m["implementer"], m["extractor"]]))
+    return list(dict.fromkeys([*m["samplers"], *(m[k] for k in ("labeler", "implementer", "extractor") if m.get(k))]))
 
 
 def _live_model_ids(timeout=10):
@@ -198,43 +199,116 @@ def _live_model_ids(timeout=10):
         return None
 
 
-def preflight(herd=None, out=print, live=True, env=None):
-    """Budget, keys and model slugs before a live run. Returns 1 when remaining budget is under
-    $1 or OPENROUTER_API_KEY is missing, else 0. Never prints key values."""
-    if herd is None:
-        from .pipeline import Herd
-        herd = Herd(progress=lambda m: None)
-    env = os.environ if env is None else env
-    ok = True
-    ledger = herd.ledger
-    remaining = ledger.global_cap - ledger.total_spent
-    out(f"spend ${ledger.total_spent:.4f} of cap ${ledger.global_cap:.2f}; remaining ${remaining:.4f}")
-    if remaining < MIN_REMAINING_USD:
-        out(f"FAIL remaining budget is under ${MIN_REMAINING_USD:.2f}")
-        ok = False
-    for key, required in (("OPENROUTER_API_KEY", True), ("EXA_API_KEY", False)):
-        present = bool(env.get(key))
-        out(f"{key}: {'set' if present else 'NOT set'}")
-        if required and not present:
-            out(f"FAIL {key} is required")
-            ok = False
+OFFLINE_DEMO = "strategy_loop"
+OFFLINE_DEMO_COMMAND = f"python -m herd demo {OFFLINE_DEMO}"
+PRIMARY_TOOL = "herd_escape"
+WHEN_TO_CALL = ("herd_escape when several scored attempts have stalled, the same failure keeps coming back, code "
+                "changes a lot but the score barely moves, or you are about to retry another variation or escalate; "
+                "herd_check before committing to a strategy. Not for generic debugging.")
+KEYS = (("openrouter", "OPENROUTER_API_KEY", True, "every model call (fingerprinting, implementing, map builds)"),
+        ("exa", "EXA_API_KEY", False, "literature search, only when a herd map is built for a new task"))
 
-    models = _configured_models(herd.cfg)
-    catalog_path = REPO / herd.cfg["paths"]["cache"] / "openrouter_models.json"
-    if catalog_path.exists():
-        cached = {m["id"] for m in _load(catalog_path)["data"]}
-        missing = [m for m in models if m not in cached]
-        out(f"cached catalog: {len(models) - len(missing)}/{len(models)} configured models present"
-            + (f"; WARN missing {missing}" if missing else ""))
+
+def _status(herd, env):
+    """(cfg, spent, cap) without a network call: a given Herd, or config plus cache totals."""
+    from . import pipeline
+    if herd is not None:
+        return herd.cfg, herd.ledger.total_spent, herd.ledger.global_cap
+    if env is None:
+        pipeline.load_env()  # same .env the tools read; values are only checked for presence
+    import yaml
+    cfg = yaml.safe_load((pipeline.ROOT / "config.yaml").read_text())
+    cache = pipeline.ROOT / cfg["paths"]["cache"]
+    spent = pipeline.shared_cache(cache / "llm.jsonl").total_cost() + pipeline.shared_cache(cache / "exa.jsonl").total_cost()
+    return cfg, spent, cfg["budget_usd"]
+
+
+def _cached_tasks(cfg):
+    from . import pipeline
+    from .task import TASKS_DIR
+    results = pipeline.ROOT / cfg.get("paths", {}).get("results", "results")
+    return sorted(d.name for d in TASKS_DIR.iterdir()
+                  if (d / "evaluator.py").exists() and (results / d.name / "herd_map.json").exists())
+
+
+def _catalog_check(models, ids):
+    missing = [m for m in models if m not in ids]
+    return {"present": len(models) - len(missing), "configured": len(models), "missing": missing}
+
+
+def readiness(herd=None, env=None, live=False, root=REPO):
+    """Can HERD's live tools run here? A dict an agent can act on. Zero cost: no model or search call,
+    and no network call unless live=True (then one unauthenticated GET of OpenRouter's public model
+    list, reported under "model_catalog" and optional). Reports whether each key is configured, never
+    its value."""
+    from . import pipeline
+    cfg, spent, cap = _status(herd, env)
+    env = os.environ if env is None else env
+    remaining = cap - spent
+    requirements, missing = {}, []
+    for name, key, required, used_for in KEYS:
+        present = bool(env.get(key))
+        requirements[name] = {"env": key, "status": "configured" if present else
+                              ("missing" if required else "missing (optional)"),
+                              "required": required, "used_for": used_for}
+        if required and not present:
+            missing.append(key)
+    if remaining < MIN_REMAINING_USD:
+        missing.append(f"budget: remaining ${remaining:.2f} is under ${MIN_REMAINING_USD:.2f}")
+    live_ok = not missing
+    demo_ok = (Path(root) / "fixtures" / "runs" / f"{OFFLINE_DEMO}.json").exists() and \
+        (Path(root) / "fixtures" / "trajectories" / f"{OFFLINE_DEMO}.json").exists()
+    models = _configured_models(cfg)
+    catalog_path = pipeline.ROOT / cfg["paths"]["cache"] / "openrouter_models.json"
+    cached_catalog = (_catalog_check(models, {m["id"] for m in _load(catalog_path)["data"]})
+                      if catalog_path.exists() else {"error": f"{cfg['paths']['cache']}/openrouter_models.json not found"})
+    if live_ok:
+        action = (f"HERD is configured. Call {PRIMARY_TOOL} yourself when attempts stall (see when_to_call); "
+                  f"herd_check before choosing a strategy.")
+    elif "OPENROUTER_API_KEY" in missing:
+        action = ("Live HERD calls need OPENROUTER_API_KEY, which only the user can provide (in .env); ask them, and "
+                  "never invent or guess a credential. Until then, " +
+                  (f"run the offline demo ({OFFLINE_DEMO_COMMAND}, no API calls)." if demo_ok else
+                   "continue without HERD."))
     else:
-        out(f"cached catalog: WARN {catalog_path.relative_to(REPO)} not found")
+        action = ("The spend cap is nearly reached; ask the user whether to raise budget_usd in config.yaml before "
+                  "any live HERD call." + (f" The offline demo still works: {OFFLINE_DEMO_COMMAND}." if demo_ok else ""))
+    out = {"ready": live_ok, "live_mode_available": live_ok, "remaining_budget_usd": round(remaining, 4),
+           "budget": {"spent_usd": round(spent, 4), "cap_usd": cap}, "requirements": requirements,
+           "missing": missing, "offline_demo_available": demo_ok,
+           "offline_demo_command": OFFLINE_DEMO_COMMAND if demo_ok else None,
+           "cached_tasks": _cached_tasks(cfg), "cached_catalog": cached_catalog,
+           "recommended_primary_tool": PRIMARY_TOOL, "when_to_call": WHEN_TO_CALL, "next_action": action}
     if live:
         ids = _live_model_ids()
-        if ids is None:
-            out("live catalog: unavailable (network or endpoint failed); skipped")
+        out["model_catalog"] = {"optional": True, "status": "unavailable (network or endpoint failed)"}
+        if ids is not None:
+            out["model_catalog"] = {"optional": True, "status": "ok", **_catalog_check(models, ids)}
+    return out
+
+
+def preflight(herd=None, out=print, live=True, env=None):
+    """Budget, keys and model slugs before a live run, printed from readiness(). Returns 1 when
+    remaining budget is under $1 or OPENROUTER_API_KEY is missing, else 0. Never prints key values."""
+    r = readiness(herd, env, live)
+    b = r["budget"]
+    out(f"spend ${b['spent_usd']:.4f} of cap ${b['cap_usd']:.2f}; remaining ${r['remaining_budget_usd']:.4f}")
+    if r["remaining_budget_usd"] < MIN_REMAINING_USD:
+        out(f"FAIL remaining budget is under ${MIN_REMAINING_USD:.2f}")
+    for req in r["requirements"].values():
+        configured = req["status"] == "configured"
+        out(f"{req['env']}: {'set' if configured else 'NOT set'}")
+        if req["required"] and not configured:
+            out(f"FAIL {req['env']} is required")
+    for label, c in (("cached catalog", r["cached_catalog"]), ("live catalog", r.get("model_catalog"))):
+        if c is None:
+            continue
+        if "present" not in c:
+            out(f"{label}: " + (f"WARN {c['error']}" if "error" in c else f"{c['status']}; skipped"))
         else:
-            missing = [m for m in models if m not in ids]
-            out(f"live catalog: {len(models) - len(missing)}/{len(models)} configured models present"
-                + (f"; WARN missing {missing}" if missing else ""))
-    out("preflight OK" if ok else "preflight FAILED")
-    return 0 if ok else 1
+            out(f"{label}: {c['present']}/{c['configured']} configured models present"
+                + (f"; WARN missing {c['missing']}" if c["missing"] else ""))
+    if not r["ready"]:
+        out(f"next: {r['next_action']}")
+    out("preflight OK" if r["ready"] else "preflight FAILED")
+    return 0 if r["ready"] else 1

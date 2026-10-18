@@ -287,3 +287,67 @@ def parse(text):
     """(verdict, body) from render() output."""
     head, _, rest = text.partition("\n")
     return head.removeprefix("VERDICT: ").strip(), json.loads(rest)
+
+
+# ------------------------------------------------------------------ agent fields
+# What an agent should do next for each verdict. herd_escape (herd.server) adds these fields to
+# the contract body and also returns them as MCP structuredContent.
+MIN_SCORED = 2  # rule 3 above: fewer scored attempts is inconclusive
+NEXT_ACTION = {
+    "keep": "Continue the existing strategy; do not switch yet. Score each change with the evaluator and "
+            "call herd_escape again if scores stall.",
+    "repair": "Fix the existing strategy and preserve its mechanism (do not switch approach); re-score it "
+              "with the evaluator.",
+    "escape": "Implement the named lever (start from candidate_path when one exists), run the evaluator, and "
+              "compare against the before score and next_experiment's success and failure thresholds.",
+    "escalate": "Stop autonomous retries and ask a human: HERD has no safe next move to name, or the evaluator "
+                "looks contradictory (identical scores for different strategies, or nothing is valid).",
+    "inconclusive": f"Get at least {MIN_SCORED} valid, scored attempts (earlier ones as previous_attempts, the "
+                    f"latest as current_solution), then call herd_escape again.",
+}
+AUTONOMOUS = {v: v != "escalate" for v in VERDICTS}
+
+
+def _inconclusive_action(result):
+    n = _n_scored(result)
+    need = max(0, MIN_SCORED - n)
+    if need:
+        return (f"Only {n} valid, scored attempt{'s' if n != 1 else ''}: get {need} more (at least {MIN_SCORED} in "
+                f"total; earlier ones as previous_attempts, the latest as current_solution), then call herd_escape "
+                f"again.")
+    if (result.get("evaluation") or {}).get("before") is None:
+        return ("current_solution has no valid score: make it pass the evaluator (or pass the latest valid "
+                "attempt as current_solution), then call herd_escape again.")
+    return NEXT_ACTION["inconclusive"]
+
+
+def agent_fields(result, v, body):
+    """{next_action, can_continue_autonomously, complete, missing_requirements, candidate_available,
+    evidence_summary} for verdict v; error results carry their own next_action (herd.server.failure)."""
+    if result.get("error"):
+        return {"next_action": result.get("next_action") or NEXT_ACTION["inconclusive"],
+                "can_continue_autonomously": bool(result.get("can_continue_autonomously", False)),
+                "complete": False, "missing_requirements": list(result.get("missing") or []),
+                **{k: result[k] for k in ("live_calls_available", "offline_demo_available", "partial")
+                   if k in result}}
+    action = _inconclusive_action(result) if v == "inconclusive" else NEXT_ACTION[v]
+    ev = result.get("evaluation") or {}
+    if v == "escape" and result.get("candidates") and not ev.get("improved"):
+        action += (" HERD's own candidate did not beat the before score on dev, so the lever is still untested "
+                   "by a working implementation.")
+    counts = {c: 0 for c in (MEASURED, SOURCE_BACKED, HYPOTHESIZED)}
+    for e in body.get("evidence") or []:
+        counts[e["class"]] = counts.get(e["class"], 0) + 1
+    return {"next_action": action, "can_continue_autonomously": AUTONOMOUS[v], "complete": True,
+            "missing_requirements": [], "candidate_available": bool(result.get("candidate_path")),
+            "evidence_summary": counts}
+
+
+def agent_result(result, overlook=None, paraphrase=None, families=None):
+    """(text, structured) for the herd_escape tool. text is `VERDICT: <verdict>` then one JSON object:
+    the agent fields first, then the contract body (parse() reads it). structured is the same object
+    plus "verdict", for MCP clients that read structuredContent."""
+    v, body = contract(result, overlook, paraphrase, families)
+    merged = {**agent_fields(result, v, body), **body}
+    return f"VERDICT: {v}\n" + json.dumps(merged, indent=2, default=str), \
+        json.loads(json.dumps({"verdict": v, **merged}, default=str))

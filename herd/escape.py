@@ -294,6 +294,21 @@ Is the proposal the same mechanism as the shared strategy (same decision signal 
 re-weighted, re-scaled or re-tuned)? Reply with only a JSON object:
 {{"same_mechanism": true or false, "reason": "one sentence"}}"""
 
+USES_MARKER = "Uses the lever?"
+USES_TEMPLATE = USES_MARKER + """ Does this proposed mechanism make its decisions depend on the named lever?
+
+Lever: {lever}{description}
+
+Proposed mechanism:
+- name: {name}
+- state: {state}
+- decision rule: {decision_rule}
+- how it uses the lever: {uses_lever}
+
+Answer true only if changing what the lever refers to would change which option the decision rule
+picks (for a family lever: the rule implements that family's mechanism). Reply with only a JSON object:
+{{"uses_lever": true or false, "reason": "one sentence"}}"""
+
 IMPLEMENT_MARKER = "Implement this mechanism"
 IMPLEMENT_TEMPLATE = """{task}
 
@@ -625,7 +640,15 @@ def escape_v2(herd, task, current_solution, previous_attempts, evaluator, overlo
 
     kept = []
     for i, s in enumerate(sketches):
-        if not mentions_lever(s, chosen):
+        # The literal check misses paraphrases ("a new bin" for new_bin_slot) and family levers,
+        # whose names never appear in a rule; the extractor model judges those cases.
+        uses = mentions_lever(s, chosen) or ask_json(judge_llm, extractor, USES_TEMPLATE.format(
+            lever=chosen["name"], description=(f" ({(chosen.get('detail') or {}).get('description')})"
+                                               if (chosen.get("detail") or {}).get("description") else ""),
+            name=s.get("name", ""), state=s.get("state", ""), decision_rule=s.get("decision_rule", ""),
+            uses_lever=s.get("uses_lever", "")),
+            max_tokens=2000, key=f"escape_v2:uses:{seed}:{i}", required=("uses_lever",)).get("uses_lever") is True
+        if not uses:
             reason = f"decision rule does not use {chosen['name']}"
             out["rejections"].append({"stage": "sketch_filter", "sketch": s.get("name"), "reasons": [reason]})
             note(out["rejections"][-1])
