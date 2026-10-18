@@ -84,7 +84,7 @@ def label_samples(task, records, taxonomy, llm, cfg, out_dir, progress=print):
                                 for r in batch)
         try:
             reply = ask_json(llm, model, LABEL_PROMPT.format(
-                task=task.prompt, families=listing, solutions=solutions, emergent=EMERGENT))
+                task=task.prompt, families=listing, solutions=solutions, emergent=EMERGENT), required=("labels",))
         except ValueError:
             reply = {}  # its samples end up "unlabeled" and are reported as such
         done.append(batch)
@@ -114,7 +114,10 @@ def merge_emergent(labels, llm, model):
     if not examples:
         return []
     listing = "\n".join(f"- {name}: " + " | ".join(js[:3]) for name, js in sorted(examples.items()))
-    reply = ask_json(llm, model, MERGE_PROMPT.format(emergent=listing, prefix=EMERGENT))
+    try:
+        reply = ask_json(llm, model, MERGE_PROMPT.format(emergent=listing, prefix=EMERGENT), required=("families",))
+    except ValueError:
+        reply = {"families": []}  # keep the labelers' names unmerged; each still becomes a family below
     rename, families = {}, []
     for f in reply["families"]:
         name = f["family"] if f["family"].startswith(EMERGENT) else EMERGENT + f["family"]
@@ -137,7 +140,8 @@ def merge_emergent(labels, llm, model):
 def classify(task, approach, families, llm, cfg):
     names = {f["family"] for f in families}
     reply = ask_json(llm, cfg["models"]["labeler"], CLASSIFY_PROMPT.format(
-        task=task.prompt, families=family_listing(families), approach=approach, emergent=EMERGENT))
+        task=task.prompt, families=family_listing(families), approach=approach, emergent=EMERGENT),
+        required=("family",))
     if reply.get("family") not in names and not str(reply.get("family", "")).startswith(EMERGENT):
         reply["family"] = UNLABELED
     return reply

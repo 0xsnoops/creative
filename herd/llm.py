@@ -11,6 +11,7 @@ import httpx
 from .cache import request_key
 
 OPENROUTER = "https://openrouter.ai/api/v1"
+COMPLETION_MARGIN = 1.25
 
 
 def require_env(name):
@@ -39,6 +40,7 @@ class Ledger:
         self.spent_this_run = 0.0  # this run's spend, including billed cache hits
         self.new_spend = 0.0       # money actually sent to the APIs in this run
         self.recorded = 0.0        # original cost of every response used, cached or not
+        self.overruns = 0          # calls whose settled cost exceeded their reservation
         self.lock = threading.Lock()
 
     @property
@@ -61,6 +63,8 @@ class Ledger:
     def settle(self, reserved, actual):
         with self.lock:
             self.reserved -= reserved
+            if actual > reserved:
+                self.overruns += 1
             self.new_spend += actual
             self.spent_this_run += actual
             self.recorded += actual
@@ -86,8 +90,26 @@ def load_model_catalog(cache_dir):
 
 
 class LLM:
-    def __init__(self, cache, catalog, ledger):
-        self.cache, self.catalog, self.ledger = cache, catalog, ledger
+    def __init__(self, cache, catalog, ledger, tracer=None):
+        self.cache, self.catalog, self.ledger, self.tracer = cache, catalog, ledger, tracer
+
+    def _trace(self, request, entry, cached, latency):
+        if not self.tracer:
+            return
+        response = entry.get("response") or {}
+        choice = (response.get("choices") or [{}])[0]
+        message = choice.get("message") or {}
+        usage = response.get("usage") or {}
+        self.tracer.log({"kind": "llm", "stage": str(request["sample_idx"]), "model": request["model"],
+                         "provider": response.get("provider"), "request_id": response.get("id"),
+                         "messages": request["messages"],
+                         "params_sent": {k: request[k] for k in ("temperature", "max_tokens")},
+                         "content": message.get("content"),
+                         "reasoning": message.get("reasoning") or message.get("reasoning_content"),
+                         "finish_reason": choice.get("finish_reason"), "usage": usage,
+                         "reasoning_tokens": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+                         "cost_usd": entry.get("cost_usd"), "cache": "hit" if cached else "miss",
+                         "new_cost_usd": 0.0 if cached else entry.get("cost_usd"), "latency_s": latency})
 
     def check_models(self, models):
         missing = [m for m in models if m not in self.catalog]
@@ -104,10 +126,14 @@ class LLM:
         key = request_key(request)
         price_in, price_out = float(info["pricing"]["prompt"]), float(info["pricing"]["completion"])
         prompt_tokens_estimate = sum(len(m["content"]) for m in messages) / 3
-        worst_case = prompt_tokens_estimate * price_in + max_tokens * price_out
+        # Some providers return more completion tokens than max_tokens (seen in the model review:
+        # 12,634 against 10,000), so the completion side carries a 25% margin.
+        worst_case = prompt_tokens_estimate * price_in + max_tokens * price_out * COMPLETION_MARGIN
         if hit := self.cache.get(key):
             self.ledger.charge_cached(worst_case, hit["cost_usd"])
+            self._trace(request, hit, True, 0.0)
             return {**hit, "cached": True}
+        started = time.time()
 
         self.ledger.reserve(worst_case)
         cost = 0.0
@@ -123,6 +149,7 @@ class LLM:
             self.ledger.settle(worst_case, cost)
         entry = self.cache.put(key, {"request": request, "response": response, "cost_usd": cost,
                                      "created": time.strftime("%Y-%m-%dT%H:%M:%S")})
+        self._trace(request, entry, False, round(time.time() - started, 2))
         return {**entry, "cached": False}
 
     def _post(self, body, attempts=4):
@@ -159,14 +186,17 @@ def parse_json(text):
     return json.loads(candidate)
 
 
-def ask_json(llm, model, prompt, max_tokens=16000, attempts=3, key=None, temperature=0.0):
-    """Ask for a JSON object; a reply that does not parse is re-asked under a new cache key.
-    key separates otherwise identical requests (e.g. benchmark repeats) in the cache."""
+def ask_json(llm, model, prompt, max_tokens=16000, attempts=3, key=None, temperature=0.0, required=()):
+    """Ask for a JSON object with the required top-level keys; a reply that does not parse or
+    lacks a key is re-asked under a new cache key. key separates otherwise identical requests
+    (e.g. benchmark repeats) in the cache."""
     for attempt in range(attempts):
         entry = llm.chat(model, [{"role": "user", "content": prompt}], temperature=temperature,
                          max_tokens=max_tokens, sample_idx=attempt if key is None else f"{key}:{attempt}")
         try:
-            return parse_json(message_text(entry))
+            reply = parse_json(message_text(entry))
         except ValueError:
             continue
-    raise ValueError(f"{model} did not return valid JSON after {attempts} attempts")
+        if isinstance(reply, dict) and all(k in reply for k in required):
+            return reply
+    raise ValueError(f"{model} did not return a JSON object with keys {list(required)} after {attempts} attempts")

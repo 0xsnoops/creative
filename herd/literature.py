@@ -56,7 +56,7 @@ def normalize(name):
 def search_literature(task, llm, exa, cfg, progress=print):
     lit = cfg["literature"]
     queries = ask_json(llm, cfg["models"]["labeler"],
-                       QUERY_PROMPT.format(task=task.prompt, n=lit["n_queries"]))["queries"]
+                       QUERY_PROMPT.format(task=task.prompt, n=lit["n_queries"]), required=("queries",))["queries"]
     queries = queries[:lit["n_queries"]]
     # Every query once unrestricted, and the first few again limited to pre-2022 work.
     searches = [(q, None) for q in queries] + [(q, "2022-01-01") for q in queries[:lit["n_pre_2022"]]]
@@ -76,7 +76,7 @@ def build_taxonomy(task, literature, llm, cfg):
         f"[{i}] {r['title']} ({r['published'] or 'undated'})\n{r['url']}\n" + " ... ".join(r["highlights"])
         for i, r in enumerate(literature["results"]))
     reply = ask_json(llm, cfg["models"]["labeler"],
-                     TAXONOMY_PROMPT.format(task=task.prompt, results=listing))
+                     TAXONOMY_PROMPT.format(task=task.prompt, results=listing), required=("families",))
     known_urls = {r["url"] for r in literature["results"]}
     families = {}
     rejected = [{**f, "reason": f"breaks the task's rules: {f.get('reason', 'unspecified')}"}

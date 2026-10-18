@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ..llm import BudgetExceeded, message_text
 from ..pipeline import Herd, ensure_map
-from ..reality import IMPLEMENT_TEMPLATE, Evaluator
+from ..reality import IMPLEMENT_TEMPLATE, Evaluator, dev_detail
 from ..sample import extract_code
 
 
@@ -31,9 +31,10 @@ class OperatorContext:
         """Cache-key tag, so operators and repeats never share responses."""
         return ":".join(str(p) for p in ("bench", self.name, self.seed, *parts))
 
-    def job(self, prompt, temperature=1.0, family=None):
-        """One implementer call on prompt, then evaluation. The index is fixed when the job is
-        created, so cache keys do not depend on thread timing."""
+    def job(self, prompt, temperature=1.0, family=None, meta=None, on_done=None):
+        """One implementer call on prompt, then evaluation on dev. The index is fixed when the job
+        is created, so cache keys do not depend on thread timing. meta is recorded on the
+        candidate; on_done(candidate) lets an operator observe the outcome."""
         idx = next(self._next_idx)
 
         def run():
@@ -43,23 +44,39 @@ class OperatorContext:
             candidate = {"operator": self.name, "seed": self.seed, "idx": idx, "temperature": temperature,
                          "intended_family": family and family["family"],
                          "mechanism": family and family["one_line_mechanism"],
-                         "source_urls": family["source_urls"] if family else []}
+                         "source_urls": family["source_urls"] if family else [], **(meta or {}),
+                         "prompt": prompt}
             code = extract_code(message_text(entry), self.task.entrypoint)
             if code is None:
-                return {**candidate, "code_path": None, "valid": False, "score": None, "error": "no code in reply"}
-            path = self.out_dir / f"{idx:03d}.py"
-            path.write_text(code)
-            result = self.evaluator(path)
-            return {**candidate, "code_path": str(path.relative_to(self.herd.out_dir(self.task))),
-                    "valid": result["valid"], "score": result["score"], "error": result["detail"].get("error")}
+                candidate = {**candidate, "code_path": None, "valid": False, "score": None,
+                             "error": "no code in reply", "dev_detail": None}
+            else:
+                path = self.out_dir / f"{idx:03d}.py"
+                path.write_text(code)
+                result = self.evaluator(path)
+                candidate = {**candidate, "code_path": str(path.relative_to(self.herd.out_dir(self.task))),
+                             "valid": result["valid"], "score": result["score"],
+                             "error": result["detail"].get("error"), "dev_detail": dev_detail(result)}
+            if on_done:
+                on_done(candidate)
+            return candidate
         return run
 
-    def family_job(self, family):
-        """Implement a named family with the shared template (the reality-check prompt)."""
+    def family_prompt(self, family, extra=""):
+        """The shared reality-check template; extra (a contrast list or feedback note) goes right
+        before the final instruction, so with no extra the prompt is exactly the shared one."""
         prompt = IMPLEMENT_TEMPLATE.format(task=self.task.prompt, family=family["family"],
                                            mechanism=family["one_line_mechanism"],
                                            source_summary=family["source_summary"])
-        return self.job(prompt, 1.0, family)
+        if extra:
+            marker = "Implement this approach faithfully"
+            head, tail = prompt.rsplit(marker, 1)
+            prompt = f"{head}{extra.strip()}\n\n{marker}{tail}"
+        return prompt
+
+    def family_job(self, family, extra="", meta=None, on_done=None):
+        """Implement a named family with the shared template (the reality-check prompt)."""
+        return self.job(self.family_prompt(family, extra), 1.0, family, meta, on_done)
 
     def run_now(self, jobs):
         """Run jobs in parallel and return their candidates (used for calibration)."""
@@ -76,14 +93,21 @@ def run_jobs(ctx, jobs):
     while len(candidates) < max_n:
         wave = pending[:width]
         pending = pending[width:]
+        idle = 0
         while len(wave) < min(width, max_n - len(candidates)):
             try:
-                wave.append(next(jobs))
+                job = next(jobs)
             except (StopIteration, BudgetExceeded):
                 break
             except Exception as e:  # planning failed (search, bad JSON...): record it, end this run
                 ctx.notes["error"] = f"{type(e).__name__}: {e}"
                 break
+            if job is None:  # barrier: the operator needs this wave's outcomes before going on
+                idle += 1
+                if wave or idle > 3:
+                    break
+                continue
+            wave.append(job)
         if not wave:
             break
         refused = []
@@ -110,13 +134,17 @@ def run_jobs(ctx, jobs):
     return candidates[:max_n]
 
 
+def registry():
+    from . import blind_spot, hot, literature_all, literature_random, plain, transplant, verbalized
+    return {"plain": plain.jobs, "hot": hot.jobs, "verbalized": verbalized.jobs,
+            "blind_spot": blind_spot.jobs, "literature_all": literature_all.jobs,
+            "literature_random": literature_random.jobs, "transplant": transplant.jobs}
+
+
 def run_operator(name, task, budget_usd, seed=0, study=None, progress=print):
     """Run one operator at one budget. Returns {operator, seed, spent_usd, new_spend_usd, notes,
     candidates}; spent_usd counts cache hits at their original cost, so reruns match."""
-    from . import blind_spot, hot, literature_all, plain, transplant, verbalized
-    operators = {"plain": plain.jobs, "hot": hot.jobs, "verbalized": verbalized.jobs,
-                 "blind_spot": blind_spot.jobs, "literature_all": literature_all.jobs,
-                 "transplant": transplant.jobs}
+    operators = registry()
     if study is None:
         study = ensure_map(Herd(progress=progress), task)
     ctx = OperatorContext(name, task, budget_usd, seed, study, progress)

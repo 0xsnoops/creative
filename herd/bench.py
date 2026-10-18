@@ -10,12 +10,14 @@
   is measurement and billed to no operator.
 - The repeat "seeds" vary generation, not the evaluation data, and three repeats are a
   small sample: comparisons describe what was observed, not a general guarantee."""
+import json
 import statistics
 from concurrent.futures import ThreadPoolExecutor
 
 from .label import UNLABELED, label_samples
 from .operators import run_operator
-from .pipeline import Herd, ensure_map, read_json, write_json
+from .llm import BudgetExceeded
+from .pipeline import Herd, effective_n, ensure_map, read_json, write_json
 from .reality import Evaluator
 from .task import Task
 
@@ -23,7 +25,13 @@ from .task import Task
 SURFACE, INK, INK_2, GRID, BLUE, ORANGE = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df", "#2a78d6", "#eb6834"
 
 # Setup each operator relies on, as stages of the herd map build (see ensure_map).
-SETUP_STAGES = {"blind_spot": ("sampling", "literature", "labeling"), "literature_all": ("literature",)}
+MAP = ("sampling", "literature", "labeling")
+SETUP_STAGES = {"blind_spot": MAP, "blind_spot_contrast": MAP, "blind_spot_contrast_random": MAP,
+                "blind_spot_feedback": MAP, "blind_spot_feedback_sham": MAP,
+                "literature_all": ("literature",), "literature_random": ("literature",)}
+# Operators whose families come from the herd map's blind spots (or are sized by them).
+NEEDS_MAP = {"blind_spot", "blind_spot_contrast", "blind_spot_contrast_random", "blind_spot_feedback",
+             "blind_spot_feedback_sham", "literature_random"}
 
 
 def spread(values):
@@ -55,38 +63,55 @@ def label_candidates(herd, task, runs, out):
     return label_samples(task, records, taxonomy, herd.llm, herd.cfg, out, herd.progress)
 
 
-def run_metrics(run, labels, evaluator, out, best_baseline, setup):
+def run_metrics(run, labels, evaluator, out, best_baseline, setup, taxonomy_names=()):
+    """Per-run metrics. Selection (each family's pick, the overall pick) uses dev scores; the
+    reported scores are the picks' held-out scores. All comparisons follow the evaluator's
+    direction."""
     candidates = run["candidates"]
     valid = [c for c in candidates if c["valid"]]
+    family_of = {candidate_id(c): labels.get(candidate_id(c), {}).get("family", UNLABELED) for c in valid}
     picks = {}  # family -> its best candidate on dev
     for c in valid:
-        family = labels.get(candidate_id(c), {}).get("family", UNLABELED)
-        if family != UNLABELED and (family not in picks or c["score"] < picks[family]["score"]):
+        family = family_of[candidate_id(c)]
+        if family != UNLABELED and (family not in picks or evaluator.beats(c["score"], picks[family]["score"])):
             picks[family] = c
-    overall = min(valid, key=lambda c: c["score"]) if valid else None
-    to_score = list(picks.items()) + ([("_overall", overall)] if overall else [])
+    best_dev = lambda cs: next((c for c in cs if c["score"] == evaluator.best([x["score"] for x in cs])), None) \
+        if cs else None
+    overall = best_dev(valid)
+    # Purity: does a candidate implement the taxonomy family it was asked for?
+    intended = [c for c in valid if c.get("intended_family") in taxonomy_names]
+    pure = [c for c in intended if family_of[candidate_id(c)] == c["intended_family"]]
+    pure_pick = best_dev(pure)
+    to_score = {**{candidate_id(c): c for c in picks.values()},
+                **({candidate_id(overall): overall} if overall else {}),
+                **({candidate_id(pure_pick): pure_pick} if pure_pick else {})}
     with ThreadPoolExecutor(8) as pool:
-        heldout = dict(zip([f for f, _ in to_score],
-                           pool.map(lambda fc: evaluator.final(out / fc[1]["code_path"], fc[1]["score"])[0],
-                                    to_score)))
-    best_score = heldout.pop("_overall", None)
-    useful = sorted(f for f, s in heldout.items() if s is not None and s < best_baseline)
+        heldout = dict(zip(to_score, pool.map(
+            lambda c: evaluator.final(out / c["code_path"], c["score"])[0], to_score.values())))
+    family_heldout = {f: heldout[candidate_id(c)] for f, c in picks.items()}
+    useful = sorted(f for f, s in family_heldout.items() if s is not None and evaluator.beats(s, best_baseline))
     spent = run["spent_usd"]
     cold = spent + setup if setup is not None else None
     return {"operator": run["operator"], "seed": run["seed"], "n_candidates": len(candidates),
             "valid_rate": len(valid) / len(candidates) if candidates else None,
             "distinct_valid_families": len(picks), "useful_discoveries": len(useful),
-            "useful_families": useful, "family_heldout_scores": heldout,
+            "useful_families": useful, "family_heldout_scores": family_heldout,
             "spent_usd": spent, "spent_cold_usd": cold,
             "useful_discovery_rate": len(useful) / spent if spent > 0 else None,
             "useful_discovery_rate_cold": len(useful) / cold if cold else None,
             "dev_best_score": overall["score"] if overall else None,
-            "best_score": best_score, "notes": run["notes"]}
+            "best_score": heldout.get(candidate_id(overall)) if overall else None,
+            "purity": len(pure) / len(intended) if intended else None,
+            "pure_best_score": heldout.get(candidate_id(pure_pick)) if pure_pick else None,
+            "heldout_by_candidate": heldout,
+            "selected": {**{candidate_id(c): f"family_pick:{f}" for f, c in picks.items()},
+                         **({candidate_id(overall): "overall_pick"} if overall else {})},
+            "notes": run["notes"]}
 
 
 METRICS = ("valid_rate", "distinct_valid_families", "useful_discoveries", "useful_discovery_rate",
            "useful_discovery_rate_cold", "best_score", "dev_best_score", "spent_usd", "spent_cold_usd",
-           "n_candidates")
+           "n_candidates", "purity", "pure_best_score")
 
 
 def aggregate(per_run, operators):
@@ -257,7 +282,38 @@ def report(task, table, per_run, baselines, cfg, verdict_text, setup):
     return "\n".join(lines) + "\n"
 
 
-def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress=print):
+def labeling_estimate(herd, operators, repeats):
+    """Worst-case cost of labeling every candidate the benchmark could produce."""
+    cfg = herd.cfg
+    info = herd.llm.catalog[cfg["models"]["labeler"]]
+    price_in, price_out = float(info["pricing"]["prompt"]), float(info["pricing"]["completion"])
+    batch = cfg["labeling"]["batch_size"]
+    n_batches = -(-len(operators) * repeats * cfg["bench"]["max_candidates"] // batch)
+    per_batch = (batch * 1500 + 3000) * price_in + 3000 * price_out  # code + taxonomy in, labels out
+    return n_batches * per_batch
+
+
+def candidate_records(runs, per_run, labels, out):
+    """One trace row per generated candidate: prompt, code, scores, labeled family, selection."""
+    rows = []
+    for run, metrics in zip(runs, per_run):
+        for c in run["candidates"]:
+            cid = candidate_id(c) if "idx" in c else None
+            code = (out / c["code_path"]).read_text() if c.get("code_path") else None
+            rows.append({"candidate_id": cid, "operator": c["operator"], "seed": c["seed"],
+                         "intended_family": c.get("intended_family"),
+                         "labeled_family": labels.get(cid, {}).get("family") if cid else None,
+                         "valid": c["valid"], "dev_score": c["score"], "error": c.get("error"),
+                         "heldout_score": metrics["heldout_by_candidate"].get(cid),
+                         "selected": metrics["selected"].get(cid),
+                         "meta": {k: c[k] for k in ("temperature", "contrast_kind", "contrast_families",
+                                                    "feedback_round", "feedback_from", "frame", "adhd_round")
+                                  if k in c},
+                         "prompt": c.get("prompt"), "code": code, "dev_detail": c.get("dev_detail")})
+    return rows
+
+
+def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress=print, allow_small_map=False):
     task = Task.resolve(task_name)
     if not task.evaluator:
         raise SystemExit("the benchmark needs a registered task with an evaluator")
@@ -270,35 +326,60 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
 
     study = ensure_map(herd, task)
     map_spend = herd.ledger.new_spend
+    min_n = cfg["reality_check"]["min_samples_per_model"]
+    if NEEDS_MAP & set(operators) and effective_n(study) < min_n and not allow_small_map:
+        raise SystemExit(f"the herd map has only {effective_n(study)} labeled samples per model for its weakest "
+                         f"model (need {min_n}); blind spots from it are noise. Build a bigger map "
+                         f"(python -m herd run {task.name} --n {min_n} --no-reality) or pass --allow-small-map")
     # Operators run one after another; if the global cap could run out partway, the last ones
     # would be underfunded and look worse. Refuse to start instead.
-    needed = len(operators) * bench_cfg["repeats"] * bench_cfg["budget_usd_per_operator"]
+    labeling = labeling_estimate(herd, operators, bench_cfg["repeats"])
+    needed = len(operators) * bench_cfg["repeats"] * bench_cfg["budget_usd_per_operator"] + labeling
     remaining = herd.ledger.global_cap - herd.ledger.total_spent
     if needed > remaining:
         raise SystemExit(f"the benchmark may spend up to ${needed:.2f} ({len(operators)} operators x "
-                         f"{bench_cfg['repeats']} repeats x ${bench_cfg['budget_usd_per_operator']:.2f}) but only "
-                         f"${remaining:.2f} is left under the global cap; raise budget_usd in config.yaml "
-                         f"or lower --budget/--repeats")
+                         f"{bench_cfg['repeats']} repeats x ${bench_cfg['budget_usd_per_operator']:.2f}, plus up to "
+                         f"${labeling:.2f} labeling) but only ${remaining:.2f} is left under the global cap; "
+                         f"raise budget_usd in config.yaml or lower --budget/--repeats")
     runs = [run_operator(op, task, bench_cfg["budget_usd_per_operator"], seed, study, progress)
             for seed in range(bench_cfg["repeats"]) for op in operators]
 
     out = herd.out_dir(task)
-    labels, emergent = label_candidates(herd, task, runs, out)
+    bench_dir = out / "bench"
+    write_json(bench_dir / "runs.json", runs)  # keep generation results even if labeling stops
+    try:
+        labels, emergent = label_candidates(herd, task, runs, out)
+        labeling_status = {"status": "ok"}
+    except BudgetExceeded as e:
+        labels, emergent = {}, []
+        labeling_status = {"status": "stopped", "detail": str(e)}
     label_spend = herd.ledger.new_spend - map_spend
 
     evaluator = Evaluator(task)
     baselines = {name: r["score"] for name, r in task.baselines("heldout").items()}
-    baseline_name = min(baselines, key=baselines.get)
+    baseline_name = evaluator.best(baselines.values())
+    baseline_name = next(n for n, v in baselines.items() if v == baseline_name)
     build_cost = study["herd_map"].get("build_cost_usd") or {}
+    taxonomy_names = {f["family"] for f in study["families"]}
     per_run = [run_metrics(run, labels, evaluator, out, baselines[baseline_name],
-                           setup_cost(run["operator"], build_cost)) for run in runs]
+                           setup_cost(run["operator"], build_cost), taxonomy_names) for run in runs]
     table = aggregate(per_run, operators)
     verdict_text = verdict(table, baseline_name, baselines[baseline_name])
 
-    bench_dir = out / "bench"
     write_json(bench_dir / "labels.json", {"labels": labels, "emergent_families": emergent})
+    rows = candidate_records(runs, per_run, labels, out)
+    with (bench_dir / "candidates.jsonl").open("w") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
+    if herd.trace_dir:
+        with (herd.trace_dir / "candidates.jsonl").open("a") as f:
+            for row in rows:
+                f.write(json.dumps({"task": task.name, **row}) + "\n")
     write_json(bench_dir / "bench.json", {"config": bench_cfg, "heldout_baselines": baselines,
-                                          "herd_map_build_cost_usd": build_cost, "per_run": per_run,
+                                          "herd_map_build_cost_usd": build_cost, "labeling": labeling_status,
+                                          "map_effective_n": effective_n(study),
+                                          "per_run": [{k: v for k, v in r.items() if k != "heldout_by_candidate"}
+                                                      for r in per_run],
                                           "table": table, "verdict": verdict_text})
     chart(table, baselines, bench_dir / "bench.png",
           f"{task.name}: operators at ${bench_cfg['budget_usd_per_operator']:.2f} each, "
@@ -306,6 +387,6 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
     setup = {"blind_spot": setup_cost("blind_spot", build_cost),
              "literature_all": setup_cost("literature_all", build_cost),
              "map_spend": map_spend, "label_spend": label_spend,
-             "map_n_per_model": study["herd_map"]["meta"]["n_per_model"]}
+             "map_n_per_model": effective_n(study), "labeling": labeling_status}
     (bench_dir / "bench.md").write_text(report(task, table, per_run, baselines, cfg, verdict_text, setup))
     return table, verdict_text, bench_dir

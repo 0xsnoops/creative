@@ -23,6 +23,8 @@ class Task:
     @classmethod
     def resolve(cls, text):
         """A registered task name, or else a free-text task description used verbatim as the prompt."""
+        if not text or not text.strip():
+            raise ValueError("task_description is empty")
         if (TASKS_DIR / text.strip() / "evaluator.py").exists():
             return cls.registered(text.strip())
         digest = hashlib.sha256(text.strip().encode()).hexdigest()[:12]

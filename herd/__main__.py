@@ -4,7 +4,7 @@ python -m herd spend  |  python -m herd serve"""
 import argparse
 import json
 
-from .pipeline import Herd, ensure_family_scores, ensure_map
+from .pipeline import Herd, effective_n, ensure_family_scores, ensure_map
 from .reality import Evaluator
 from .sample import summarize
 from .task import Task
@@ -25,9 +25,9 @@ def run(task_name, n, reality):
         print(f"  {b['observed']}, true share <= {b['share_upper_95']:.1%} (95%)  {b['family']}")
 
     min_n = herd.cfg["reality_check"]["min_samples_per_model"]
-    if reality and task.evaluator and m["meta"]["n_per_model"] < min_n:
-        print(f"\nreality check skipped: with {m['meta']['n_per_model']} samples per model the blind-spot "
-              f"list is noise; rerun with --n {min_n} or more")
+    if reality and task.evaluator and effective_n(study) < min_n:
+        print(f"\nreality check skipped: the weakest model has {effective_n(study)} labeled samples, so the "
+              f"blind-spot list is noise; rerun with --n {min_n} or more")
     elif reality and task.evaluator:
         # Top 3 herd families and every blind spot, all through the same prompt template.
         by_name = {f["family"]: f for f in study["families"]}

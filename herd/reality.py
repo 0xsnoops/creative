@@ -29,6 +29,15 @@ Implement this approach faithfully and make it as strong as you can within the f
 Reply with your complete solution in a single Python code block."""
 
 
+def dev_detail(result):
+    """Evaluator detail worth keeping from a dev run: per-instance results for valid code, the
+    (already redacted) error for invalid code. Only ever called on dev-split results."""
+    detail = result.get("detail") or {}
+    if not result["valid"]:
+        return {"split": "dev", "error": detail.get("error")}
+    return {k: v for k, v in detail.items() if k != "stderr_tail"}
+
+
 class Evaluator:
     """The task's built-in evaluator, or a command that takes a code path as its last argument
     and prints {"valid": bool, "score": float, ...} as JSON on its last line. Commands run with
@@ -40,7 +49,11 @@ class Evaluator:
             raise ValueError("this task has no built-in evaluator; pass evaluator_cmd")
         self.task, self.command, self.timeout = task, command, timeout
         self.lower_is_better = lower_is_better if command else True
-        self.key = f"cmd:{command}" if command else f"builtin:{task.name}"
+        # Saved scores are only reused for the same direction, task prompt and evaluator code.
+        source = command if command else (TASKS_DIR / task.name / "evaluator.py").read_text()
+        inputs = hashlib.sha256("\0".join([task.prompt, source]).encode()).hexdigest()[:12]
+        direction = "min" if self.lower_is_better else "max"
+        self.key = f"{'cmd:' + command if command else 'builtin:' + task.name}|{direction}|{inputs}"
         self.id = hashlib.sha256(self.key.encode()).hexdigest()[:10]
         self.has_heldout = not command  # external commands have a single data split
 
@@ -81,7 +94,9 @@ class Evaluator:
 
 
 def slug(name):
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:60]
+    """File-name-safe family name; the hash suffix keeps long names that share a prefix apart."""
+    base = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:60]
+    return f"{base}-{hashlib.sha256(name.encode()).hexdigest()[:6]}"
 
 
 def reality_check(task, family, evaluator, llm, cfg, out_dir, k, progress=print):
@@ -97,14 +112,14 @@ def reality_check(task, family, evaluator, llm, cfg, out_dir, k, progress=print)
                          temperature=1.0, max_tokens=cfg["reality_check"]["max_tokens"], sample_idx=i)
         code = extract_code(message_text(entry), task.entrypoint)
         if code is None:
-            return {"path": None, "valid": False, "score": None, "error": "no code in reply"}
+            return {"path": None, "valid": False, "score": None, "error": "no code in reply", "dev_detail": None}
         path = code_dir / f"{slug(family['family'])}-{i}.py"
         path.write_text(code)
         result = evaluator(path)
         progress(f"reality {family['family']}: implementation {i + 1}/{k} "
                  f"{'score ' + format(result['score'], '.4g') if result['valid'] else 'invalid'}")
         return {"path": str(path.relative_to(out_dir)), "valid": result["valid"], "score": result["score"],
-                "error": result["detail"].get("error")}
+                "error": result["detail"].get("error"), "dev_detail": dev_detail(result)}
 
     with ThreadPoolExecutor(k) as pool:
         futures = [pool.submit(one, i) for i in range(k)]

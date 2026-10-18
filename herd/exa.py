@@ -10,8 +10,8 @@ EXA = "https://api.exa.ai/search"
 
 
 class Exa:
-    def __init__(self, cache, ledger, cost_estimate_usd):
-        self.cache, self.ledger, self.cost_estimate = cache, ledger, cost_estimate_usd
+    def __init__(self, cache, ledger, cost_estimate_usd, tracer=None):
+        self.cache, self.ledger, self.cost_estimate, self.tracer = cache, ledger, cost_estimate_usd, tracer
 
     def search(self, query, num_results=8, published_before=None):
         """Return a list of {url, title, published, highlights}."""
@@ -20,7 +20,8 @@ class Exa:
         if published_before:
             request["endPublishedDate"] = f"{published_before}T00:00:00Z"
         key = request_key(request)
-        if entry := self.cache.get(key):
+        cached = bool(entry := self.cache.get(key))
+        if cached:
             self.ledger.charge_cached(self.cost_estimate, entry["cost_usd"])
         else:
             self.ledger.reserve(self.cost_estimate)
@@ -32,6 +33,10 @@ class Exa:
                 self.ledger.settle(self.cost_estimate, cost)
             entry = self.cache.put(key, {"request": request, "response": response, "cost_usd": cost,
                                          "created": time.strftime("%Y-%m-%dT%H:%M:%S")})
+        if self.tracer:
+            self.tracer.log({"kind": "exa", "stage": "search", "model": "exa", "request": request,
+                             "response": entry["response"], "cost_usd": entry["cost_usd"],
+                             "cache": "hit" if cached else "miss", "new_cost_usd": 0.0 if cached else entry["cost_usd"]})
         return [{"url": r["url"], "title": r.get("title") or "", "published": r.get("publishedDate"),
                  "highlights": r.get("highlights") or []} for r in entry["response"].get("results", [])]
 

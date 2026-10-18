@@ -42,7 +42,7 @@ Return JSON:
 def jobs(ctx):
     labeler, fields = ctx.cfg["models"]["labeler"], ctx.cfg["bench"]["transplant_fields"]
     plan = ask_json(ctx.llm, labeler, QUERY_PROMPT.format(task=ctx.task.prompt, fields=", ".join(fields)),
-                    key=ctx.key("queries"), temperature=1.0)
+                    key=ctx.key("queries"), temperature=1.0, required=("queries",))
     results = {}
     for q in plan["queries"]:
         for r in ctx.exa.search(q["query"], num_results=6):
@@ -50,7 +50,7 @@ def jobs(ctx):
     listing = "\n\n".join(f"[{r['field']}] {r['title']}\n{r['url']}\n" + " ... ".join(r["highlights"])
                           for r in results.values())
     reply = ask_json(ctx.llm, labeler, EXTRACT_PROMPT.format(task=ctx.task.prompt, results=listing),
-                     key=ctx.key("extract"))
+                     key=ctx.key("extract"), required=("mechanisms",))
     mechanisms, rejected = [], []
     for m in reply.get("mechanisms", []):
         urls = [u for u in m.get("source_urls", []) if u in results]

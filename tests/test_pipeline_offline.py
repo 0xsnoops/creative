@@ -143,7 +143,7 @@ def test_map_blind_spots_and_check(fake_world):
     assert verdict["verdict"] == "try_blind_spot"
     assert verdict["blind_spot"]["family"] == "Best Fit"
     scores = json.loads((pipeline.ROOT / "results/online_bin_packing/family_scores.json").read_text())
-    harmonic = scores["builtin:online_bin_packing"]["Harmonic"]
+    harmonic = scores[Evaluator(task).key]["Harmonic"]
     assert harmonic["n_invalid"] == 2 and harmonic["best_score"] is None  # crashes are reported
 
 
@@ -162,7 +162,9 @@ def call_tool(name, args):
 
     async def go():
         async with Client(mcp) as client:
-            result = await client.call_tool(name, args, progress_callback=lambda p, t, msg: progress.append(msg))
+            async def on_progress(p, t, msg):
+                progress.append(msg)
+            result = await client.call_tool(name, args, progress_callback=on_progress)
             return result.content[0].text
 
     return json.loads(anyio.run(go)), progress
@@ -193,7 +195,7 @@ def test_mcp_budget_cap(fake_world):
 def test_bench_operators_at_equal_budget(fake_world):
     from herd.bench import run_bench
     table, verdict, bench_dir = run_bench("online_bin_packing", budget_usd=0.25, repeats=2,
-                                          progress=lambda m: None)
+                                          progress=lambda m: None, allow_small_map=True)
     assert set(table) == {"plain", "hot", "verbalized", "blind_spot", "literature_all", "transplant"}
     data = json.loads((bench_dir / "bench.json").read_text())
     for r in data["per_run"]:
@@ -221,7 +223,7 @@ def test_bench_operators_at_equal_budget(fake_world):
     assert (bench_dir / "bench.png").stat().st_size > 10_000 and "## Verdict" in (bench_dir / "bench.md").read_text()
 
     calls = dict(fake_world)
-    table_again, _, _ = run_bench("online_bin_packing", budget_usd=0.25, repeats=2, progress=lambda m: None)
+    table_again, _, _ = run_bench("online_bin_packing", budget_usd=0.25, repeats=2, progress=lambda m: None, allow_small_map=True)
     assert fake_world == calls  # all cached
     assert table_again == table  # cached reruns are billed the same, so they stop in the same place
 
@@ -260,7 +262,7 @@ def test_bench_survives_an_operator_planning_failure(fake_world, monkeypatch):
         raise RuntimeError("exa: HTTP 500")
     monkeypatch.setattr(Exa, "_post", broken_search)
     table, _, bench_dir = run_bench("online_bin_packing", budget_usd=0.25, repeats=1,
-                                    operators=["transplant", "plain"], progress=lambda m: None)
+                                    operators=["transplant", "plain"], progress=lambda m: None, allow_small_map=True)
     run = json.loads((bench_dir / "seed0" / "transplant" / "run.json").read_text())
     assert "HTTP 500" in run["notes"]["error"] and run["candidates"] == []
     assert table["plain"]["n_candidates"]["mean"] > 0
@@ -270,7 +272,7 @@ def test_bench_survives_an_operator_planning_failure(fake_world, monkeypatch):
 def test_bench_refuses_to_start_if_the_global_cap_cannot_fund_every_operator(fake_world):
     from herd.bench import run_bench
     with pytest.raises(SystemExit, match="only"):
-        run_bench("online_bin_packing", budget_usd=10.0, repeats=3, progress=lambda m: None)
+        run_bench("online_bin_packing", budget_usd=10.0, repeats=3, progress=lambda m: None, allow_small_map=True)
 
 
 def test_external_evaluator_cmd_runs_without_secrets(fake_world, tmp_path, monkeypatch):
@@ -296,7 +298,7 @@ def test_reality_check_selects_on_dev_and_reports_heldout(fake_world):
 
 
 class StubEvaluator:
-    lower_is_better, has_heldout = True, True
+    lower_is_better, has_heldout, key = True, True, "stub"
 
     def beats(self, a, b):
         return a < b
@@ -312,7 +314,8 @@ def synthetic_check(monkeypatch, tmp_path, scores):
              "herd_map": {"families": rows, "top3": ["Mine", "Common"], "concentration_top3": 1.0}}
     kinds = {"Mine": "herd", "Common": "herd", "Rare": "blind_spot"}
     monkeypatch.setattr(pipeline, "classify", lambda *a: {"family": "Mine", "justification": "j"})
-    monkeypatch.setattr(pipeline, "ensure_family_scores", lambda *a: {
+    monkeypatch.setattr(pipeline, "ensure_family_scores", lambda *a: None)
+    monkeypatch.setattr(pipeline, "load_scores", lambda *a: {
         f: {"final_score": v, "best_code_path": f"{f}.py", "kind": kinds[f], "share": 0.0}
         for f, v in scores.items()})
     herd = pipeline.Herd(progress=lambda m: None)

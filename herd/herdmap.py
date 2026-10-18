@@ -57,8 +57,11 @@ def find_blind_spots(herd_map, families, max_share):
     for r in herd_map["families"]:
         if r["sourced"] and not r["family"].startswith(EMERGENT) and r["share"] < max_share:
             per_model = {m: c["counts"].get(r["family"], 0) for m, c in herd_map["per_model_counts"].items()}
+            sampled = [m for m, c in herd_map["per_model_counts"].items() if c["n"] > 0]
             spots.append({**by_name[r["family"]], "share": r["share"], "count": r["count"],
                           "observed": f"{r['count']} of {n} labeled samples",
                           "per_model_counts": per_model,
+                          "models_missing": sum(per_model[m] == 0 for m in sampled),
                           "share_upper_95": share_upper_bound(r["count"], n)})
-    return spots
+    # Overlooked by more models first, then the tighter bound on the pooled share.
+    return sorted(spots, key=lambda b: (-b["models_missing"], b["share_upper_95"], b["family"]))

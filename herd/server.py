@@ -8,7 +8,8 @@ import anyio
 from mcp.server.mcpserver import Context, MCPServer
 
 from .llm import BudgetExceeded
-from .pipeline import Herd, baseline_scores, check_approach, ensure_family_scores, ensure_map
+from .pipeline import (Herd, baseline_scores, check_approach, effective_n, ensure_family_scores, ensure_map,
+                       record_heldout_use)
 from .reality import Evaluator
 from .task import Task
 
@@ -39,7 +40,7 @@ async def run_tool(ctx, budget_usd, work):
             result = work(herd)
         except BudgetExceeded as e:
             result = {"error": "budget_exceeded", "detail": str(e)}
-        except (RuntimeError, ValueError) as e:
+        except Exception as e:  # any failure becomes a structured answer the agent can read
             result = {"error": type(e).__name__, "detail": str(e)}
         return {**result, "spent_usd": round(herd.ledger.spent_this_run, 4)}
 
@@ -47,8 +48,8 @@ async def run_tool(ctx, budget_usd, work):
 
 
 def low_confidence(study, cfg):
-    """Too few samples per model to tell an overlooked family from an unlucky one."""
-    return study["herd_map"]["meta"]["n_per_model"] < cfg["reality_check"]["min_samples_per_model"]
+    """Too few labeled samples for some model to tell an overlooked family from an unlucky one."""
+    return effective_n(study) < cfg["reality_check"]["min_samples_per_model"]
 
 
 def map_summary(study, cfg):
@@ -99,6 +100,7 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
         evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
         scores = ensure_family_scores(herd, task, study, [by_name[family]], evaluator, k)
         s, out = scores[family], herd.out_dir(task)
+        # Only herd families that were already scored under this evaluator; none are tested here.
         herd_scores = {f: v["final_score"] for f, v in scores.items()
                        if v["kind"] == "herd" and v.get("final_score") is not None}
         baselines = baseline_scores(task, evaluator, baseline_files or ())
@@ -107,7 +109,10 @@ async def reality_check(task_description: str, family: str, ctx: Context, evalua
                   "dev_best_score": s["best_score"], "dev_median_score": s["median_score"],
                   "final_score": s["final_score"], "scored_on": s["final_split"],
                   "invalid_errors": [m["error"] for m in s["implementations"] if not m["valid"]],
-                  "baselines": baselines}
+                  "baselines": baselines, "compared_herd_families": sorted(herd_scores), "best_tested_herd": None}
+        if evaluator.has_heldout and s["final_score"] is not None:
+            prior = record_heldout_use(herd, task, evaluator)
+            result["heldout_prior_uses"], result["exploratory"] = prior, prior > 0
         if s["final_score"] is not None:
             result["beats_baselines"] = [b for b, v in baselines.items()
                                          if v is not None and evaluator.beats(s["final_score"], v)]
