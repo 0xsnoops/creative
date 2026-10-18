@@ -24,36 +24,51 @@ class BudgetExceeded(RuntimeError):
 
 
 class Ledger:
-    """Estimated spend. Every call reserves its worst-case cost up front, so concurrent calls
-    cannot push the total past the cap. With bill_cached, cache hits are charged their recorded
-    cost too, so a rerun of a budgeted run (e.g. a benchmark operator) stops where the original did."""
+    """Estimated spend, checked against two caps:
+    - global_cap: total money ever sent to the APIs (everything already in the cache plus new
+      calls). Cache hits are already counted in the cache total, so they never count again.
+    - run_cap: what this run (one tool call, one benchmark operator) may spend, measured from
+      zero. With bill_cached, cache hits count toward it at their recorded cost, so a rerun of a
+      budgeted run stops where the original did.
+    Every new call reserves its worst-case cost up front, so concurrent calls cannot overshoot."""
 
-    def __init__(self, cap_usd, spent_usd, bill_cached=False):
-        self.cap, self.spent, self.reserved = cap_usd, spent_usd, 0.0
-        self.bill_cached = bill_cached
-        self.spent_this_run = 0.0  # includes billed cache hits
+    def __init__(self, global_cap_usd, global_spent_usd, run_cap_usd=None, bill_cached=False):
+        self.global_cap, self.global_spent = global_cap_usd, global_spent_usd
+        self.run_cap, self.bill_cached = run_cap_usd, bill_cached
+        self.reserved = 0.0
+        self.spent_this_run = 0.0  # this run's spend, including billed cache hits
         self.new_spend = 0.0       # money actually sent to the APIs in this run
         self.lock = threading.Lock()
 
+    @property
+    def total_spent(self):
+        return self.global_spent + self.new_spend
+
+    def _check(self, amount, new_money):
+        if new_money and self.total_spent + self.reserved + amount > self.global_cap:
+            raise BudgetExceeded(f"global budget ${self.global_cap:.2f} reached (spent ${self.total_spent:.4f}, "
+                                 f"in flight ${self.reserved:.4f}, next call up to ${amount:.4f})")
+        if self.run_cap is not None and self.spent_this_run + self.reserved + amount > self.run_cap:
+            raise BudgetExceeded(f"run budget ${self.run_cap:.2f} reached (spent ${self.spent_this_run:.4f}, "
+                                 f"in flight ${self.reserved:.4f}, next call up to ${amount:.4f})")
+
     def reserve(self, amount):
         with self.lock:
-            if self.spent + self.reserved + amount > self.cap:
-                raise BudgetExceeded(f"budget ${self.cap:.2f} reached (spent ${self.spent:.4f}, "
-                                     f"in flight ${self.reserved:.4f}, next call up to ${amount:.4f})")
+            self._check(amount, new_money=True)
             self.reserved += amount
 
-    def settle(self, reserved, actual, cached=False):
+    def settle(self, reserved, actual):
         with self.lock:
             self.reserved -= reserved
-            self.spent += actual
+            self.new_spend += actual
             self.spent_this_run += actual
-            if not cached:
-                self.new_spend += actual
 
     def charge_cached(self, worst_case, cost):
+        """Bill a cache hit to this run only; it is already part of the global total."""
         if self.bill_cached:
-            self.reserve(worst_case)
-            self.settle(worst_case, cost, cached=True)
+            with self.lock:
+                self._check(worst_case, new_money=False)
+                self.spent_this_run += cost
 
 
 def load_model_catalog(cache_dir):

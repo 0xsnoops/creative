@@ -28,6 +28,11 @@ problem. Define families by MECHANISM (what actually drives each decision), not 
 name or wording, so that families do not overlap. Include classic baselines and
 less common approaches alike, as long as a result below supports them.
 
+Only list a family under "families" if it can actually be used under this task's rules
+and interface. For example, when items must be handled one at a time without seeing
+future ones, an algorithm that first sorts all items cannot be used. Put families that the
+sources describe but that break the task's rules under "inapplicable", with the reason.
+
 Every family must cite at least one URL, and you may only cite URLs that appear in
 the results below.
 
@@ -35,7 +40,9 @@ Return JSON:
 {{"families": [{{"family": "short name",
                 "one_line_mechanism": "one sentence: how it decides",
                 "source_summary": "1-2 sentences on what the cited sources say about it",
-                "source_urls": ["..."]}}]}}
+                "source_urls": ["..."]}}],
+ "inapplicable": [{{"family": "short name", "reason": "which task rule it breaks",
+                   "source_urls": ["..."]}}]}}
 
 <results>
 {results}
@@ -71,7 +78,9 @@ def build_taxonomy(task, literature, llm, cfg):
     reply = ask_json(llm, cfg["models"]["labeler"],
                      TAXONOMY_PROMPT.format(task=task.prompt, results=listing))
     known_urls = {r["url"] for r in literature["results"]}
-    families, rejected = {}, []
+    families = {}
+    rejected = [{**f, "reason": f"breaks the task's rules: {f.get('reason', 'unspecified')}"}
+                for f in reply.get("inapplicable", [])]
     for f in reply["families"]:
         urls = [u for u in f.get("source_urls", []) if u in known_urls]
         if not urls:  # a family needs at least one real, retrieved source

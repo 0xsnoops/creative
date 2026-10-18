@@ -22,7 +22,11 @@ def run(task_name, n, reality):
         print(f"  {r['share']:6.1%}  {r['count']:4d}  {r['family']}")
     print(f"blind spots: {[b['family'] for b in study['blind_spots']]}")
 
-    if reality and task.evaluator:
+    min_n = herd.cfg["reality_check"]["min_samples_per_model"]
+    if reality and task.evaluator and m["meta"]["n_per_model"] < min_n:
+        print(f"\nreality check skipped: with {m['meta']['n_per_model']} samples per model the blind-spot "
+              f"list is noise; rerun with --n {min_n} or more")
+    elif reality and task.evaluator:
         # Top 3 herd families and every blind spot, all through the same prompt template.
         by_name = {f["family"]: f for f in study["families"]}
         families = [by_name[f] for f in m["top3"]] + study["blind_spots"]
@@ -36,8 +40,8 @@ def run(task_name, n, reality):
                   f"{s['n_valid']}/{s['k']}  {f['family']}")
         for name, r in task.baselines().items():
             print(f"  {'baseline':10} {r['score']:8.4f}  {name}")
-    print(f"\nspend this run ${herd.ledger.spent_this_run:.4f}; total ${herd.ledger.spent:.4f} "
-          f"of ${herd.ledger.cap:.2f}")
+    print(f"\nspend this run ${herd.ledger.new_spend:.4f}; total ${herd.ledger.total_spent:.4f} "
+          f"of ${herd.ledger.global_cap:.2f}")
 
 
 def main():
@@ -65,7 +69,7 @@ def main():
         print((bench_dir / "bench.md").read_text())
     elif args.command == "spend":
         ledger = Herd().ledger
-        print(f"estimated spend: ${ledger.spent:.4f} of ${ledger.cap:.2f}")
+        print(f"estimated spend: ${ledger.total_spent:.4f} of ${ledger.global_cap:.2f}")
     else:
         from .server import serve
         serve()

@@ -1,14 +1,19 @@
 """REALITY CHECK: implement a family K times with one shared prompt template, then evaluate."""
 import hashlib
+import importlib.util
 import json
 import re
 import shlex
 import statistics
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 from .llm import BudgetExceeded, message_text
 from .sample import extract_code
+from .task import TASKS_DIR
+
+_spec = importlib.util.spec_from_file_location("herd_sandbox", TASKS_DIR / "_sandbox.py")
+sandbox = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(sandbox)
 
 # The same template for every family, herd or blind spot.
 IMPLEMENT_TEMPLATE = """{task}
@@ -25,8 +30,10 @@ Reply with your complete solution in a single Python code block."""
 
 
 class Evaluator:
-    """The task's built-in evaluator, or a shell command that takes a code path as its last
-    argument and prints {"valid": bool, "score": float, ...} as JSON on its last line."""
+    """The task's built-in evaluator, or a command that takes a code path as its last argument
+    and prints {"valid": bool, "score": float, ...} as JSON on its last line. Commands run with
+    the same isolation as the built-in evaluators: no secrets in the environment, and on macOS
+    no network and no writes outside a scratch working directory (so use absolute paths)."""
 
     def __init__(self, task, command=None, lower_is_better=True, timeout=600):
         if not command and not task.evaluator:
@@ -39,11 +46,10 @@ class Evaluator:
     def __call__(self, path):
         if not self.command:
             return self.task.evaluate(path)
-        try:
-            proc = subprocess.run(shlex.split(self.command) + [str(path)], capture_output=True,
-                                  text=True, timeout=self.timeout)
-        except subprocess.TimeoutExpired:
-            return {"valid": False, "score": None, "detail": {"error": f"timeout after {self.timeout}s"}}
+        proc = sandbox.run_isolated(shlex.split(self.command) + [str(path.resolve())], self.timeout,
+                                    keep_path=True)
+        if proc is None:
+            return sandbox.invalid(f"timeout after {self.timeout}s")
         for line in reversed(proc.stdout.strip().splitlines()):
             try:
                 result = json.loads(line)
@@ -52,8 +58,7 @@ class Evaluator:
             if isinstance(result, dict) and "valid" in result:
                 return {"valid": bool(result["valid"]), "score": result.get("score"),
                         "detail": result.get("detail", {})}
-        return {"valid": False, "score": None,
-                "detail": {"error": f"no JSON result (exit {proc.returncode})", "stderr_tail": proc.stderr[-1000:]}}
+        return sandbox.invalid(f"no JSON result (exit {proc.returncode})", stderr_tail=proc.stderr[-1000:])
 
     def best(self, scores):
         return min(scores) if self.lower_is_better else max(scores)

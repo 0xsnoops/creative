@@ -5,16 +5,18 @@
 
 Score = mean miss ratio over 3 seeded synthetic traces x 2 cache sizes (1% and 10%
 of the trace's unique keys). The policy only ever sees past requests. The candidate
-runs in a subprocess with a timeout.
+runs isolated (tasks/_sandbox.py) with a timeout.
 """
 import importlib.util
 import json
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _sandbox import emit, evaluate_isolated, read_nonce  # noqa: E402
 
 N_REQUESTS = 50_000
 UNIVERSE = 5_000        # keys with Zipf popularity
@@ -26,7 +28,6 @@ CACHE_FRACTIONS = [0.01, 0.10]
 TIMEOUT_S = 60
 ENTRYPOINT = "Policy"  # what candidate code must define
 HERE = Path(__file__).resolve().parent
-RESULT_TAG = "__HERD_RESULT__"
 
 
 def zipf_keys(rng, n):
@@ -107,25 +108,17 @@ def score_candidate(path):
 
 
 def _inner(path):
+    nonce = read_nonce()  # before any candidate code runs
     start = time.time()
     score, runs = score_candidate(path)
     detail = {"runs": runs, "runtime_s": round(time.time() - start, 2)}
-    print(RESULT_TAG + json.dumps({"valid": True, "score": score, "detail": detail}))
+    emit(nonce, {"valid": True, "score": score, "detail": detail})
 
 
 def evaluate(path, timeout=TIMEOUT_S):
-    """Run the candidate file in a subprocess. Crashes and timeouts are invalid."""
-    cmd = [sys.executable, str(Path(__file__).resolve()), "--inner", str(path)]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return {"valid": False, "score": None, "detail": {"error": f"timeout after {timeout}s"}}
-    for line in reversed(proc.stdout.splitlines()):
-        if line.startswith(RESULT_TAG):
-            return json.loads(line[len(RESULT_TAG):])
-    error = (proc.stderr.strip().splitlines() or ["no result"])[-1]
-    return {"valid": False, "score": None,
-            "detail": {"error": error, "stderr_tail": proc.stderr[-2000:]}}
+    """Run the candidate in an isolated subprocess (see tasks/_sandbox.py). Crashes and
+    timeouts are invalid."""
+    return evaluate_isolated(Path(__file__).resolve(), path, timeout)
 
 
 def baselines():

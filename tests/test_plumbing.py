@@ -24,10 +24,39 @@ def test_cache_roundtrip(tmp_path):
 
 
 def test_ledger_refuses_calls_that_could_exceed_cap():
-    ledger = Ledger(cap_usd=1.0, spent_usd=0.7)
+    ledger = Ledger(global_cap_usd=1.0, global_spent_usd=0.7)
     ledger.reserve(0.2)
     with pytest.raises(BudgetExceeded):
         ledger.reserve(0.2)  # 0.7 spent + 0.2 in flight + 0.2 > 1.0
     ledger.settle(0.2, 0.05)
     ledger.reserve(0.2)
-    assert ledger.spent == pytest.approx(0.75)
+    assert ledger.total_spent == pytest.approx(0.75)
+
+
+def test_run_budget_is_measured_from_zero_not_from_cache_total():
+    # $9 already spent overall must not shrink a $2 run budget under a $15 global cap.
+    ledger = Ledger(global_cap_usd=15.0, global_spent_usd=9.0, run_cap_usd=2.0)
+    ledger.reserve(1.5)
+    ledger.settle(1.5, 1.5)
+    with pytest.raises(BudgetExceeded, match="run budget"):
+        ledger.reserve(0.6)
+    ledger.reserve(0.5)
+
+
+def test_billed_cache_hits_count_toward_run_but_not_global():
+    ledger = Ledger(global_cap_usd=1.0, global_spent_usd=0.95, run_cap_usd=2.0, bill_cached=True)
+    ledger.charge_cached(worst_case=0.3, cost=0.3)  # already inside the 0.95: no global check
+    assert ledger.spent_this_run == pytest.approx(0.3) and ledger.total_spent == pytest.approx(0.95)
+    with pytest.raises(BudgetExceeded, match="run budget"):
+        ledger.charge_cached(worst_case=1.8, cost=0.1)
+
+
+def test_cache_skips_a_damaged_line(tmp_path):
+    path = tmp_path / "c.jsonl"
+    cache = JsonlCache(path)
+    cache.put("a", {"cost_usd": 0.1})
+    with path.open("a") as f:
+        f.write('{"key": "half-written", "cost_u\n')
+    cache.put("b", {"cost_usd": 0.2})
+    reloaded = JsonlCache(path)
+    assert set(reloaded.entries) == {"a", "b"} and reloaded.skipped_lines == 1

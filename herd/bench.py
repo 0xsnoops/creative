@@ -182,6 +182,13 @@ def report(task, table, per_run, baselines, cfg, verdict_text, setup):
               f"labeling the candidates (${setup['label_spend']:.3f}).",
               "- Family counts depend on the labeler's granularity; all operators share the same labeler "
               "and taxonomy, so the counts are comparable with each other but not absolute."]
+    n = cfg["sampling"]["n_per_model"]
+    if n < cfg["reality_check"]["min_samples_per_model"]:
+        lines.append(f"- Caution: the herd map behind blind_spot used only {n} samples per model, so "
+                     f"its blind-spot list is noisy (any unused literature family qualifies).")
+    for r in per_run:
+        if r["notes"].get("error"):
+            lines.append(f"- {r['operator']}, seed {r['seed']}: stopped early after an error: {r['notes']['error']}")
     for r in per_run:
         if r["operator"] == "hot":
             lines.append(f"- hot, seed {r['seed']}: temperature {r['notes'].get('temperature')} "
@@ -203,6 +210,15 @@ def run_bench(task_name, budget_usd=None, repeats=None, operators=None, progress
 
     study = ensure_map(herd, task)
     map_spend = herd.ledger.new_spend
+    # Operators run one after another; if the global cap could run out partway, the last ones
+    # would be underfunded and look worse. Refuse to start instead.
+    needed = len(operators) * bench_cfg["repeats"] * bench_cfg["budget_usd_per_operator"]
+    remaining = herd.ledger.global_cap - herd.ledger.total_spent
+    if needed > remaining:
+        raise SystemExit(f"the benchmark may spend up to ${needed:.2f} ({len(operators)} operators x "
+                         f"{bench_cfg['repeats']} repeats x ${bench_cfg['budget_usd_per_operator']:.2f}) but only "
+                         f"${remaining:.2f} is left under the global cap; raise budget_usd in config.yaml "
+                         f"or lower --budget/--repeats")
     runs = [run_operator(op, task, bench_cfg["budget_usd_per_operator"], seed, study, progress)
             for seed in range(bench_cfg["repeats"]) for op in operators]
 

@@ -16,7 +16,7 @@ models:
 sampling:
   n_per_model: 5            # plumbing check; then 20, then 100
   temperature: 1.0
-  max_tokens: 32000         # clipped to each model's own completion limit
+  max_tokens: 16000         # clipped to each model's own limit; includes reasoning tokens
   concurrency: 8
 
 literature:
@@ -29,6 +29,7 @@ labeling:
 
 reality_check:
   k: 3                      # implementations per family
+  min_samples_per_model: 20 # below this the CLI skips the reality check; MCP flags low_confidence
   max_tokens: 16000
 
 bench:

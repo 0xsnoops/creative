@@ -4,17 +4,20 @@
     python evaluator.py --baselines    -> scores the reference first_fit and best_fit
 
 Score = mean over 5 fixed instances of the % excess bins over the lower bound
-ceil(sum(items) / CAPACITY). The candidate runs in a subprocess with a timeout.
+ceil(sum(items) / CAPACITY). The candidate runs isolated (tasks/_sandbox.py) with a
+timeout.
 """
 import importlib.util
 import json
 import math
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _sandbox import emit, evaluate_isolated, read_nonce  # noqa: E402
 
 CAPACITY = 100
 N_ITEMS = 5000
@@ -22,7 +25,6 @@ SEEDS = [0, 1, 2, 3, 4]
 TIMEOUT_S = 60
 ENTRYPOINT = "priority"  # what candidate code must define
 HERE = Path(__file__).resolve().parent
-RESULT_TAG = "__HERD_RESULT__"
 
 
 def make_items(seed):
@@ -74,25 +76,17 @@ def load_function(path, name):
 
 
 def _inner(path):
+    nonce = read_nonce()  # before any candidate code runs
     start = time.time()
     score, per_instance = score_candidate(path)
     detail = {"instances": per_instance, "runtime_s": round(time.time() - start, 2)}
-    print(RESULT_TAG + json.dumps({"valid": True, "score": score, "detail": detail}))
+    emit(nonce, {"valid": True, "score": score, "detail": detail})
 
 
 def evaluate(path, timeout=TIMEOUT_S):
-    """Run the candidate file in a subprocess. Crashes and timeouts are invalid."""
-    cmd = [sys.executable, str(Path(__file__).resolve()), "--inner", str(path)]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return {"valid": False, "score": None, "detail": {"error": f"timeout after {timeout}s"}}
-    for line in reversed(proc.stdout.splitlines()):
-        if line.startswith(RESULT_TAG):
-            return json.loads(line[len(RESULT_TAG):])
-    error = (proc.stderr.strip().splitlines() or ["no result"])[-1]
-    return {"valid": False, "score": None,
-            "detail": {"error": error, "stderr_tail": proc.stderr[-2000:]}}
+    """Run the candidate in an isolated subprocess (see tasks/_sandbox.py). Crashes and
+    timeouts are invalid."""
+    return evaluate_isolated(Path(__file__).resolve(), path, timeout)
 
 
 def baselines():

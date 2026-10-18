@@ -35,9 +35,48 @@ spots (sourced families with < 2% share), then implement the top 3 herd families
 blind spot K=3 times with one shared prompt template and score them. Outputs go to
 `results/<task>/`. `labels_audit.csv` holds 20 random labels for a human to spot-check.
 
-Tasks live in `tasks/<name>/` (`prompt.md` + `evaluator.py`). Evaluators run candidates in a
-subprocess with a 60s timeout and print `{"valid": bool, "score": float, "detail": {...}}`.
-Lower is better. `python tasks/<name>/evaluator.py --baselines` prints the reference scores.
+With fewer than 20 samples per model (`reality_check.min_samples_per_model`) the CLI skips
+the reality check: at small N every literature family nobody happened to use looks like a
+blind spot. The taxonomy only keeps families that fit the task's rules (an offline algorithm
+such as First Fit Decreasing cannot run on an online task); dropped families are listed in
+`taxonomy.json` under `rejected` with the reason.
+
+Tasks live in `tasks/<name>/` (`prompt.md` + `evaluator.py`). Evaluators print
+`{"valid": bool, "score": float, "detail": {...}}`, lower is better, and run each candidate
+isolated with a 60s timeout (see [Running model-written code](#running-model-written-code)).
+`python tasks/<name>/evaluator.py --baselines` prints the reference scores.
+
+## Generation operators and the benchmark
+
+```sh
+uv run python -m herd bench online_bin_packing --budget 0.5   # USD per operator per repeat
+```
+
+Five operators (`herd/operators/`) each turn a task and a budget into candidate solutions.
+All of them use the same implementer model, implementation prompt template and evaluator.
+
+| operator | what it does |
+|---|---|
+| `plain` | the task prompt as-is, temperature 1.0 |
+| `hot` | the task prompt at the highest temperature that still yields valid code (calibrated per run; calibration samples count) |
+| `verbalized` | Verbalized Sampling: 5 approaches with stated probabilities, sampled from the tails (each < 0.10), each one implemented |
+| `blind_spot` | implements the families in `blind_spots.json` |
+| `transplant` | Exa search for mechanisms from biology, logistics, markets, physics and networking; the labeler restates each as a structural rule in the problem's own terms; sources are kept |
+
+`bench` runs every operator at the same budget for several seeded repeats, then labels all
+valid candidates with one labeler against one taxonomy, so family counts are comparable. It
+reports valid rate, distinct valid families, useful discoveries (families beating the best
+reference baseline), useful discoveries per dollar and best score, each as mean and range
+across repeats, plus `bench.png` and a verdict that only claims a win when the ranges do not
+overlap. Results go to `results/<task>/bench/`.
+
+Fairness rules: each operator's budget is measured from zero, separately from the global
+cap, and the benchmark refuses to start if the global cap cannot fund every operator in
+full. Planning costs (searches, the verbalized-sampling call, hot's calibration) count
+against the operator. The herd map behind `blind_spot` and the labeling are reported but
+not billed to any operator. A failure while one operator plans ends only that operator's
+run and is noted in the report. Cache hits are billed at their original cost inside a
+benchmark run, so reruns reproduce the table.
 
 ## MCP server for coding agents
 
@@ -62,7 +101,10 @@ that, calls are served from `results/` and return immediately.
   sampler models verbatim. A registered task name (`online_bin_packing`, `cache_eviction`)
   uses that task's prompt and built-in evaluator.
 - `evaluator_cmd` is run as `<evaluator_cmd> <path/to/candidate.py>` (no shell). On its last
-  JSON line of stdout it must print `{"valid": bool, "score": number}`. Use absolute paths.
+  JSON line of stdout it must print `{"valid": bool, "score": number}`. It runs isolated, from
+  a scratch working directory, so use absolute paths.
+- `herd_map` and `blind_spots` return `"low_confidence": true` when the map was built from
+  fewer than 20 samples per model.
 - `budget_usd` caps what one call may spend. The global cap in `config.yaml` still applies.
   Every response includes `spent_usd`. A call that would exceed the cap returns
   `{"error":"budget_exceeded",...}` instead of a partial result.
@@ -73,14 +115,10 @@ that, calls are served from `results/` and return immediately.
   - `inconclusive`: no valid implementation of your family.
   - `untested`: there was no evaluator, so only the map lookup ran.
 
-Caution: `reality_check` and `herd_check` run LLM-written code through your evaluator.
-The built-in evaluators isolate it in a subprocess with a timeout, but that is not a security
-sandbox. Run HERD where executing generated code is acceptable.
-
 ### Example: Claude Code calls `herd_check` mid-task
 
-*Illustrative transcript. The calls and response fields are the real interface; the
-families and numbers below are made up, not experimental results.*
+*The calls and response fields are the real interface. Values in `<angle brackets>` are
+placeholders, not experimental results.*
 
 To make Claude Code consult HERD by itself, add a line like this to your project's `CLAUDE.md`:
 
@@ -103,23 +141,38 @@ A session in a repo that is tuning a cache:
                          evaluator_cmd: "python /home/me/edge-cache/bench/eval.py",
                          budget_usd: 5)
   ⎿ progress: sample 50/50 · labeling against 11 families · reality LRU: implementation 3/3 …
-  ⎿ {"family":"Recency (LRU-family)","share":0.62,"rank":1,"is_blind_spot":false,
-     "concentration_top3":0.91,"my_family_best_score":0.512,
-     "tested":{"Recency (LRU-family)":0.512,"Frequency (LFU-family)":0.488,
-               "Static/dynamic partitioning (SLRU, 2Q)":0.471},
+  ⎿ {"family":"<family of my approach>","share":<its share>,"rank":<its rank>,
+     "is_blind_spot":false,"concentration_top3":<top-3 share>,
+     "my_family_best_score":<score>,
+     "tested":{"<family of my approach>":<score>,"<herd family>":<score>,"<blind spot>":<score>},
      "verdict":"try_blind_spot",
-     "blind_spot":{"family":"Static/dynamic partitioning (SLRU, 2Q)",
-                   "mechanism":"new keys enter a probationary queue and only keys hit again are promoted",
-                   "share":0.0,"best_score":0.471,
-                   "code_path":"/path/to/herd/results/desc-3f2a9c1d0b7e/reality/9c1e4a7b2d/static_dynamic_partitioning_slru_2q-1.py",
-                   "source_urls":["https://..."]},
-     "spent_usd":3.41}
+     "blind_spot":{"family":"<blind spot>","mechanism":"<one-line mechanism>",
+                   "share":<share>,"best_score":<score>,
+                   "code_path":"/path/to/herd/results/desc-<hash>/reality/<evaluator id>/<family>-<i>.py",
+                   "source_urls":["<url>"]},
+     "spent_usd":<cost of this call>}
 
-● 62% of model samples land on LRU, my plan included. A probationary-queue (2Q/SLRU) policy,
-  which no sample used, scored 0.471 against 0.512 for the best LRU on your evaluator.
-  I'll implement the 2Q-style policy instead, starting from HERD's best implementation, and
-  check it with bench/eval.py.
+● Most model samples land on the same family as my plan. A blind-spot family that almost no
+  sample used scored better on your evaluator, so I'll start from HERD's best implementation
+  of it and check it with bench/eval.py.
 ````
+
+## Running model-written code
+
+Candidates come from several models and run on your machine, so every evaluation (the
+built-in evaluators and any `evaluator_cmd`) goes through `tasks/_sandbox.py`:
+
+- The child process gets a minimal environment: no API keys or other secrets.
+- On macOS it runs under `sandbox-exec` with no network access and no file writes outside a
+  throwaway scratch directory. **On Linux there is no OS sandbox yet**; run HERD in a
+  container or VM there.
+- A result only counts if its line carries a one-time nonce that the evaluator reads from
+  stdin before loading the candidate, so a candidate cannot just print a fake score.
+
+Known limits: the candidate runs in the same Python process as the scoring loop, so code
+written to attack the evaluator could inspect its stack frames, for example to see future
+items or the nonce. Model samples are not prompted to do this, all generated code is kept
+under `results/` for inspection, and `labels_audit.csv` supports spot checks.
 
 ## Tests
 
@@ -127,6 +180,7 @@ A session in a repo that is tuning a cache:
 uv run pytest
 ```
 
-The tests cover the evaluators and baselines, caching and the budget ledger. They also
-run the whole pipeline and the MCP tools end to end, with OpenRouter and Exa replaced by
+The tests cover the evaluators and baselines, the sandbox (fake result lines, secrets,
+network and file writes), caching and the budget ledger. They also run the whole pipeline,
+the operator benchmark and the MCP tools end to end, with OpenRouter and Exa replaced by
 fakes.

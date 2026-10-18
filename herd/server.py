@@ -46,9 +46,15 @@ async def run_tool(ctx, budget_usd, work):
     return compact(await anyio.to_thread.run_sync(call))
 
 
-def map_summary(study):
+def low_confidence(study, cfg):
+    """Too few samples per model to tell an overlooked family from an unlucky one."""
+    return study["herd_map"]["meta"]["n_per_model"] < cfg["reality_check"]["min_samples_per_model"]
+
+
+def map_summary(study, cfg):
     m = study["herd_map"]
     return {"task": m["task"], "n_samples": m["n_labeled"], "n_unlabeled": m["n_unlabeled"],
+            "low_confidence": low_confidence(study, cfg),
             "concentration_top3": m["concentration_top3"], "top3": m["top3"],
             "families": [[r["family"], r["share"], r["count"]] for r in m["families"]],
             "per_model": m["per_model"]}
@@ -58,7 +64,8 @@ def map_summary(study):
 async def herd_map(task_description: str, ctx: Context, budget_usd: float = 5.0) -> str:
     """Which solution families do AI models converge on for this task? Returns family shares,
     overall and per model, and the share held by the top 3. Built on first call, cached after."""
-    return await run_tool(ctx, budget_usd, lambda herd: map_summary(ensure_map(herd, Task.resolve(task_description))))
+    return await run_tool(ctx, budget_usd,
+                          lambda herd: map_summary(ensure_map(herd, Task.resolve(task_description)), herd.cfg))
 
 
 @mcp.tool()
@@ -67,7 +74,8 @@ async def blind_spots(task_description: str, ctx: Context, budget_usd: float = 5
     with their mechanism and source URLs."""
     def work(herd):
         study = ensure_map(herd, Task.resolve(task_description))
-        return {"blind_spots": [{"family": b["family"], "mechanism": b["one_line_mechanism"],
+        return {"low_confidence": low_confidence(study, herd.cfg),
+                "blind_spots": [{"family": b["family"], "mechanism": b["one_line_mechanism"],
                                  "share": b["share"], "source_urls": b["source_urls"]}
                                 for b in study["blind_spots"]]}
     return await run_tool(ctx, budget_usd, work)

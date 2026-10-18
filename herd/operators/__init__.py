@@ -81,6 +81,9 @@ def run_jobs(ctx, jobs):
                 wave.append(next(jobs))
             except (StopIteration, BudgetExceeded):
                 break
+            except Exception as e:  # planning failed (search, bad JSON...): record it, end this run
+                ctx.notes["error"] = f"{type(e).__name__}: {e}"
+                break
         if not wave:
             break
         refused = []

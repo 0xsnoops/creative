@@ -1,5 +1,6 @@
 """Stage orchestration shared by the CLI and the MCP server. Each stage writes its output
 under results/<task>/; LLM and Exa calls are cached, so rebuilding is free."""
+import hashlib
 import json
 import os
 import threading
@@ -8,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+from . import label as label_stage
+from . import literature as literature_stage
 from .cache import JsonlCache
 from .exa import Exa
 from .herdmap import build_herd_map, find_blind_spots
@@ -48,8 +51,7 @@ class Herd:
         cache_dir = ROOT / self.cfg["paths"]["cache"]
         llm_cache, exa_cache = shared_cache(cache_dir / "llm.jsonl"), shared_cache(cache_dir / "exa.jsonl")
         spent = llm_cache.total_cost() + exa_cache.total_cost()
-        cap = self.cfg["budget_usd"] if budget_usd is None else min(self.cfg["budget_usd"], spent + budget_usd)
-        self.ledger = Ledger(cap, spent, bill_cached)
+        self.ledger = Ledger(self.cfg["budget_usd"], spent, budget_usd, bill_cached)
         self.llm = LLM(llm_cache, load_model_catalog(cache_dir), self.ledger)
         self.exa = Exa(exa_cache, self.ledger, self.cfg["exa"]["cost_per_search_usd"])
         self.progress = progress
@@ -69,12 +71,22 @@ def write_json(path, data):
     path.write_text(json.dumps(data, indent=2))
 
 
+def inputs_hash(task, cfg):
+    """Everything besides models and N that shapes the map: a saved map built from other
+    prompts or settings is rebuilt instead of reused."""
+    parts = [task.prompt, literature_stage.QUERY_PROMPT, literature_stage.TAXONOMY_PROMPT,
+             label_stage.LABEL_PROMPT, label_stage.MERGE_PROMPT,
+             json.dumps([cfg["literature"], cfg["labeling"], cfg["blind_spot_max_share"]], sort_keys=True)]
+    return hashlib.sha256("\n\0".join(parts).encode()).hexdigest()[:16]
+
+
 def ensure_map(herd, task, n_per_model=None):
     """SAMPLE -> LITERATURE -> LABEL -> HERD MAP -> BLIND SPOTS, or the saved result if it
     was built with the same models and N. Returns {herd_map, blind_spots, families}."""
     cfg, out = herd.cfg, herd.out_dir(task)
     n = n_per_model or cfg["sampling"]["n_per_model"]
-    meta = {"samplers": cfg["models"]["samplers"], "labeler": cfg["models"]["labeler"], "n_per_model": n}
+    meta = {"samplers": cfg["models"]["samplers"], "labeler": cfg["models"]["labeler"], "n_per_model": n,
+            "inputs_hash": inputs_hash(task, cfg)}
     with _task_locks[task.name]:
         saved = read_json(out / "herd_map.json")
         if saved and saved["meta"] == meta and saved["n_api_errors"] == 0:
@@ -130,10 +142,17 @@ def ensure_family_scores(herd, task, study, families, evaluator, k):
             name = family["family"]
             if name in scores and scores[name]["k"] >= k:
                 continue
-            result = reality_check(task, family, evaluator, herd.llm, herd.cfg, out, k, herd.progress)
-            scores[name] = {**result, "kind": family_kind(study, name), "share": share.get(name, 0.0)}
+            scores[name] = reality_check(task, family, evaluator, herd.llm, herd.cfg, out, k, herd.progress)
+            refresh_kinds(scores, study, share)
             write_json(out / "family_scores.json", saved)  # save after each family
+        refresh_kinds(scores, study, share)  # the map may have been rebuilt since scoring
+        write_json(out / "family_scores.json", saved)
         return scores
+
+
+def refresh_kinds(scores, study, share):
+    for name, s in scores.items():
+        s["kind"], s["share"] = family_kind(study, name), share.get(name, 0.0)
 
 
 def baseline_scores(task, evaluator, baseline_files=()):

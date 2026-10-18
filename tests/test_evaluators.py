@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -78,3 +79,37 @@ def test_candidate_stdout_does_not_break_parsing(tmp_path):
     result = bin_packing.evaluate(write(tmp_path, code))
     best_fit = bin_packing.evaluate(TASKS / "online_bin_packing" / "baselines" / "best_fit.py")
     assert result["valid"] and result["score"] == best_fit["score"]
+
+
+BEST_FIT_BODY = "    return [-(c - item) for c in capacities]\n"
+
+
+def test_candidate_cannot_fake_a_result_line(tmp_path):
+    code = ("import os\nprint('__HERD_RESULT__' + '{\"valid\": true, \"score\": 0.0, \"detail\": {}}', flush=True)\n"
+            "os._exit(0)\ndef priority(item, capacities):\n" + BEST_FIT_BODY)
+    result = bin_packing.evaluate(write(tmp_path, code))
+    assert result["valid"] is False
+
+
+def test_candidate_cannot_see_api_keys(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret")
+    code = ("import os\nassert 'OPENROUTER_API_KEY' not in os.environ, 'key leaked'\n"
+            "def priority(item, capacities):\n" + BEST_FIT_BODY)
+    assert bin_packing.evaluate(write(tmp_path, code))["valid"]
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="OS sandbox is macOS-only")
+def test_candidate_has_no_network(tmp_path):
+    code = ("import socket\nsocket.create_connection(('1.1.1.1', 53), timeout=3)\n"
+            "def priority(item, capacities):\n" + BEST_FIT_BODY)
+    result = bin_packing.evaluate(write(tmp_path, code))
+    assert result["valid"] is False and "not permitted" in result["detail"]["error"].lower()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="OS sandbox is macOS-only")
+def test_candidate_cannot_write_outside_scratch(tmp_path):
+    target = tmp_path / "pwned.txt"
+    code = (f"open({str(target)!r}, 'w').write('x')\n"
+            "def priority(item, capacities):\n" + BEST_FIT_BODY)
+    result = bin_packing.evaluate(write(tmp_path, code))
+    assert result["valid"] is False and not target.exists()

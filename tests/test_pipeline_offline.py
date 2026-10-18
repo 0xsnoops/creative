@@ -40,7 +40,9 @@ def reply_to(prompt, temperature=1.0):
         return json.dumps({"families": [fam("First Fit", "https://a.example"),
                                         fam("Best Fit", "https://b.example"),
                                         fam("Harmonic", "https://c.example"),
-                                        fam("Invented", "https://not-in-results.example")]})
+                                        fam("Invented", "https://not-in-results.example")],
+                           "inapplicable": [{"family": "First Fit Decreasing", "reason": "sorts all items first",
+                                             "source_urls": ["https://a.example"]}]})
     if prompt.startswith("Assign each candidate"):
         def family(sid, code):
             if "max_bin_cap" in code:
@@ -122,7 +124,10 @@ def test_map_blind_spots_and_check(fake_world):
     assert m["families"][0]["share"] == pytest.approx(4 / 6, abs=1e-4)
     assert {b["family"] for b in study["blind_spots"]} == {"Best Fit", "Harmonic"}
     taxonomy = json.loads((pipeline.ROOT / "results/online_bin_packing/taxonomy.json").read_text())
-    assert [r["family"] for r in taxonomy["rejected"]] == ["Invented"]  # cited a URL Exa never returned
+    rejected = {r["family"]: r["reason"] for r in taxonomy["rejected"]}
+    assert rejected["Invented"] == "no source URL from the search results"
+    assert "sorts all items first" in rejected["First Fit Decreasing"]  # offline: breaks the task's rules
+    assert "First Fit Decreasing" not in {b["family"] for b in study["blind_spots"]}
     assert (pipeline.ROOT / "results/online_bin_packing/labels_audit.csv").exists()
 
     calls_before = dict(fake_world)
@@ -201,3 +206,61 @@ def test_bench_operators_at_equal_budget(fake_world):
     table_again, _, _ = run_bench("online_bin_packing", budget_usd=0.25, repeats=2, progress=lambda m: None)
     assert fake_world == calls  # all cached
     assert table_again == table  # cached reruns are billed the same, so they stop in the same place
+
+
+def test_map_is_rebuilt_when_a_prompt_changes(fake_world, monkeypatch):
+    import herd.literature as literature
+    herd = pipeline.Herd(progress=lambda m: None)
+    task = Task.resolve("online_bin_packing")
+    pipeline.ensure_map(herd, task)
+    calls = dict(fake_world)
+    monkeypatch.setattr(literature, "TAXONOMY_PROMPT", literature.TAXONOMY_PROMPT + "\nBe thorough.")
+    pipeline.ensure_map(herd, task)
+    assert fake_world["llm"] > calls["llm"]  # the taxonomy was asked again
+
+
+def test_scores_take_kind_and_share_from_the_current_map(fake_world):
+    herd = pipeline.Herd(progress=lambda m: None)
+    task = Task.resolve("online_bin_packing")
+    study = pipeline.ensure_map(herd, task)
+    families = {f["family"]: f for f in study["families"]}
+    scores = pipeline.ensure_family_scores(herd, task, study, [families["Best Fit"]], Evaluator(task), k=1)
+    assert scores["Best Fit"]["kind"] == "blind_spot" and scores["Best Fit"]["share"] == 0.0
+    # Simulate a rebuilt map in which Best Fit became common.
+    study["herd_map"]["top3"] = ["Best Fit"]
+    study["herd_map"]["families"] = [{"family": "Best Fit", "share": 0.5, "count": 3, "sourced": True}]
+    study["blind_spots"] = []
+    scores = pipeline.ensure_family_scores(herd, task, study, [], Evaluator(task), k=1)
+    assert scores["Best Fit"]["kind"] == "herd" and scores["Best Fit"]["share"] == 0.5
+
+
+def test_bench_survives_an_operator_planning_failure(fake_world, monkeypatch):
+    from herd.bench import run_bench
+    pipeline.ensure_map(pipeline.Herd(progress=lambda m: None), Task.resolve("online_bin_packing"))
+
+    def broken_search(self, request, attempts=3):
+        raise RuntimeError("exa: HTTP 500")
+    monkeypatch.setattr(Exa, "_post", broken_search)
+    table, _, bench_dir = run_bench("online_bin_packing", budget_usd=0.25, repeats=1,
+                                    operators=["transplant", "plain"], progress=lambda m: None)
+    run = json.loads((bench_dir / "seed0" / "transplant" / "run.json").read_text())
+    assert "HTTP 500" in run["notes"]["error"] and run["candidates"] == []
+    assert table["plain"]["n_candidates"]["mean"] > 0
+    assert "stopped early after an error" in (bench_dir / "bench.md").read_text()
+
+
+def test_bench_refuses_to_start_if_the_global_cap_cannot_fund_every_operator(fake_world):
+    from herd.bench import run_bench
+    with pytest.raises(SystemExit, match="only"):
+        run_bench("online_bin_packing", budget_usd=10.0, repeats=3, progress=lambda m: None)
+
+
+def test_external_evaluator_cmd_runs_without_secrets(fake_world, tmp_path, monkeypatch):
+    import sys
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret")
+    script = tmp_path / "eval.py"
+    script.write_text("import json, os\n"
+                      "print(json.dumps({'valid': 'OPENROUTER_API_KEY' not in os.environ, 'score': 1.0}))\n")
+    task = Task.resolve("Some free-text task")
+    result = Evaluator(task, f"{sys.executable} {script}")(tmp_path / "candidate.py")
+    assert result["valid"] is True
