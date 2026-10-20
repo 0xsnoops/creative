@@ -157,19 +157,55 @@ def behavior_decision(behavior, weak):
             f"(> {behavior['epsilon']:.0%}): keep going")
 
 
+UNDETERMINED_REASON = ("stalled, but DIVERGE cannot tell a strategy loop from a fixable stall: the task has no "
+                       "behavior probes and the evaluator reports no per-case results, so shared failures cannot be "
+                       "measured (model-written strategy similarity was at chance for this in docs/RESULTS-E1.md and "
+                       "is not used)")
+
+
+def failure_decision(f, weak):
+    """(action, repairability, reason) from the failure detector's conditions (diverge.trajectory):
+    switch_strategy when (b) same failures and (c) stalled; repair when only stalled; else continue."""
+    cond = f["conditions"]
+    if cond["b"] and cond["c"]:
+        return ("switch_strategy", "low" if weak else "medium",
+                "failure loop: the recent attempts fail on the same worst dev cases and have stopped improving: "
+                "switch strategy")
+    if cond["c"]:
+        return ("repair", "medium" if weak else "high",
+                "stalled, but the recent attempts fail on different dev cases: fix the current strategy")
+    return ("continue", "high", f"dev improvement {f['improvement_last3']:+.1%} over the last 3 attempts "
+                                f"(> {f['epsilon']:.0%}): keep going")
+
+
 def diagnose(task, trajectory, overlook=None, phrase=None):
     """With the behavior detector (trajectory["detector"] == "behavior"), behavior_decision on its
-    measured conditions. Otherwise: continue if the best attempt is >= 2% better than the first;
-    else switch_strategy if the trajectory is a loop (one strategy repeated, stalled); else repair."""
+    measured conditions; with the failure detector ("failures"), failure_decision. With no detector
+    ("none"): continue while improving, else "undetermined" (the verdict is inconclusive). Reports
+    without a detector field (older callers): continue if the best attempt is >= 2% better than the
+    first; else switch_strategy if loop_detected; else repair."""
     n, shared = attempt_count(trajectory), trajectory.get("shared") or {}
     progress = trajectory.get("progress") or {}
     gain = progress.get("relative_improvement")
     weak = [text_of(w) for w in shared.get("weak_regimes") or []]
     reasons = list(trajectory.get("reasons") or [])
     behavior = trajectory.get("behavior") if trajectory.get("detector") == "behavior" else None
+    detector = trajectory.get("detector")
+    f = trajectory.get("failures") or {}
     if behavior:
         action, repairability, line = behavior_decision(behavior, weak)
         reasons.append(line)
+    elif detector == "failures":
+        action, repairability, line = failure_decision(f, weak)
+        reasons.append(line)
+    elif detector == "none":
+        if f and not f["conditions"]["c"]:
+            action, repairability = "continue", "high"
+            reasons.append(f"dev improvement {f['improvement_last3']:+.1%} over the last 3 attempts "
+                           f"(> {f['epsilon']:.0%}): keep going")
+        else:
+            action, repairability = "undetermined", None
+            reasons.append(UNDETERMINED_REASON)
     elif gain is not None and gain >= IMPROVING:
         action, repairability = "continue", "high"
         reasons.append(f"the best attempt is {gain:.1%} better than the first (>= {IMPROVING:.0%}): keep going")
@@ -182,8 +218,9 @@ def diagnose(task, trajectory, overlook=None, phrase=None):
         reasons.append("stalled, but the attempts do not repeat one strategy: fix the current one")
     if weak:
         failure = f"all {n} attempts are weak on: {'; '.join(weak)}"
-    elif behavior and action == "continue":
-        failure = f"none yet: {behavior['improvement_last3']:+.1%} dev improvement over the last 3 attempts"
+    elif (behavior or f) and action == "continue":
+        imp = (behavior or f)["improvement_last3"]
+        failure = f"none yet: {imp:+.1%} dev improvement over the last 3 attempts"
     elif action == "continue":
         failure = f"none yet: the best attempt is {gain:.1%} better than the first"
     else:
@@ -191,7 +228,7 @@ def diagnose(task, trajectory, overlook=None, phrase=None):
     cause = shared_cause(trajectory)
     prevalence, prevalence_evidence = consensus_prevalence(trajectory, overlook)
     evidence = {k: trajectory.get(k) for k in ("n", "loop_score", "loop_detected", "strategy_similarity",
-                                               "code_similarity", "progress", "detector", "behavior")}
+                                               "code_similarity", "progress", "detector", "behavior", "failures")}
     evidence.update(shared=shared, herd_prevalence=prevalence_evidence, consensus_prevalence=prevalence_evidence, task=getattr(task, "name", task))
     return {"action": action, "repairability": repairability,
             "failure": polish(phrase, failure), "shared_cause": polish(phrase, cause),

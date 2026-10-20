@@ -21,6 +21,9 @@ def test_replay_evaluator_scores_valid_and_invalid_candidates(tmp_path):
     mean = score(tmp_path, "def predict(x):\n    return sum(x) / len(x)\n")
     assert median["valid"] and median["score"] == 0.0 and median["detail"]["n_records"] == 4
     assert mean["valid"] and mean["score"] > 0
+    assert [c["id"] for c in mean["detail"]["cases"]] == ["0", "1", "2", "3"]
+    from diverge.failures import failure_set
+    assert failure_set(mean["detail"]) == {"2", "3"}  # the two records with the largest error
     broken = score(tmp_path, "def predict(x):\n    return x['nope']\n")
     assert broken["valid"] is False and "TypeError" in broken["detail"]["error"]
     missing = score(tmp_path, "def other(x):\n    return 0\n")

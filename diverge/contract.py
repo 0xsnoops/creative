@@ -11,14 +11,16 @@ keep | repair | escape | escalate | inconclusive. Rules, applied in this order:
 3. inconclusive: fewer than 2 scored attempts (valid, with a score), or no current score
    (evaluation.before is None).
 4. escalate (contradictory evaluator/task, B): at least 2 scored attempts, all scores equal
-   (within 1e-9 relative), while their strategies differ (strategy_similarity is known and below
-   diverge.trajectory.SAME_STRATEGY, 0.7): the evaluator does not tell different strategies apart.
+   (within 1e-9 relative), while the behavior detector measured different behavior (the recent
+   attempts are not in one behavior cluster): the evaluator does not tell different strategies
+   apart. Model-written strategy similarity never triggers it (chance-level, docs/RESULTS-E1.md).
 5. keep: diagnosis action "continue".
 6. repair: action "repair".
 7. escape: action "switch_strategy" and a lever was chosen (overlooked_levers non-empty and
    recommended_switch.mechanism set).
 8. escalate: action "switch_strategy" but no lever is available.
-Anything else is inconclusive.
+Anything else is inconclusive (including action "undetermined": stalled, but no detector can tell
+a loop from a fixable stall).
 
 Scored attempts come from result["attempts"] ([{id, score, valid}], added by the diverge_escape
 tool); without that list, two scores are inferred from diagnosis.evidence.progress (a relative
@@ -26,7 +28,6 @@ improvement is only computed from two or more scores)."""
 import json
 
 from . import plateau as _plateau
-from .trajectory import SAME_STRATEGY
 
 VERDICTS = ("keep", "repair", "escape", "escalate", "inconclusive")
 MEASURED, SOURCE_BACKED, HYPOTHESIZED = "MEASURED", "SOURCE_BACKED", "HYPOTHESIZED"
@@ -76,8 +77,10 @@ def verdict(result):
         return "escalate"
     if _n_scored(result) < 2 or (result.get("evaluation") or {}).get("before") is None:
         return "inconclusive"
-    scores, sim = scored_attempts(result), result.get("strategy_similarity")
-    if scores and _all_equal(scores) and sim is not None and sim < SAME_STRATEGY:
+    scores, ev = scored_attempts(result), (result.get("diagnosis") or {}).get("evidence") or {}
+    behavior_differs = ev.get("detector") == "behavior" and \
+        ((ev.get("behavior") or {}).get("conditions") or {}).get("a") is False
+    if scores and _all_equal(scores) and behavior_differs:
         return "escalate"
     action = result.get("action") or (result.get("diagnosis") or {}).get("action")
     if action == "continue":
@@ -124,7 +127,12 @@ def next_experiment(result, v, lever):
     best, lower = best_score(result), _lower(result)
     direction = "lower is better" if lower else "higher is better"
     tries = len(result.get("candidates") or []) or DEFAULT_TRIES
-    if best is None or v == "inconclusive":
+    undetermined = (result.get("action") or (result.get("diagnosis") or {}).get("action")) == "undetermined"
+    if v == "inconclusive" and undetermined and best is not None:
+        out = {"hypothesis": "Stalled, but whether the attempts repeat one strategy is unmeasured: with per-case "
+                             "results from the evaluator DIVERGE can compare where the attempts fail.",
+               "success_threshold": None, "failure_threshold": None}
+    elif best is None or v == "inconclusive":
         out = {"hypothesis": "Not enough scored attempts to judge the strategy: score at least two attempts "
                              "on the dev split and call diverge_escape again.",
                "success_threshold": None, "failure_threshold": None}
@@ -275,7 +283,7 @@ def contract(result, overlook=None, paraphrase=None, families=None):
         out["evidence"].append(_plateau.hypothesis_item(result, v))
     if "plateau" in result:
         out["plateau"] = result["plateau"]
-    for k in ("spent_usd", "counterexamples", "agent_inputs"):
+    for k in ("spent_usd", "counterexamples", "agent_inputs", "escape"):
         if k in result:
             out[k] = result[k]
     out["candidate_path"] = result.get("candidate_path")
@@ -328,7 +336,17 @@ def _inconclusive_action(result):
     if (result.get("evaluation") or {}).get("before") is None:
         return ("current_solution has no valid score: make it pass the evaluator (or pass the latest valid "
                 "attempt as current_solution), then call diverge_escape again.")
+    if (result.get("action") or (result.get("diagnosis") or {}).get("action")) == "undetermined":
+        return UNDETERMINED_ACTION
     return NEXT_ACTION["inconclusive"]
+
+
+UNDETERMINED_ACTION = (
+    "Your scores have stalled, but DIVERGE cannot tell whether your attempts repeat one strategy: your evaluator "
+    "reports no per-case results. Make evaluator_cmd also print per-case losses in its result, "
+    '{"valid": true, "score": 0.42, "detail": {"cases": [{"id": "case-1", "loss": 0.9}, ...]}} (higher loss = worse '
+    "on that case), then call diverge_escape again. Or decide yourself: if your last attempts were variations of one "
+    "idea, try a different mechanism (diverge_check lists alternatives).")
 
 
 def agent_fields(result, v, body):

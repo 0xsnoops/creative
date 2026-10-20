@@ -30,6 +30,8 @@ task: online_bin_packing, cache_eviction). Not for generic debugging or build er
 - Unsure whether DIVERGE is configured here: diverge_status (free, no network).
 - Before committing to a strategy: diverge_check. Is your plan just the default answer most models give? It \
 returns alternatives with strengths and traps; free-text mode needs no evaluator.
+- After each scored attempt: diverge_loop_check ($0, no model call) says whether you have stalled and whether \
+your attempts fail on the same cases, i.e. whether to call diverge_escape.
 - You keep getting the same answer: several scored attempts have stalled, the same failure keeps coming back, lots \
 of code change but little score change, or you are about to retry another variation or escalate to a human. Call \
 diverge_escape yourself; do not wait for the user to ask. It tells you whether your attempts are one strategy in \
@@ -363,19 +365,93 @@ async def diverge_status(check_model_catalog: bool = False) -> str:
     return compact({**await anyio.to_thread.run_sync(call), "spent_usd": 0.0})
 
 
-def escape_for_agent(session, task, current_solution, previous_attempts, evaluator, k=1, counterexamples=True,
-                     notes=""):
-    """diverge.escape.escape plus what the agent needs to trust it: strategy counterexamples between its
-    attempts and the escape candidate (tasks with a probe mode), and how stable the consensus map is
-    under rewording (the paraphrase test), when those exist."""
+LEVER_POLICIES = ("chosen", "random", "mixed")
+
+
+def escape_result(r):
+    """An escape_v2 result in the shape diverge.contract reads (the fields escape v1 returned)."""
+    d, rep, lever = r["diagnosis"], r.get("analysis") or {}, r.get("lever")
+    first = [{k: lever.get(k) for k in ("type", "name", "detail", "mechanism", "why")}] if lever else []
+    rejections = r.get("rejections") or []
+    return {"loop_detected": rep.get("loop_detected"), "strategy_similarity": rep.get("strategy_similarity"),
+            "code_similarity": rep.get("code_similarity"), "shared_strategy": d["shared_cause"],
+            "shared_assumptions": (rep.get("shared") or {}).get("assumptions", []),
+            "herd_prevalence": d["herd_prevalence"], "consensus_prevalence": d["herd_prevalence"],
+            "overlooked_levers": first + list(r.get("lever_alternatives") or []),
+            "recommended_switch": {"mechanism": lever.get("mechanism") if lever else None,
+                                   "why": lever.get("why") if lever else "no lever found"},
+            "candidate": r.get("candidate"), "candidate_path": r.get("candidate_path"),
+            "candidates": [{k: c.get(k) for k in ("path", "valid", "score", "error")} for c in r.get("admitted") or []],
+            "evaluation": r["evaluation"], "action": r["action"], "diagnosis": d, "reasons": d["reasons"],
+            "escape": {"version": 2, "lever_policy": r.get("lever_policy"), "lever_source": r.get("lever_source"),
+                       "sketches": len(r.get("sketches") or []), "kept_sketches": len(r.get("kept_sketches") or []),
+                       "admitted": len(r.get("admitted") or []), "rejected": len(rejections),
+                       "rejections": [{k: x.get(k) for k in ("stage", "sketch", "reasons")} for x in rejections[:5]],
+                       "counterexample": (r.get("counterexample") or {}).get("text")}}
+
+
+def fallback_lever(session, task, tried, rules, context):
+    """lever_fallback for escape_v2 on tasks with no consensus data: the top grounded alternative to the
+    attempts' shared strategy (diverge.alternatives, one model call plus a screen), HYPOTHESIZED."""
+    from . import alternatives
+
+    def make(diagnosis, report):
+        try:
+            got = alternatives.grounded_alternatives(session, task, diagnosis["shared_cause"], "", tried, rules,
+                                                     context, "quick", N_ALTERNATIVES[1])
+        except BudgetExceeded:
+            raise
+        except Exception:
+            return None
+        if not got["alternatives"]:
+            return None
+        a = got["alternatives"][0]
+        return {"type": "agent_alternative", "name": a["name"], "detail": {"description": a["mechanism"]},
+                "mechanism": a["mechanism"],
+                "why": "HYPOTHESIZED: proposed by a model from your attempts' shared strategy"
+                       + (", already_tried, constraints and context" if tried or rules or context else "")
+                       + " (no consensus data for this task)"}
+    return make
+
+
+def escape_for_agent(session, task, current_solution, previous_attempts, evaluator, k=3, counterexamples=True,
+                     notes="", lever_policy="chosen", tried=(), rules=(), context=""):
+    """diverge.escape.escape_v2 (the version the rescue tests measured) in the contract's shape, plus what
+    the agent needs to trust it: strategy counterexamples between its attempts and the escape candidate
+    (tasks with a probe mode), and how stable the consensus map is under rewording (the paraphrase test).
+    lever_policy "mixed": the chosen lever, then, if its candidate did not improve, a random lever."""
     from . import counterexample
-    from .escape import escape
+    from .escape import escape_v2
     from .pipeline import read_json
     from .strategy import llm_extractor
+    if lever_policy not in LEVER_POLICIES:
+        raise ValueError(f"lever_policy must be one of {list(LEVER_POLICIES)}, got {lever_policy!r}")
     out = session.out_dir(task)
-    result = escape(session, task, current_solution, previous_attempts, evaluator,
-                    overlook=read_json(out / "overlook.json"), families=read_json(out / "blind_spots.json"),
-                    extract=llm_extractor(session, task), k=k, notes=notes)
+    overlook, families = read_json(out / "overlook.json"), read_json(out / "blind_spots.json")
+
+    def run(policy, seed):
+        return escape_v2(session, task, current_solution, previous_attempts, evaluator, overlook=overlook,
+                         families=families, extract=llm_extractor(session, task), k_sketches=max(1, k), seed=seed,
+                         notes=notes, lever_policy=policy, only_on_switch=True,
+                         lever_fallback=fallback_lever(session, task, list(tried), list(rules), context))
+    raw = run("random" if lever_policy == "random" else "chosen", 0)
+    tries = [raw]
+    if lever_policy == "mixed" and raw["action"] == "switch_strategy" and not raw["evaluation"]["improved"]:
+        try:
+            second = run("random", 1)
+            tries.append(second)
+            if second["evaluation"]["after"] is not None and (
+                    raw["evaluation"]["after"] is None or evaluator.beats(second["evaluation"]["after"],
+                                                                          raw["evaluation"]["after"])):
+                raw = second
+        except BudgetExceeded:
+            tries.append(None)
+    result = escape_result(raw)
+    if lever_policy == "mixed":
+        result["escape"]["lever_attempts"] = [
+            {"policy": t["lever_policy"], "lever": (t.get("lever") or {}).get("name"),
+             "after": t["evaluation"]["after"], "improved": t["evaluation"]["improved"]} if t else
+            {"policy": "random", "error": "budget_usd reached before the random lever ran"} for t in tries]
     para = read_json(out / "paraphrase.json")
     result["herd_stability"] = result["consensus_stability"] = ({"verdict": para["verdict"], "paraphrase_tvd": para["mean_P"],
                                  "resampling_tvd_max": para["max_R"]} if para else None)
@@ -391,25 +467,32 @@ def escape_for_agent(session, task, current_solution, previous_attempts, evaluat
 @mcp.tool(structured_output=False)
 async def diverge_escape(task_description: str, current_solution: str, ctx: Context,
                       previous_attempts: list[str] | None = None, evaluator_cmd: str = "",
-                      lower_is_better: bool = True, k: int = 1, budget_usd: float = 2.0,
+                      lower_is_better: bool = True, k: int = 3, budget_usd: float = 2.0,
                       already_tried: list[dict | str] | None = None, constraints: list[str] | None = None,
-                      context: str = "") -> CallToolResult:
+                      context: str = "", lever_policy: str = "chosen") -> CallToolResult:
     """Primary tool for when you keep getting the same answer: tells you whether your attempts are
     one strategy in different code and proposes and tests an unconventional alternative. Call it
     yourself, without waiting to be asked, when several scored attempts have stalled, the same failure
     keeps coming back, code changes a lot but the score barely moves, or you are about to retry another
     variation or hand the problem to a human. Not for a first attempt, syntax errors or generic
     debugging. Pass current_solution and previous_attempts as code (oldest first). DIVERGE scores them
-    on the dev split, fingerprints their strategies by behavior and, when they loop, implements one
-    evidence-backed lever and scores it before/after (with counterexamples on tasks that support probes).
+    on the dev split and decides loop vs stall from measurements: behavior probes (online_bin_packing) or
+    shared worst dev cases (cache_eviction, or an evaluator_cmd whose result carries per-case losses,
+    detail.cases [{"id", "loss"}]). With neither it returns inconclusive and says how to add them; it
+    never decides from model-written strategy descriptions. On a loop it runs escape v2: k mechanism
+    sketches (default 3) built on one lever, judged, implemented in a fresh context and scored on dev
+    (with counterexamples on tasks that support probes).
     task_description: a built-in task's exact name (online_bin_packing, cache_eviction; then omit
     evaluator_cmd) or free text with evaluator_cmd. evaluator_cmd runs sandboxed (no network, no writes
     outside scratch, no .env, no nested sandbox), so make it self-contained with absolute paths.
     Needs an evaluator (evaluator_cmd, or a built-in task), OPENROUTER_API_KEY, and at least 2 valid
-    scored attempts for any verdict but inconclusive. It does not build a consensus map: levers come from
-    the task's cached overlook study and blind spots (built-in tasks); without them a loop may end in
-    escalate. Default budget_usd 2.0, k=1 candidate; recorded runs that generated no candidate spent
-    under $0.01, generating one costs more.
+    scored attempts for any verdict but inconclusive. It does not build a consensus map. Levers come from
+    the task's cached overlook study and blind spots (built-in tasks); without them, from inputs your
+    attempts never use, else one model-proposed alternative (HYPOTHESIZED). lever_policy: "chosen"
+    (default: the first lever in preference order), "random" (a random lever; in the preliminary rescue
+    test a random lever rescued 3/4 stuck states and the chosen one 1/4), or "mixed" (chosen, then random
+    if the chosen candidate did not improve; up to twice the spend). Default budget_usd 2.0; recorded
+    runs that generated no candidate spent under $0.01, generating candidates costs more.
     Returns "VERDICT: keep|repair|escape|escalate|inconclusive", a short markdown summary, then JSON: next_action,
     can_continue_autonomously, complete, missing_requirements, candidate_available,
     evidence_summary, lever, next_experiment (success and failure thresholds), evidence (each
@@ -437,7 +520,8 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
         tried = alternatives.merge_tried(alternatives.clean_tried(already_tried), logged)
         rules, (notes_context, truncated) = alternatives.clean_constraints(constraints), alternatives.clean_context(context)
         result = escape_for_agent(session, task, current_solution, previous_attempts or [], evaluator, k,
-                                  notes=alternatives.escape_notes(tried, rules, notes_context))
+                                  notes=alternatives.escape_notes(tried, rules, notes_context),
+                                  lever_policy=lever_policy, tried=tried, rules=rules, context=notes_context)
         if tried or rules or notes_context:
             result["agent_inputs"] = {"already_tried": len(tried), "logged_outcomes": len(logged),
                                       "constraints": len(rules), "context_chars": len(notes_context),
@@ -466,6 +550,51 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
     # structuredContent. structured_output=False: no outputSchema, so the dict is passed through as is.
     text, structured = agent_result(json.loads(await run_tool(ctx, budget_usd, work)), **loaded)
     return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=structured)
+
+
+@mcp.tool()
+async def diverge_loop_check(scores: list[float | None], failing_cases: list[list[str]] | None = None,
+                             lower_is_better: bool = True) -> str:
+    """Free triage before diverge_escape: call it after each scored attempt to decide whether you are
+    stuck. Costs $0: no model, search or network call, no code is run. scores: your attempts' scores,
+    oldest first (None for an attempt that failed). failing_cases (optional, same order): for each
+    attempt, the ids of the cases it does worst on (e.g. its 2 worst tests or records). Uses the same
+    rules as diverge_escape: stalled = no improvement above 1% over the last 3 attempts; a loop = stalled
+    and the recent attempts' failing cases overlap (Jaccard >= 0.8). Returns decision
+    (keep_going | call_diverge_escape | repair | stalled_unknown | need_more_attempts), stalled,
+    improvement_last3, same_failures, failure_jaccard_min, reasons, next_action."""
+    from .trajectory import EPSILON, RECENT, SAME_FAILURES, improvement_last3
+    from .failures import jaccard
+    valid = [s for s in scores if s is not None]
+    imp = improvement_last3(scores, lower_is_better)
+    out = {"n_scored": len(valid), "improvement_last3": imp, "stalled": None, "same_failures": None,
+           "failure_jaccard_min": None, "reasons": []}
+    if len(valid) < 2:
+        out.update(decision="need_more_attempts", next_action="Score at least 2 attempts, then call again.")
+        return compact({**out, "spent_usd": 0.0})
+    out["stalled"] = imp <= EPSILON
+    out["reasons"].append(f"improvement over the last 3 attempts {imp:+.1%} (stalled at or below {EPSILON:.0%})")
+    recent = [set(c) for c in (failing_cases or [])[-RECENT:] if c]
+    if failing_cases and len(recent) >= 2 and len(recent) == min(RECENT, len(failing_cases)):
+        jmin = min(jaccard(a, b) for i, a in enumerate(recent) for b in recent[i + 1:])
+        out.update(failure_jaccard_min=round(jmin, 3), same_failures=jmin >= SAME_FAILURES)
+        out["reasons"].append(f"recent attempts' failing cases overlap: min Jaccard {jmin:.2f} "
+                              f"({'same' if jmin >= SAME_FAILURES else 'different'} cases)")
+    if not out["stalled"]:
+        out.update(decision="keep_going", next_action="You are still improving: keep going and score each change.")
+    elif out["same_failures"]:
+        out.update(decision="call_diverge_escape", next_action=(
+            "Stalled and failing on the same cases: a strategy loop. Call diverge_escape with your attempts (and "
+            "already_tried, constraints, context) before trying another variation."))
+    elif out["same_failures"] is False:
+        out.update(decision="repair", next_action=(
+            "Stalled, but your attempts fail on different cases: fix the current strategy (bug, tuning, edge "
+            "cases) rather than switching."))
+    else:
+        out.update(decision="stalled_unknown", next_action=(
+            "Stalled. Pass failing_cases (each attempt's worst cases) to tell a loop from a fixable stall, or call "
+            "diverge_escape with an evaluator that reports per-case losses (detail.cases)."))
+    return compact({**out, "spent_usd": 0.0})
 
 
 @mcp.tool()

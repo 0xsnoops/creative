@@ -291,7 +291,9 @@ def test_trajectory_shared_weak_regimes_and_unknown_progress():
     assert report["fingerprints"]["lru2"]["state"]["features"] == ["self.od"]
     assert report["strategy_similarity"] > 0.8
     assert report["shared"]["weak_regimes"] == ["trace scan at cache size 10"]
-    assert report["progress"]["relative_improvement"] is None and report["loop_detected"]  # unknown counts as stalled
+    # unknown progress counts as stalled, but the undetailed attempt (scored on real dev) fails on other cases
+    assert report["progress"]["relative_improvement"] is None and report["detector"] == "failures"
+    assert report["failures"]["conditions"] == {"b": False, "c": True} and report["loop_detected"] is False
     assert any("2/2 attempts with dev results are worse than the best baseline on trace scan" in r
                for r in report["reasons"])
     assert any("progress unknown" in r for r in report["reasons"])

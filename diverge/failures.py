@@ -4,8 +4,9 @@ anything that needs "do these two attempts fail on the same cases?".
 
 Detail shapes (from the task evaluators' dev results):
 - bin packing: {"instances": [{"seed", "excess_pct", ...}]}, ids "seed:N";
-- cache eviction: {"runs": [{"trace", "cache_size", "miss_ratio", ...}]}, ids "trace@size".
-Higher score = worse in both."""
+- cache eviction: {"runs": [{"trace", "cache_size", "miss_ratio", ...}]}, ids "trace@size";
+- any evaluator_cmd: {"cases": [{"id", "loss"}]}, ids as given (loss: higher is worse on that case).
+Higher score = worse in all three."""
 import math
 
 
@@ -18,6 +19,8 @@ def _cases(detail):
         rows, ident, score = detail["instances"], lambda r: f"seed:{r['seed']}", "excess_pct"
     elif isinstance(detail.get("runs"), list):
         rows, ident, score = detail["runs"], lambda r: f"{r['trace']}@{r['cache_size']}", "miss_ratio"
+    elif isinstance(detail.get("cases"), list):
+        rows, ident, score = detail["cases"], lambda r: str(r["id"]), "loss"
     else:
         return []
     out = []

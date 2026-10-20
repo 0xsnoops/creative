@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from diverge.contract import parse, render, verdict
+from diverge.contract import agent_fields, contract, parse, render, verdict
 
 RESULTS = Path(__file__).resolve().parents[1] / "results" / "online_bin_packing"
 
@@ -80,10 +80,24 @@ def test_escalate_when_everything_is_invalid():
     assert verdict(r) == "escalate"
 
 
-def test_escalate_when_different_strategies_score_identically():
-    assert verdict(result(action="repair", scores=(0.04, 0.04, 0.04), before=0.04, sim=0.3)) == "escalate"
-    # same strategy with identical scores is a loop, not an evaluator problem
-    assert verdict(result(scores=(0.04, 0.04, 0.04), before=0.04, sim=0.9)) == "escape"
+def test_escalate_when_measured_different_behavior_scores_identically():
+    def flat(action, a, sim):
+        r = result(action=action, scores=(0.04, 0.04, 0.04), before=0.04, sim=sim)
+        r["diagnosis"]["evidence"].update(detector="behavior", behavior={"conditions": {"a": a, "b": True, "c": True}})
+        return r
+    assert verdict(flat("repair", False, 0.9)) == "escalate"
+    # same behavior with identical scores is a loop, not an evaluator problem
+    assert verdict(flat("switch_strategy", True, 0.3)) == "escape"
+    # model-written strategy similarity alone (chance-level in E1) never escalates
+    assert verdict(result(action="repair", scores=(0.04, 0.04, 0.04), before=0.04, sim=0.1)) == "repair"
+
+
+def test_undetermined_is_inconclusive_with_a_way_forward():
+    r = result(action="undetermined")
+    _, body = contract(r)
+    fields = agent_fields(r, "inconclusive", body)
+    assert verdict(r) == "inconclusive" and '"cases"' in fields["next_action"]
+    assert "unmeasured" in body["next_experiment"]["hypothesis"]
 
 
 def test_verdict_falls_back_to_progress_without_attempt_list():

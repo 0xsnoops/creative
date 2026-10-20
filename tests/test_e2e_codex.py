@@ -28,7 +28,7 @@ from diverge.reality import Evaluator
 from diverge.task import Task
 from tests.test_agent_ux import call
 from tests.test_check_freetext import ALTS, FREE
-from tests.test_escape_tool import BEST_FITS
+from tests.test_escape_tool import BEST_FITS, v2_reply
 from tests.test_escape_v2 import ATTEMPTS, CURRENT, code_lines, overlook
 from tests.test_escape_v3 import v2_world, world  # noqa: F401 (fixture dependency chain)
 from tests.test_pipeline_offline import FUNSEARCH, fake_world, reply_to  # noqa: F401
@@ -214,7 +214,7 @@ def test_escape_mcp_readable_success(fake_world, monkeypatch):
 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]
-        answer = f"```python\n{FUNSEARCH}```" if "Strategy to move away from" in prompt else reply_to(prompt)
+        answer = v2_reply(prompt)
         return {"choices": [{"message": {"content": answer}, "finish_reason": "stop"}], "usage": {"cost": 0.001}}
 
     monkeypatch.setattr(LLM, "_post", post)

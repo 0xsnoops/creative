@@ -6,7 +6,7 @@ import re
 from diverge.contract import agent_result, check_result, parse
 from tests.test_contract import result as contract_result
 from tests.test_agent_ux import call
-from tests.test_escape_tool import BEST_FITS
+from tests.test_escape_tool import BEST_FITS, v2_reply
 from tests.test_pipeline_offline import FUNSEARCH, fake_world, reply_to  # noqa: F401
 
 import diverge.pipeline as pipeline
@@ -54,7 +54,7 @@ def test_escape_tool_text_is_readable_and_structured_unchanged(fake_world, monke
 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]
-        text = f"```python\n{FUNSEARCH}```" if "Strategy to move away from" in prompt else reply_to(prompt)
+        text = v2_reply(prompt)
         return {"choices": [{"message": {"content": text}, "finish_reason": "stop"}], "usage": {"cost": 0.001}}
     monkeypatch.setattr(LLM, "_post", post)
     text, s = call("diverge_escape", {"task_description": "online_bin_packing", "current_solution": BEST_FITS[2],

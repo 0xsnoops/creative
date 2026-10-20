@@ -6,7 +6,10 @@ replay, a "replay gate") instead of a live system.
 Each line of the data file is {"input": ..., "expected": number}. The candidate defines
 predict(input) -> number (rename with --entrypoint). The score is the mean absolute error over all
 records (lower is better); the last stdout line is {"valid": bool, "score": float, "detail": {...}},
-which is what DIVERGE reads. Adapt load/score to your own replay; keep the last-line contract.
+which is what DIVERGE reads. detail.cases lists each record's loss ({"id", "loss"}, higher is worse):
+with it diverge_escape can tell whether stalled attempts fail on the same cases (a strategy loop) or
+on different ones; without it the verdict is inconclusive. Adapt load/score to your own replay; keep
+the last-line contract.
 
 Inside DIVERGE's sandbox there is no network, writes only go to a scratch working directory, the
 environment is emptied (so pass the data path as a flag, never an environment variable), and .env
@@ -43,15 +46,15 @@ def main(argv=None):
         spec.loader.exec_module(module)
         fn = getattr(module, args.entrypoint)
         errors = []
-        for r in records:
+        for r in records:  # ids: the record's own "id", else its line number
             got = float(fn(r["input"]))
             if not math.isfinite(got):
                 return result(False, error=f"non-finite prediction for input {r['input']!r}")
             errors.append(abs(got - float(r["expected"])))
     except Exception as e:  # any candidate failure is an invalid result, not a crash
         return result(False, error=f"{type(e).__name__}: {e}")
-    worst = sorted(range(len(errors)), key=lambda i: -errors[i])[:3]
-    result(True, sum(errors) / len(errors), n_records=len(records), worst_records=worst)
+    cases = [{"id": str(r.get("id", i)), "loss": e} for i, (r, e) in enumerate(zip(records, errors))]
+    result(True, sum(errors) / len(errors), n_records=len(records), cases=cases)
 
 
 if __name__ == "__main__":

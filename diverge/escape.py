@@ -81,6 +81,42 @@ def levers(diagnosis, trajectory, overlook, families=None):
     return out
 
 
+LEVER_POLICIES = ("chosen", "random")
+RANDOM_POOL_SHARE = 0.5  # the rescue test's random_lever control drew from inputs this share of the consensus uses
+
+
+def attempt_levers(trajectory):
+    """Levers from the attempts alone, for tasks without an overlook study: inputs of the task
+    interface that no attempt uses (read by the extractor model, so HYPOTHESIZED)."""
+    n = trajectory.get("n") or len(trajectory.get("fingerprints") or {})
+    return [{"type": "attempt_unused_input", "name": name, "detail": {},
+             "mechanism": f"Build the decision rule around {name}, so that different values of it change which "
+                          f"option is chosen.",
+             "why": f"none of your {n} attempts use {name} (read from the code by a model; no consensus data for "
+                    f"this task)"}
+            for name in (trajectory.get("shared") or {}).get("inputs_unused") or []]
+
+
+def random_lever(trajectory, overlook, found, attempts, seed=0):
+    """A random lever, seeded by the attempts' code (same attempts, same draw). With an overlook study:
+    an input at least RANDOM_POOL_SHARE of consensus samples use, as the rescue test's random_lever
+    control arm (3/4 stuck states rescued vs 1/4 for the chosen lever, docs/RESULTS.md round 2);
+    else any available lever, else None."""
+    import random
+    pool = [r["input"] for r in (overlook or {}).get("inputs", []) if (r.get("share") or 0) >= RANDOM_POOL_SHARE]
+    digest = hashlib.sha256("\0".join(a.get("code") or "" for a in attempts).encode()).hexdigest()
+    rng = random.Random(int(digest[:12], 16) + seed)
+    if pool:
+        lever = _lever_v2(rng.choice(sorted(pool)), overlook)
+        lever["why"] = (f"drawn at random ({lever['why']}); in the rescue test a random lever rescued more stuck "
+                        f"states than the chosen one (docs/RESULTS.md)")
+        return {**lever, "type": "random_input"}
+    if found:
+        lever = dict(rng.choice(found))
+        return {**lever, "why": f"drawn at random from the available levers ({lever.get('why')})"}
+    return None
+
+
 def hard_constraints(overlook):
     quotes = [a["prompt_quote"] for a in ((overlook or {}).get("assumptions") or {}).get("assumptions", [])
               if a.get("kind") == "hard" and a.get("prompt_quote")]
@@ -579,6 +615,11 @@ def _admit(task, code, stuck_codes, lever_name):
     except ImportError:
         return {"admitted": True, "disagreement": None, "sensitivity": None, "perturbation": None,
                 "reasons": ["admission module unavailable: not checked"], "valid": None}
+    if hasattr(admission, "supported") and not admission.supported(task):
+        # No probes for this task (cache_eviction, every evaluator_cmd): the behavioral gate cannot run.
+        # Rejecting here used to drop every candidate on those tasks; the dev score decides instead.
+        return {"admitted": True, "disagreement": None, "sensitivity": None, "perturbation": None,
+                "reasons": ["no behavior probes for this task: admission not checked"], "valid": None}
     try:
         return admission.admit(task, code, stuck_codes, lever_name)
     except BudgetExceeded:
@@ -589,12 +630,17 @@ def _admit(task, code, stuck_codes, lever_name):
 
 
 def escape_v2(session, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
-              k_sketches=3, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=False, notes=""):
+              k_sketches=3, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=False, notes="",
+              lever_policy="chosen", lever_fallback=None, only_on_switch=False):
     """Escape v2: failure summary + one lever + agreement counterexample -> k mechanism sketches
     (fresh context, no code) -> keep sketches that use the lever and differ from the stuck
     strategy -> implement each, admit (resampling up to max_resample times) -> best on dev.
     feedback_on_reject=True appends the admission reasons to each resample prompt (as v3 does);
-    the default keeps v2's prompts and cache keys unchanged."""
+    the default keeps v2's prompts and cache keys unchanged.
+    lever_policy "chosen" (the first lever in preference order) or "random" (random_lever). When no
+    lever is found (no overlook study, e.g. a new task): attempt_levers, then lever_fallback(diagnosis,
+    report) (a callable returning a lever dict or None), only when the diagnosis is switch_strategy.
+    only_on_switch=True generates nothing unless the diagnosis is switch_strategy (diverge_escape)."""
     from .llm import ask_json
     events, calls = [], {"implementer": 0, "extractor": 0}
 
@@ -616,20 +662,35 @@ def escape_v2(session, task, current_solution, previous_attempts, evaluator, ove
     current = attempts[-1]
     report = _analyze(task, attempts, evaluator, extract)
     diagnosis = diagnose(task, report, overlook)
+    if lever_policy not in LEVER_POLICIES:
+        raise ValueError(f"lever_policy must be one of {list(LEVER_POLICIES)}, got {lever_policy!r}")
+    alternatives, source = [], "given"
     if lever is None:
         choice = choose(diagnosis, report, overlook, families)
         chosen = choice["lever"] and {**choice["lever"], "mechanism": choice["mechanism"], "why": choice["why"]}
+        alternatives, source = choice["alternatives"], "chosen"
+        if lever_policy == "random":
+            chosen, source = random_lever(report, overlook, levers(diagnosis, report, overlook, families),
+                                          attempts, seed), "random"
+        if chosen is None and diagnosis["action"] == "switch_strategy":
+            found = attempt_levers(report)
+            if found:
+                chosen, alternatives, source = found[0], found[1:4], "attempts"
+            elif lever_fallback is not None:
+                chosen, source = lever_fallback(diagnosis, report), "fallback"
     else:
         chosen = _lever_v2(lever, overlook)
     before = current.get("score")
-    out = {"version": 2, "lever": chosen, "failure_summary": None, "counterexample": None, "sketches": [],
+    out = {"version": 2, "lever": chosen, "lever_policy": lever_policy, "lever_source": source if chosen else None,
+           "lever_alternatives": alternatives, "failure_summary": None, "counterexample": None, "sketches": [],
            "kept_sketches": [], "rejections": [], "admitted": [], "candidate": None, "candidate_path": None,
            "evaluation": {"before": before, "after": None, "improved": False, "split": "dev"},
            "calls": calls, "diagnosis": diagnosis, "analysis": report, "action": diagnosis["action"], "log": events}
     summary = failure_summary(attempts, diagnosis, evaluator, notes=notes)
     out["failure_summary"] = summary
-    if chosen is None:
-        note({"stage": "lever", "event": "no lever available"})
+    if chosen is None or (only_on_switch and diagnosis["action"] != "switch_strategy"):
+        note({"stage": "lever", "event": "no lever available" if chosen is None else
+              f"no candidate generated: diagnosis is {diagnosis['action']}"})
         out["spent_usd"] = session.ledger.spent_this_run
         return out
 
@@ -642,8 +703,15 @@ def escape_v2(session, task, current_solution, previous_attempts, evaluator, ove
     impl_llm, judge_llm = _Counted(session.llm, calls, "implementer"), _Counted(session.llm, calls, "extractor")
 
     prompt = sketch_prompt(task, summary, chosen, cx, overlook, k=k_sketches, no_cx_note=no_cx)
-    reply = ask_json(impl_llm, implementer, prompt, max_tokens=session.cfg["reality_check"]["max_tokens"],
-                     key=f"escape_v2:sketch:{seed}", temperature=1.0, required=("sketches",))
+    try:  # an unusable sketch reply ends this escape without a candidate, not the whole tool call
+        reply = ask_json(impl_llm, implementer, prompt, max_tokens=session.cfg["reality_check"]["max_tokens"],
+                         key=f"escape_v2:sketch:{seed}", temperature=1.0, required=("sketches",))
+    except BudgetExceeded:
+        raise
+    except Exception as e:
+        out["rejections"].append({"stage": "sketch", "sketch": None, "reasons": [sandbox.redact(str(e))[:300]]})
+        note(out["rejections"][-1])
+        reply = {}
     sketches = [s for s in reply.get("sketches") or [] if isinstance(s, dict)][:k_sketches]
     out["sketches"], out["sketch_prompt"] = sketches, prompt
 

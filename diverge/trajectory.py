@@ -5,14 +5,22 @@ loop_score = 0.6 * strategy_similarity + 0.3 * stall + 0.1 * shared_weak, where
 - stall is 1 when the best score improves on the first by less than STALL (2%), falls linearly
   to 0 at 10% improvement, and is 0.5 when progress cannot be measured (fewer than two scores);
 - shared_weak is 1 when every attempt with dev detail is worse than the baseline on a common case.
-A single attempt scores 0. loop_detected needs two or more attempts, strategy_similarity of at
-least SAME_STRATEGY and stalled (or unknown) progress; loop_score only ranks how strong it is.
+A single attempt scores 0. loop_score only ranks how strong a loop is and never decides one:
+strategy_similarity (from model-written descriptions) was at chance for predicting shared failures
+(docs/RESULTS-E1.md, AUC 0.50-0.53), so it is reported as a caption only.
+
+FAILURE DETECTOR (detector "failures"; tasks without probes whose recent attempts all have per-case
+dev results: cache_eviction, and any evaluator_cmd that prints detail.cases [{"id", "loss"}]):
+conditions (b) and (c) below on the RECENT attempts. loop_detected = b and c.
+NO DETECTOR (detector "none"; no probes and no per-case results): loop_detected is None. DIVERGE
+cannot tell a strategy loop from a fixable stall there, and diagnose says so instead of guessing.
 
 BEHAVIOR DETECTOR (detector "behavior"; used whenever diverge.fingerprint.supported(task), i.e. the
 task's evaluator can fingerprint candidates, unless behavior_loop=False). The loop decision then
 rests only on measurements; the strategy fields an LLM extractor fills in (decision rule,
 assumptions, mechanism family) stay in the report as a caption and never enter it:
-(a) same behavior: the RECENT (3) most recent attempts all fall in one behavior cluster
+(a) same behavior: the RECENT (3) most recent attempts (all of them when there are only 2) fall in
+    one behavior cluster
     (diverge.fingerprint.clusters, single linkage at fingerprint.THRESHOLD over all attempts);
 (b) same failures: every pair of those clustered attempts has failure-set Jaccard >= SAME_FAILURES
     (0.8), failure sets being diverge.failures.failure_set(dev_detail, k=FAILURE_K): the k worst dev
@@ -177,7 +185,7 @@ def behavior_loop_of(task, attempts, evaluator=None, lower_is_better=True):
     recent_clusters = [cluster_of.get(k) for k in recent]
     top = max(set(c for c in recent_clusters if c is not None), key=recent_clusters.count, default=None)
     clustered = [k for k, c in zip(recent, recent_clusters) if c is not None and c == top]
-    a_holds = len(clustered) >= RECENT
+    a_holds = len(recent) >= 2 and len(clustered) == len(recent)  # 2 attempts: both (the documented minimum)
     spread = max((behavioral.distance(fps[x], fps[y]) for x, y in combinations(clustered, 2)), default=0.0)
 
     results = _dev_results(task, attempts, evaluator) if attempts else {}
@@ -209,7 +217,7 @@ def behavior_reasons(b):
         out.append(f"{k}/{len(recent)} recent attempts in one behavior cluster (max probe disagreement "
                    f"{b['max_probe_disagreement']:.3f} <= {behavioral.THRESHOLD})")
     else:
-        out.append(f"only {k}/{len(recent)} recent attempts share a behavior cluster (need {RECENT}; "
+        out.append(f"only {k}/{len(recent)} recent attempts share a behavior cluster (need {len(recent)}; "
                    f"{len(b['clusters'])} clusters over all attempts)")
     sets = [b["failure_sets"][x] for x in b["clustered_recent"]]
     jmin = b["failure_jaccard"]["min"]
@@ -232,6 +240,41 @@ def behavior_reasons(b):
     return out
 
 
+def failure_loop_of(task, attempts, evaluator=None, lower_is_better=True):
+    """Conditions (b) and (c) of the behavior detector on the RECENT attempts, for tasks without probes.
+    measurable: at least 2 recent attempts, each with per-case dev results (scored with the evaluator
+    when their dev_detail is missing and an evaluator exists)."""
+    recent = attempts[-RECENT:]
+    if any(not a.get("dev_detail") for a in recent) and (evaluator is not None or getattr(task, "evaluator", None)):
+        results = _dev_results(task, recent, evaluator)
+        recent = [{**a, "dev_detail": a.get("dev_detail") or results[a["id"]][1]} for a in recent]
+    sets = {a["id"]: failure_set(a.get("dev_detail"), k=FAILURE_K)
+            if a.get("dev_detail") and "error" not in a["dev_detail"] else frozenset() for a in recent}
+    measurable = len(recent) >= 2 and all(sets.values())
+    pairs = [jaccard(sets[x], sets[y]) for x, y in combinations(sets, 2)] if measurable else []
+    imp = improvement_last3([a.get("score") for a in attempts], lower_is_better)
+    return {"measurable": measurable, "recent": [a["id"] for a in recent],
+            "failure_sets": {k: sorted(v) for k, v in sets.items()},
+            "failure_jaccard": {"min": min(pairs) if pairs else None,
+                                "mean": sum(pairs) / len(pairs) if pairs else None},
+            "improvement_last3": imp, "epsilon": EPSILON,
+            "conditions": {"b": bool(pairs) and min(pairs) >= SAME_FAILURES, "c": imp is None or imp <= EPSILON}}
+
+
+def failure_reasons(f):
+    imp = f["improvement_last3"]
+    trend = ("dev improvement unknown: fewer than two scored attempts (counts as stalled)" if imp is None else
+             f"dev improvement over the last 3 attempts {imp:+.1%} (epsilon {EPSILON:.0%})")
+    if not f["measurable"]:
+        return [trend, "no per-case dev results for the recent attempts, so shared failures cannot be measured"]
+    jmin, sets = f["failure_jaccard"]["min"], f["failure_sets"]
+    same = (f"recent attempts fail on the same worst dev cases (min Jaccard {jmin:.2f}): "
+            f"{', '.join(sets[f['recent'][0]])}") if f["conditions"]["b"] else \
+        (f"recent attempts fail on different worst dev cases (min Jaccard {jmin:.2f} < {SAME_FAILURES}): "
+         + "; ".join(f"{k}: {', '.join(v)}" for k, v in sets.items()))
+    return [same, trend]
+
+
 def analyze(task, attempts, extract=None, behavior=False, lower_is_better=True, baseline_detail=None,
             behavior_loop=None, evaluator=None):
     """attempts: [{"id", "code", "score", "dev_detail"}] in chronological order. behavior_loop:
@@ -252,15 +295,16 @@ def analyze(task, attempts, extract=None, behavior=False, lower_is_better=True, 
     shared = shared_items(fps, has_detail)
     prog = progress([a.get("score") for a in attempts], lower_is_better)
     rel = prog["relative_improvement"]
-    stalled = rel is None or rel < STALL
     loop_score = 0.0 if n < 2 else (WEIGHTS["strategy"] * sims["strategy"] + WEIGHTS["stall"] * stall_of(rel)
                                     + WEIGHTS["weak"] * bool(shared["weak_regimes"]))
     reasons = reasons_for(n, fps, shared, sims, prog, has_detail) if n else []
     if b is None:
-        llm_loop = n >= 2 and sims["strategy"] >= SAME_STRATEGY and stalled
+        f = failure_loop_of(task, attempts, evaluator, lower_is_better)
         return {"n": n, "fingerprints": fps, "code_similarity": sims["code"], "strategy_similarity": sims["strategy"],
                 "shared": shared, "progress": prog, "loop_score": round(loop_score, 4),
-                "loop_detected": llm_loop, "detector": "llm", "behavior": None, "reasons": reasons}
+                "loop_detected": all(f["conditions"].values()) if f["measurable"] else None,
+                "detector": "failures" if f["measurable"] else "none", "behavior": None, "failures": f,
+                "reasons": reasons + (failure_reasons(f) if n else [])}
     report = {k: v for k, v in b.items() if k != "signatures"}
     return {"n": n, "fingerprints": fps, "code_similarity": sims["code"], "strategy_similarity": sims["strategy"],
             "shared": shared, "progress": prog, "loop_score": round(loop_score, 4),

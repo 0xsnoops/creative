@@ -13,7 +13,7 @@ from diverge import alternatives as A
 from diverge.contract import parse
 from diverge.llm import LLM
 from diverge.task import Task
-from tests.test_escape_tool import BEST_FITS, call_escape
+from tests.test_escape_tool import BEST_FITS, v2_reply, call_escape
 from tests.test_pipeline_offline import FUNSEARCH, MODELS, fake_world, reply_to  # noqa: F401
 
 FREE = "Write a function that packs items into bins of capacity 100."
@@ -215,14 +215,14 @@ def test_escape_puts_the_agents_inputs_in_the_implementation_prompt(fake_world, 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]
         prompts.append(prompt)
-        text = f"```python\n{FUNSEARCH}```" if "Strategy to move away from" in prompt else reply_to(prompt)
+        text = v2_reply(prompt)
         return {"choices": [{"message": {"content": text}, "finish_reason": "stop"}], "usage": {"cost": 0.001}}
     monkeypatch.setattr(LLM, "_post", post)
     verdict, body = call_escape({"task_description": "online_bin_packing", "current_solution": BEST_FITS[2],
                                  "previous_attempts": BEST_FITS[:2], "already_tried": TRIED,
                                  "constraints": ["pure Python"], "context": f"waste 4.1% {SECRET}"})
     assert verdict == "escape"
-    impl = next(p for p in prompts if "Strategy to move away from" in p)
+    impl = next(p for p in prompts if "Propose mechanism sketches" in p)  # v2: notes join the failure summary
     assert "Notes from the agent:" in impl and "first fit with sorted bins: stuck at 4.1% waste" in impl
     assert "- pure Python" in impl and "waste 4.1%" in impl and SECRET not in impl
     assert body["agent_inputs"] == {"already_tried": 1, "logged_outcomes": 0, "constraints": 1,

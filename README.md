@@ -71,9 +71,10 @@ experimenting agent loops on one strategy, gets stuck, and escalates to a human.
 
 **The loop.**
 
-1. **Spot sameness:** compare attempts by behavior (what they decide), not by how the code reads
-   (behavior fingerprints where the evaluator supports them, currently online_bin_packing;
-   strategy descriptions elsewhere).
+1. **Spot sameness:** compare attempts by what they measurably do, never by how the code reads:
+   behavior fingerprints where the evaluator supports them (currently online_bin_packing), else
+   whether the recent attempts fail on the same worst cases (cache_eviction, or any evaluator that
+   reports per-case losses). With neither, the verdict is `inconclusive` and says what to add.
 2. **Map the consensus:** what most models converge on for this task, and what they overlook
    (unused signals, rare families, untested assumptions).
 3. **Generate alternatives:** unconventional mechanism sketches in isolated calls, a separate critic
@@ -157,9 +158,11 @@ absolute AUC is modest and the target is coarse: 5 dev instances and the top-2 w
 only 10 possible failure sets, one of which covers 55 of 140 programs, so part of "same failure
 set" is shared instance difficulty, not strategy. On a secondary target (failures relative to best
 fit) no signal is above chance, and no embedding baseline was computed, so the pre-registered E1
-comparison is still untested. Details: `docs/RESULTS-E1.md`. Following this, on tasks whose
-evaluator can fingerprint candidates (currently online_bin_packing) the loop decision uses the
-behavior signal; elsewhere it still uses strategy similarity. The live runs above used strategy similarity.
+comparison is still untested. Details: `docs/RESULTS-E1.md`. Following this, strategy similarity no
+longer decides anything: the loop decision uses the behavior signal where the evaluator can
+fingerprint candidates (currently online_bin_packing), shared worst dev cases where it reports
+per-case results, and otherwise returns `inconclusive`. The live runs above predate this and used
+strategy similarity.
 
 **Rescue tests (preliminary, n = 4 stuck states each).**
 - **Round 1:** no arm beat a best-fit plateau.
@@ -173,7 +176,9 @@ behavior signal; elsewhere it still uses strategy similarity. The live runs abov
   within round 2, not across rounds.
 - **What this does and does not show:** the pipeline helps, but **DIVERGE's choice of the
   overlooked lever has not been shown to beat a random lever**. Escape has not been shown to beat
-  simple baselines at scale.
+  simple baselines at scale. Until a larger test settles it, `diverge_escape` takes
+  `lever_policy`: `chosen` (default, unchanged), `random` (the control arm's draw) or `mixed`
+  (chosen, then random if the chosen candidate did not improve).
 
 **Operator benchmark (cache eviction, Anthropic API, 2 repeats, preliminary).**
 - **Variety:** steering toward overlooked families doubled the distinct working families per
@@ -412,7 +417,8 @@ that, calls are served from `results/` and return immediately.
 | `blind_spots` | `task_description`, `budget_usd=5` | sourced families rarely or never observed: count of n samples, per-model counts, 95% upper bound on share, mechanism, source URLs |
 | `reality_check` | `task_description`, `family`, `evaluator_cmd`, `k=3`, `lower_is_better`, `baseline_files`, `contrast=false`, `budget_usd=3` | best code, dev best and median, `final_score` (held-out), invalid count and errors, baseline comparison, the consensus families it was compared against |
 | `diverge_check` | `task_description`, `my_approach`, `evaluator_cmd`, `k=3`, `lower_is_better`, `contrast=false`, `budget_usd=5`, `already_tried`, `constraints`, `context`, `depth="quick"` | the family of `my_approach`, its share and rank, and a `verdict`; without an evaluator, HYPOTHESIZED alternatives (see [Give DIVERGE what you know](#give-diverge-what-you-know)) |
-| `diverge_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=1`, `budget_usd=2`, `already_tried`, `constraints`, `context` | a `VERDICT:` line, then JSON with `next_action`, `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
+| `diverge_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=3` (sketches), `budget_usd=2`, `already_tried`, `constraints`, `context`, `lever_policy="chosen"` | a `VERDICT:` line, then JSON with `next_action`, `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
+| `diverge_loop_check` | `scores`, `failing_cases`, `lower_is_better` | free triage: `decision` (`keep_going`, `call_diverge_escape`, `repair`, `stalled_unknown`, `need_more_attempts`) from the same stall and shared-failure rules, no model call |
 | `diverge_report_outcome` | `task_description`, `alternative`, `outcome` (`LEGIT`, `WEAK`, `WRONG`), `note`, `score` | free: appends to `results/<task>/outcomes.jsonl`; later calls on the same task treat it as already tried |
 
 - `task_description` is the task as you would give it to an agent; it is sent to the
@@ -420,7 +426,14 @@ that, calls are served from `results/` and return immediately.
   uses that task's prompt and built-in evaluator.
 - `evaluator_cmd` is run as `<evaluator_cmd> <path/to/candidate.py>` (no shell). On its last
   JSON line of stdout it must print `{"valid": bool, "score": number}`. It runs isolated, from
-  a scratch working directory, so use absolute paths.
+  a scratch working directory, so use absolute paths. Add per-case losses,
+  `"detail": {"cases": [{"id": "case-1", "loss": 0.9}, ...]}` (higher loss = worse on that case), so
+  `diverge_escape` can tell a strategy loop (same worst cases) from a fixable stall; without them a
+  stall is `inconclusive`.
+- `diverge_escape` runs escape v2, the version the rescue tests measured. On a task with no cached
+  consensus data its lever is an input none of your attempts use, else one model-proposed
+  alternative to your attempts' shared strategy (HYPOTHESIZED), instead of `escalate`. Admission
+  (the behavior probe check) only runs on tasks with probes; elsewhere the dev score decides.
 - `diverge_map` and `blind_spots` return `"low_confidence": true` when the weakest model has
   fewer than 20 labeled samples.
 - `budget_usd` caps what one call may spend. The global cap in `config.yaml` still applies.

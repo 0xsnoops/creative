@@ -59,11 +59,12 @@ def escape_cmd(args):
     history = sorted(Path(args.history).glob("*.py")) if args.history else []
     session = Session(budget_usd=args.budget)
     evaluator = Evaluator(task, args.evaluator or None, not args.higher_is_better)
-    r = escape_for_agent(session, task, Path(args.candidate).read_text(), [p.read_text() for p in history], evaluator)
+    r = escape_for_agent(session, task, Path(args.candidate).read_text(), [p.read_text() for p in history], evaluator,
+                         lever_policy=getattr(args, "lever_policy", "chosen"))
     ev = r["evaluation"]
     print(f"Current score: {ev['before']}")
-    print(f"{len(history) + 1} attempts. Strategy similarity: {r['strategy_similarity']}  "
-          f"(code similarity: {r['code_similarity']})")
+    print(f"{len(history) + 1} attempts. Loop detector: {((r.get('diagnosis') or {}).get('evidence') or {}).get('detector')}. "
+          f"Strategy similarity (caption only): {r['strategy_similarity']}  (code similarity: {r['code_similarity']})")
     print(f"Loop detected: {r['loop_detected']}. Action: {r['action']}")
     for reason in r["reasons"]:
         print(f"  - {reason}")
@@ -145,6 +146,8 @@ def main():
     es.add_argument("--evaluator", default="", help="evaluator command (default: the task's built-in evaluator)")
     es.add_argument("--higher-is-better", action="store_true")
     es.add_argument("--budget", type=float, default=2.0, help="USD this run may spend")
+    es.add_argument("--lever-policy", default="chosen", choices=["chosen", "random", "mixed"],
+                    help="chosen (default), random, or mixed (chosen, then random if it did not improve)")
     dm = sub.add_parser("demo", help="replay a recorded escape run offline (no API calls)")
     dm.add_argument("fixture", help="name under fixtures/trajectories and fixtures/runs, e.g. strategy_loop")
     pf = sub.add_parser("preflight", help="check budget, API keys and model slugs before a live run "

@@ -16,14 +16,14 @@ from diverge.exa import Exa
 from diverge.llm import LLM
 from diverge.task import Task
 from tests.test_contract import result as contract_result
-from tests.test_escape_tool import BEST_FITS
+from tests.test_escape_tool import BEST_FITS, v2_reply
 from tests.test_pipeline_offline import FUNSEARCH, fake_world, reply_to  # noqa: F401
 
 REAL_POST = LLM._post  # captured before any fixture replaces it
 SECRETS = {"OPENROUTER_API_KEY": "sk-or-TESTSECRET", "EXA_API_KEY": "exa-TESTSECRET"}
 BIN = "online_bin_packing"
 TOOLS = {"diverge_map", "blind_spots", "reality_check", "diverge_check", "diverge_escape", "diverge_status",
-         "diverge_report_outcome"}
+         "diverge_report_outcome", "diverge_loop_check"}
 
 
 def boom(*a, **k):
@@ -81,6 +81,9 @@ def test_every_tool_says_when_to_call_prerequisites_and_cost():
         assert "$" in d, name  # a cost statement
         if name == "diverge_status":
             assert "$0" in d and "never its value" in d
+            continue
+        if name == "diverge_loop_check":
+            assert "$0" in d and "Returns" in d and "diverge_escape" in d
             continue
         if name == "diverge_report_outcome":
             assert "$0" in d and "Returns" in d and "overfit" in d
@@ -164,7 +167,7 @@ def test_diverge_escape_returns_structured_verdict_and_next_action(fake_world, m
 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]
-        text = f"```python\n{FUNSEARCH}```" if "Strategy to move away from" in prompt else reply_to(prompt)
+        text = v2_reply(prompt)
         return {"choices": [{"message": {"content": text}, "finish_reason": "stop"}], "usage": {"cost": 0.001}}
     monkeypatch.setattr(LLM, "_post", post)
     text, s = call("diverge_escape", {"task_description": BIN, "current_solution": BEST_FITS[2],

@@ -1,4 +1,5 @@
 """The diverge_escape MCP tool end to end, offline: fake models, real sandboxed evaluator and probes."""
+import json
 from pathlib import Path
 
 import anyio
@@ -23,6 +24,26 @@ def call_escape(args):
     text = anyio.run(go)
     assert text.startswith("VERDICT: ")
     return parse(text)
+SKETCHES = [{"name": "Capacity-aware fit", "state": "none",
+             "decision_rule": "score bins by item fit relative to the largest open bin capacity",
+             "uses_lever": "the decision depends on the lever"}]
+
+
+def v2_reply(prompt, sketches=SKETCHES, code=None):
+    """Fake replies for escape v2's prompts (sketch, uses-lever and same-mechanism judges, implement);
+    anything else gets the pipeline's canned reply."""
+    from diverge.escape import IMPLEMENT_MARKER, JUDGE_MARKER, SKETCH_MARKER, USES_MARKER
+    if SKETCH_MARKER in prompt:
+        return json.dumps({"sketches": sketches})
+    if prompt.startswith(USES_MARKER):
+        return json.dumps({"uses_lever": True, "reason": "r"})
+    if prompt.startswith(JUDGE_MARKER):
+        return json.dumps({"same_mechanism": False, "reason": "a different decision signal"})
+    if IMPLEMENT_MARKER in prompt:
+        return f"```python\n{code or FUNSEARCH}```"
+    return reply_to(prompt)
+
+
 BEST_FITS = [
     "def priority(item, capacities):\n    return [-(c - item) for c in capacities]\n",
     "import numpy as np\ndef priority(item, capacities):\n    caps = np.asarray(capacities)\n    return -(caps - item)\n",
@@ -35,8 +56,8 @@ def test_diverge_escape_detects_the_loop_and_tests_an_alternative(fake_world, mo
 
     def post(self, body, attempts=4):
         prompt = body["messages"][0]["content"]
-        text = f"```python\n{FUNSEARCH}```" if "Strategy to move away from" in prompt else reply_to(prompt)
-        return {"choices": [{"message": {"content": text}, "finish_reason": "stop"}], "usage": {"cost": 0.001}}
+        return {"choices": [{"message": {"content": v2_reply(prompt)}, "finish_reason": "stop"}],
+                "usage": {"cost": 0.001}}
     monkeypatch.setattr(LLM, "_post", post)
     verdict, body = call_escape({"task_description": BIN, "current_solution": BEST_FITS[2],
                                  "previous_attempts": BEST_FITS[:2]})

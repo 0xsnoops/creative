@@ -39,7 +39,8 @@ repo's `.env`. To see DIVERGE work offline at $0:
 |---|---|---|
 | `diverge_status` | first, every session: are budget, keys and models ready? Stop and tell the user if not. | $0 |
 | `diverge_check` | before implementing, or when asked for several approaches: is my planned strategy the obvious/default one? Args: `task_description`, `my_approach` (one or two sentences on the mechanism), `evaluator_cmd` if any. Without an evaluator (free-text mode) it returns 3-5 untested alternatives, each with `strength`, `trap` and `how_to_test` (about $0.01). Pass `already_tried` / `constraints` / `context` when you have them (see below); `depth="deep"` for a multi-model search (cents). | paid |
-| `diverge_escape` | after 2+ scored attempts stall. Args: `task_description`, `current_solution` (code), `previous_attempts` (code, oldest first), `evaluator_cmd`, `lower_is_better`, `budget_usd` (default 2); optional `already_tried`, `constraints`, `context`. | paid |
+| `diverge_escape` | after 2+ scored attempts stall. Args: `task_description`, `current_solution` (code), `previous_attempts` (code, oldest first), `evaluator_cmd`, `lower_is_better`, `budget_usd` (default 2); optional `already_tried`, `constraints`, `context`, `lever_policy` (`chosen`, `random`, `mixed`). | paid |
+| `diverge_loop_check` | after each scored attempt, before paying for `diverge_escape`: `scores` (oldest first) and optional `failing_cases` (each attempt's worst cases). Says `call_diverge_escape`, `repair`, `keep_going`, `stalled_unknown` or `need_more_attempts`. | $0 |
 | `diverge_report_outcome` | after you test an idea: `alternative`, `outcome` (`LEGIT`, `WEAK` or `WRONG`), `note`, `score`. Later calls on the same `task_description` treat it as already tried. | $0 |
 | `diverge_map`, `blind_spots`, `reality_check` | lower-level research primitives (what models converge on, what they miss, scoring one family). Use only when asked for that research. | paid |
 
@@ -57,7 +58,9 @@ With any of these, alternatives come sorted decisive and cheapest first (`test_c
 `diverge_report_outcome`.
 
 `evaluator_cmd` is run as `<cmd> <candidate.py>`, prints `{"valid": bool, "score": number}` as
-its last JSON line, and needs absolute paths. It runs inside DIVERGE's sandbox (no network, no writes
+its last JSON line, and needs absolute paths. Also print per-case losses when you can,
+`"detail": {"cases": [{"id": "...", "loss": 0.9}]}`: without them DIVERGE cannot tell a strategy loop
+from a fixable stall and answers `inconclusive`. It runs inside DIVERGE's sandbox (no network, no writes
 outside a scratch directory, no reading `.env`, no nested sandbox), so it must be self-contained.
 If the task is a registered one (`online_bin_packing`, `cache_eviction`), pass exactly that name as
 `task_description` and omit `evaluator_cmd`: DIVERGE uses its own prompt and evaluator. Without MCP,
@@ -75,7 +78,7 @@ the CLI equivalents are `uv --directory <diverge repo> run python -m diverge pre
 | `repair` | Fix the existing strategy (bug, tuning, edge case) and preserve its mechanism. |
 | `escape` | Implement the named `lever`, run the evaluator, compare against the before score and the thresholds. Report which threshold it met; if neither, say undecided, not success. |
 | `escalate` | Stop autonomous retries and ask a human (no legal alternative, or a contradictory evaluator). |
-| `inconclusive` | Get more scored attempts (run the evaluator), then call again. |
+| `inconclusive` | Do what `next_action` says: get more scored attempts, or add per-case losses to the evaluator, then call again. |
 
 `diverge_check` returns a `verdict` field: `keep` implement your plan; `try_blind_spot` or
 `try_other_family` consider the returned family (it scored higher in DIVERGE's own

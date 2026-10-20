@@ -114,12 +114,46 @@ def test_llm_captions_never_change_the_behavior_verdict(seed):
     assert different["strategy_similarity"] >= trajectory.SAME_STRATEGY and not different["loop_detected"]
 
 
-def test_old_rule_still_available_and_used_for_unsupported_tasks():
+def test_without_probes_shared_failures_decide_and_captions_never_do():
+    # behavior off: the failure detector, on measured per-case results (scored with the task's evaluator)
     off = trajectory.analyze(BIN, attempts(BEST_FITS, [4.15, 4.14, 4.15]), extract=random_extract(7),
                              behavior_loop=False)
-    assert off["detector"] == "llm" and off["behavior"] is None
-    cache = trajectory.analyze(CACHE, [{"id": "x", "code": "class Policy: pass\n", "score": 0.3, "dev_detail": None}])
-    assert cache["detector"] == "llm" and cache["behavior"] is None
+    assert off["detector"] == "failures" and off["behavior"] is None and off["loop_detected"] is True
+    assert off["failures"]["conditions"] == {"b": True, "c": True}
+    assert diagnose(BIN, off)["action"] == "switch_strategy"
+    # identical captions (strategy similarity 1.0) cannot make a loop out of different failures
+    same_caption = lambda code: {"primary_signal": "item", "mechanism_family": "best fit", "assumptions": ["x"]}
+    differ = trajectory.analyze(BIN, attempts(BEST_FITS, [4.1, 4.1, 4.1], [detail({0, 1}), detail({2, 3}),
+                                                                            detail({3, 4})]),
+                                extract=same_caption, behavior_loop=False)
+    assert differ["strategy_similarity"] >= trajectory.SAME_STRATEGY
+    assert differ["detector"] == "failures" and differ["loop_detected"] is False
+    d = diagnose(BIN, differ)
+    assert d["action"] == "repair" and any("different dev cases" in r for r in d["reasons"])
+
+
+def test_no_per_case_results_means_no_detector_and_an_undetermined_diagnosis():
+    free = Task.resolve("Rank search results for a query.")
+    flat = [{"id": f"a{i}", "code": f"def rank(x):\n    return x  # {i}\n", "score": s, "dev_detail": {"rows": 3}}
+            for i, s in enumerate([0.41, 0.41, 0.41])]
+    report = trajectory.analyze(free, flat, extract=random_extract(1))
+    assert report["detector"] == "none" and report["loop_detected"] is None
+    d = diagnose(free, report)
+    assert d["action"] == "undetermined" and any("cannot tell a strategy loop" in r for r in d["reasons"])
+    rising = [{**a, "score": s} for a, s in zip(flat, [0.30, 0.35, 0.45])]
+    assert diagnose(free, trajectory.analyze(free, rising, extract=random_extract(1),
+                                         lower_is_better=False))["action"] == "continue"
+    cases = lambda worst: {"cases": [{"id": f"q{j}", "loss": 1.0 if j in worst else 0.1} for j in range(6)]}
+    looped = [{**a, "dev_detail": cases({1, 4})} for a in flat]
+    report = trajectory.analyze(free, looped, extract=random_extract(1), lower_is_better=False)
+    assert report["detector"] == "failures" and report["loop_detected"] is True
+    assert report["failures"]["failure_sets"]["a2"] == ["q1", "q4"]
+
+
+def test_two_attempts_can_be_a_behavior_loop():
+    report = trajectory.analyze(BIN, attempts(BEST_FITS[:2], [4.15, 4.15]))
+    assert report["behavior"]["conditions"] == {"a": True, "b": True, "c": True} and report["loop_detected"]
+    assert diagnose(BIN, report)["action"] == "switch_strategy"
 
 
 def test_epsilon_and_window():
