@@ -17,6 +17,35 @@ Earlier breakdown:
 
 The outline-only model review cost $0.69 separately.
 
+## Planted-answer positive control (preregistered, 2026-10-20, $0.14)
+
+Protocol: `docs/PREREGISTRATION-planted.md` (amendment 1: the first launch stopped after 4 calls when the
+extractor returned no answer; no arm had run). A relay-delay task where per-link offsets are the right
+mechanism by construction (three slow links: +160, +130, +90 ms); 5 seeded stuck states, each three
+attempts of one numeric-feature fit that ignores link_id. No Anthropic model. "Found M" = held-out
+slow-link MAE at most 20% of the stuck best's and held-out MAE below it.
+
+| state (stuck held-out / slow-link MAE) | diverge | random | fresh_start | patch |
+|---|---|---|---|---|
+| 0 (28.6 / 118.7) | 23.8 / 125.6 | 27.4 / 123.0 | 22.8 / 29.0 | 20.1 / 30.2 |
+| 1 (28.2 / 119.3) | **10.5 / 8.1 found** | 26.8 / 144.1 | 33.0 / 81.0 | 16.9 / 45.2 |
+| 2 (29.7 / 116.0) | 21.4 / 140.3 | 28.9 / 122.3 | 15.5 / 25.8 | 12.9 / 24.0 |
+| 3 (13.7 / 138.1) | 18.8 / 134.9 | 18.8 / 134.9 | **9.0 / 8.3 found** | **7.5 / 23.7 found** |
+| 4 (29.2 / 116.5) | 22.5 / 26.6 | 22.5 / 26.6 | **13.3 / 20.4 found** | 14.0 / 30.4 |
+| **found M** | **1/5** | 0/5 | **2/5** | 1/5 |
+
+- **The primary test failed:** the diverge arm found the planted mechanism in 1 of 5 states (needed 3).
+- **Why:** with no consensus map, every lever came from the fallback (the inputs-the-attempts-never-use
+  step is always empty for a free-text task: input names come from a per-task list). The fallback's top
+  alternative was "LinearModel", the stuck approach itself, in 4 of 5 states, because the attempts'
+  shared strategy was not passed to it as already tried. Its one success came under that same label, so
+  it is not evidence for the lever.
+- **random** drew from the same fallback (no map, nothing else to draw from) and repeated diverge's
+  lever; it is not a separate arm on new tasks yet.
+- **fresh_start found it 2/5 and patch 1/5**, and both had the best held-out MAE on 4 of 5 states. On a
+  new task, DIVERGE's escape did no better than a plain fresh start here.
+- Small and preliminary: 5 seeded states, one task, one run.
+
 ## Grounded alternatives (preregistered, not run yet)
 
 `docs/PREREGISTRATION-grounded.md` fixes a one-run measurement of `already_tried`, `constraints`,

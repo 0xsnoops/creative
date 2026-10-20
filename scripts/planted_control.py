@@ -34,7 +34,8 @@ from diverge.reality import Evaluator, dev_detail  # noqa: E402
 from diverge.sample import extract_code  # noqa: E402
 from diverge.task import Task  # noqa: E402
 
-OUT = ROOT / "results" / "planted"
+ROUND = int(sys.argv[sys.argv.index("--round") + 1]) if "--round" in sys.argv else 1
+OUT = ROOT / "results" / ("planted" if ROUND == 1 else f"planted-r{ROUND}")  # data is identical across rounds
 EVAL = ROOT / "scripts" / "planted" / "eval_link.py"
 SLOW = {7: 160.0, 19: 130.0, 33: 90.0}
 N_LINKS, K, ARM_BUDGET = 40, 3, 0.25  # 5 states x 4 arms x $0.25: a hard $5 bound

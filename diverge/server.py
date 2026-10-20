@@ -390,22 +390,30 @@ def escape_result(r):
                        "counterexample": (r.get("counterexample") or {}).get("text")}}
 
 
-def fallback_lever(session, task, tried, rules, context):
-    """lever_fallback for escape_v2 on tasks with no consensus data: the top grounded alternative to the
-    attempts' shared strategy (diverge.alternatives, one model call plus a screen), HYPOTHESIZED."""
+def fallback_lever(session, task, tried, rules, context, policy="chosen", seed=0):
+    """lever_fallback for escape_v2 on tasks with no consensus data: a grounded alternative to the attempts'
+    shared strategy (diverge.alternatives, one model call plus a screen), HYPOTHESIZED. The shared strategy
+    itself goes in as already tried, so the screen drops alternatives that restate it (the planted-answer
+    control's fallback proposed the stuck approach in 4 of 5 states without this). policy "random" draws one
+    of the screened alternatives (seeded) instead of taking the top-ranked one."""
+    import random
+
     from . import alternatives
 
     def make(diagnosis, report):
+        stuck = {"approach": diagnosis["shared_cause"], "source": "attempts",
+                 "outcome": f"stalled: {diagnosis.get('failure') or 'no progress'}"}
         try:
-            got = alternatives.grounded_alternatives(session, task, diagnosis["shared_cause"], "", tried, rules,
-                                                     context, "quick", N_ALTERNATIVES[1])
+            got = alternatives.grounded_alternatives(session, task, diagnosis["shared_cause"], "", [stuck, *tried],
+                                                     rules, context, "quick", N_ALTERNATIVES[1])
         except BudgetExceeded:
             raise
         except Exception:
             return None
         if not got["alternatives"]:
             return None
-        a = got["alternatives"][0]
+        a = got["alternatives"][0] if policy != "random" else \
+            random.Random(f"{diagnosis['shared_cause']}:{seed}").choice(got["alternatives"])
         return {"type": "agent_alternative", "name": a["name"], "detail": {"description": a["mechanism"]},
                 "mechanism": a["mechanism"],
                 "why": "HYPOTHESIZED: proposed by a model from your attempts' shared strategy"
@@ -433,7 +441,7 @@ def escape_for_agent(session, task, current_solution, previous_attempts, evaluat
         return escape_v2(session, task, current_solution, previous_attempts, evaluator, overlook=overlook,
                          families=families, extract=llm_extractor(session, task), k_sketches=max(1, k), seed=seed,
                          notes=notes, lever_policy=policy, only_on_switch=True,
-                         lever_fallback=fallback_lever(session, task, list(tried), list(rules), context))
+                         lever_fallback=fallback_lever(session, task, list(tried), list(rules), context, policy, seed))
     raw = run("random" if lever_policy == "random" else "chosen", 0)
     tries = [raw]
     if lever_policy == "mixed" and raw["action"] == "switch_strategy" and not raw["evaluation"]["improved"]:

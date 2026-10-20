@@ -44,3 +44,17 @@ plumbing failure rather than a finding. Changes, made before any arm produced a 
 - states run in parallel (arms within a state stay sequential);
 - per-arm cap $0.25 (was $0.40), so 5 states x 4 arms is a hard $5 bound in parallel.
 Everything else, including the outcome definitions, is unchanged.
+
+## Round 2 (new preregistration, 2026-10-20, after round 1's results)
+
+Round 1 (docs/RESULTS.md): the diverge arm found M in 1/5 states. Every lever came from the no-map
+fallback, which proposed the stuck approach itself ("LinearModel") in 4 of 5 states because the attempts'
+shared strategy was not passed to it as already tried, and lever_policy "random" repeated diverge's lever.
+The fix (diverge/server.py fallback_lever): the shared strategy goes in as an already-tried entry (so the
+screen drops restatements), and "random" draws one of the screened alternatives.
+
+Round 2 runs `scripts/planted_control.py --round 2` once, with the same task, data, stuck states, models,
+caps and outcome definitions. Only the code under test changed. fresh_start and patch send the same
+prompts as round 1, so their results are round 1's cached draws, which makes the comparison paired.
+Primary: the diverge arm finds M in at least 3 of 5 states. Both rounds are reported, whatever round 2
+shows. No round 3 of this task will be run to chase a better number.

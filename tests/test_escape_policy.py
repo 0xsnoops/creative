@@ -215,3 +215,33 @@ def test_patch_mutates_the_best_attempt_and_never_gates_on_admission(world, monk
     assert len(out["admitted"]) == 2 and all(c["would_be_admitted"] is False for c in out["admitted"])
     assert out["candidate"] and out["evaluation"]["after"] is not None and out["evaluation"]["improved"] is True
     assert E.MODES["patch"] is E.escape_patch
+
+
+def test_fallback_screens_out_the_stuck_approach_and_random_draws(fake_world, monkeypatch):
+    from diverge import alternatives as A
+    from diverge import server
+    asked = []
+
+    def post(self, body, attempts=4):
+        prompt = body["messages"][0]["content"]
+        asked.append(prompt)
+        if prompt.startswith("You are proposing alternative"):
+            alts = [{"name": n, "mechanism": f"{n} mechanism", "strength": "s", "trap": "t", "how_to_test": "h",
+                     "test_cost": "minutes", "decisive": True, "kill_result": "k"}
+                    for n in ("LinearModel", "Per-link offsets", "Queue buckets")]
+            text = json.dumps({"alternatives": alts, "relax_hint": ""})
+        elif prompt.startswith(A.SCREEN_MARKER):
+            text = json.dumps({"screen": [{"index": 0, "duplicate_of": 0, "violates": None, "reason": "same fit"}]})
+        else:
+            text = "{}"
+        return {"choices": [{"message": {"content": text}, "finish_reason": "stop"}], "usage": {"cost": 0.001}}
+    monkeypatch.setattr(LLM, "_post", post)
+    task = Task.resolve("Predict the delay of each recorded message.")
+    diagnosis = {"shared_cause": "all 3 attempts implement a linear fit", "failure": "no progress after 3 attempts"}
+    lever = server.fallback_lever(pipeline.Session(progress=lambda m: None), task, [], [], "")(diagnosis, {})
+    gen = next(p for p in asked if p.startswith("You are proposing alternative"))
+    assert "all 3 attempts implement a linear fit: stalled: no progress after 3 attempts" in gen
+    assert lever["type"] == "agent_alternative" and lever["name"] == "Per-link offsets"  # LinearModel screened out
+    draws = {server.fallback_lever(pipeline.Session(progress=lambda m: None), task, [], [], "", "random", seed)(
+        diagnosis, {})["name"] for seed in range(12)}
+    assert draws == {"Per-link offsets", "Queue buckets"}
