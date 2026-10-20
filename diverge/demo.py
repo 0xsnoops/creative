@@ -59,13 +59,13 @@ def _first_line(text, empty="(no feedback)"):
     return text.splitlines()[0] if text else empty
 
 
-def comparison(escape_score, fresh_score):
+def comparison(escape_score, fresh_score, units="% excess bins"):
     """Honest one-line comparison on held-out (lower is better)."""
     if escape_score is None or fresh_score is None:
         missing = [n for n, s in (("escape", escape_score), ("fresh_start", fresh_score)) if s is None]
         return f"cannot compare on held-out: no held-out score for {' and '.join(missing)}"
     diff = round(fresh_score - escape_score, 4)
-    tail = f"({_fmt(escape_score)} vs {_fmt(fresh_score)} % excess bins; lower is better)"
+    tail = f"({_fmt(escape_score)} vs {_fmt(fresh_score)} {units}; lower is better)"
     if diff == 0:
         return f"escape tied fresh_start on held-out {tail}"
     word = "beat" if diff > 0 else "lost to"
@@ -187,7 +187,8 @@ def run(name, root=REPO, out=print):
     out("\n== 6. Contract (what the agent receives) ==")
     out(text)
 
-    out("\n== 7. Results (% excess bins, lower is better) ==")
+    units = rec.get("units") or "% excess bins"
+    out(f"\n== 7. Results ({units}, lower is better) ==")
     base = rec.get("baselines") or {}
     best = rec.get("best_attempt") or {}
     no_candidate = esc.get("dev_score") is None and esc.get("heldout_score") is None and verdict != "escape"
@@ -201,7 +202,7 @@ def run(name, root=REPO, out=print):
     if forced:
         rows.append((f"forced escape ({forced.get('lever')})*", forced.get("dev_score"), forced.get("heldout_score"),
                      f"${forced.get('cost_usd', 0):.4f} / {forced.get('calls') or 0} calls"))
-    for b in ("best_fit", "first_fit"):
+    for b in sorted(set(base.get("dev") or {}) | set(base.get("heldout") or {})):
         rows.append((b, (base.get("dev") or {}).get(b), (base.get("heldout") or {}).get(b), ""))
     width = max(24, *(len(r[0]) for r in rows))
     out(f"  {'':{width}} {'dev':>9} {'held-out':>9}  cost")
@@ -216,10 +217,10 @@ def run(name, root=REPO, out=print):
         out(f"no escape candidate: verdict {verdict}, so DIVERGE did not switch strategy and there is nothing to "
             f"compare with fresh_start")
     else:
-        out(comparison(esc.get("heldout_score"), fresh.get("heldout_score")))
+        out(comparison(esc.get("heldout_score"), fresh.get("heldout_score"), units))
     if forced:
         out(f"* {forced.get('note')}. Forced escape vs fresh_start: "
-            + comparison(forced.get("heldout_score"), fresh.get("heldout_score")).replace("escape", "forced escape", 1))
+            + comparison(forced.get("heldout_score"), fresh.get("heldout_score"), units).replace("escape", "forced escape", 1))
     return 0
 
 
