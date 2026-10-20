@@ -401,10 +401,18 @@ def fallback_lever(session, task, tried, rules, context, policy="chosen", seed=0
     from . import alternatives
 
     def make(diagnosis, report):
-        stuck = {"approach": diagnosis["shared_cause"], "source": "attempts",
-                 "outcome": f"stalled: {diagnosis.get('failure') or 'no progress'}"}
+        outcome = f"stalled: {diagnosis.get('failure') or 'no progress'}"
+        stuck = [{"approach": diagnosis["shared_cause"], "source": "attempts", "outcome": outcome}]
+        # Each attempt's own reading too: the shared strategy keeps only properties every reading states
+        # word for word, so "Linear Regression" and "linear model" leave nothing shared to screen against.
+        for fp in (report.get("fingerprints") or {}).values():
+            rule = (fp.get("decision_rule") or {}).get("primary_signal")
+            text = ", ".join(x for x in (fp.get("mechanism_family"), f"decides by {rule}" if rule else None) if x)
+            entry = f"an attempt's strategy: {text}"
+            if text and entry.casefold() not in {t["approach"].casefold() for t in stuck}:
+                stuck.append({"approach": entry, "source": "attempts", "outcome": outcome})
         try:
-            got = alternatives.grounded_alternatives(session, task, diagnosis["shared_cause"], "", [stuck, *tried],
+            got = alternatives.grounded_alternatives(session, task, diagnosis["shared_cause"], "", [*stuck, *tried],
                                                      rules, context, "quick", N_ALTERNATIVES[1])
         except BudgetExceeded:
             raise

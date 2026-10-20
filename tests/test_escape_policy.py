@@ -238,9 +238,15 @@ def test_fallback_screens_out_the_stuck_approach_and_random_draws(fake_world, mo
     monkeypatch.setattr(LLM, "_post", post)
     task = Task.resolve("Predict the delay of each recorded message.")
     diagnosis = {"shared_cause": "all 3 attempts implement a linear fit", "failure": "no progress after 3 attempts"}
-    lever = server.fallback_lever(pipeline.Session(progress=lambda m: None), task, [], [], "")(diagnosis, {})
+    report = {"fingerprints": {"a0": {"mechanism_family": "Linear Regression", "decision_rule": {"primary_signal": "queue_len"}},
+                               "a1": {"mechanism_family": "linear model", "decision_rule": {}},
+                               "a2": {"mechanism_family": "Linear Regression", "decision_rule": {"primary_signal": "queue_len"}}}}
+    lever = server.fallback_lever(pipeline.Session(progress=lambda m: None), task, [], [], "")(diagnosis, report)
     gen = next(p for p in asked if p.startswith("You are proposing alternative"))
     assert "all 3 attempts implement a linear fit: stalled: no progress after 3 attempts" in gen
+    # each attempt's own reading is listed once, so a screen can match "LinearModel" against them
+    assert gen.count("an attempt's strategy: Linear Regression, decides by queue_len") == 1
+    assert "an attempt's strategy: linear model:" in gen
     assert lever["type"] == "agent_alternative" and lever["name"] == "Per-link offsets"  # LinearModel screened out
     draws = {server.fallback_lever(pipeline.Session(progress=lambda m: None), task, [], [], "", "random", seed)(
         diagnosis, {})["name"] for seed in range(12)}

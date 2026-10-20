@@ -247,7 +247,7 @@ def screen(llm, model, task, alts, tried, constraints):
     reply = ask_json(llm, model, SCREEN_PROMPT.format(
         task=task.prompt, tried="\n".join(f"[{i}] {tried_line(t)}" for i, t in enumerate(tried)) or "(none)",
         constraints="\n".join(f"[{i}] {c}" for i, c in enumerate(constraints)) or "(none)", proposals=proposals),
-        max_tokens=4000, required=("screen",))
+        max_tokens=8000, required=("screen",))  # room for screen models that reason first
     verdicts = {r.get("index"): r for r in reply.get("screen") or [] if isinstance(r, dict)}
     kept, dropped = [], []
     for i, a in enumerate(alts):
