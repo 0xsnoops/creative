@@ -186,3 +186,32 @@ def test_loop_check_is_free_and_uses_the_escape_rules(fake_world, monkeypatch):
     assert loop["spent_usd"] == 0.0 and loop["stalled"] is True
     assert check(scores=[4.1, 4.1, 4.1], failing_cases=[["s1", "s3"], ["s2", "s4"], ["s1", "s3"]])["decision"] == "repair"
     assert check(scores=[0.3, 0.3, None, 0.3], lower_is_better=False)["decision"] == "stalled_unknown"
+
+
+# ------------------------------------------------------------------ patch operator (research arm)
+def test_patch_mutates_the_best_attempt_and_never_gates_on_admission(world, monkeypatch):
+    from tests.test_pipeline_offline import FUNSEARCH
+    prompts = []
+    real = LLM._post
+
+    def post(self, body, attempts=4):
+        prompt = body["messages"][0]["content"]
+        if E.PATCH_MARKER in prompt:
+            prompts.append(prompt)
+            return {"choices": [{"message": {"content": f"```python\n{FUNSEARCH}```"}, "finish_reason": "stop"}],
+                    "usage": {"cost": 0.001}}
+        return real(self, body, attempts)
+    monkeypatch.setattr(LLM, "_post", post)
+    world[2]["reject"] = 99  # the stub admission rejects everything: patch must still score its candidates
+    session = pipeline.Session(progress=lambda m: None)
+    out = E.escape_patch(session, Task.resolve(BIN), CURRENT, ATTEMPTS, _evaluator(), overlook=overlook([]),
+                         lever="history", k=2)
+    parent = out["parent"]
+    assert parent["id"] in ("a0", "a1", "a2") and len(prompts) == 2
+    codes = {a["id"]: a["code"].strip() for a in [*ATTEMPTS, CURRENT]}
+    assert codes[parent["id"]] in prompts[0]  # only the parent's code is shown
+    assert not any(c in prompts[0] for i, c in codes.items() if i != parent["id"])
+    assert "depend on history" in prompts[0] and "Attempt dev scores" in prompts[0]
+    assert len(out["admitted"]) == 2 and all(c["would_be_admitted"] is False for c in out["admitted"])
+    assert out["candidate"] and out["evaluation"]["after"] is not None and out["evaluation"]["improved"] is True
+    assert E.MODES["patch"] is E.escape_patch

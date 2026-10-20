@@ -823,6 +823,112 @@ def escape_v2(session, task, current_solution, previous_attempts, evaluator, ove
     return out
 
 
+# ================================================================ patch operator (research arm)
+# Evolutionary-search style (FunSearch / AlphaEvolve): mutate the best program found so far instead of
+# starting from a blank slate. The parent is the agent's best valid attempt by dev score; the model sees
+# its code, the failure summary (scores, shared worst dev cases) and, optionally, one lever. Admission is
+# computed where the task has probes and logged as a descriptor, never used to reject. Dev split only.
+PATCH_MARKER = "Improve this program by changing its decision mechanism"
+PATCH_TEMPLATE = """{task}
+
+---
+""" + PATCH_MARKER + """ where it fails, keeping what already works.
+
+What is known about the attempts so far (no other attempt is shown):
+{summary}
+
+The best attempt so far (dev score {score}):
+```python
+{code}
+```
+{lever}
+Change the decision rule where the summary says the attempts fail; do not only re-tune constants.
+Keep the task's interface and rules. Reply with your complete solution in a single Python code block."""
+
+
+def patch_prompt(task, summary, parent, lever=None):
+    lever_text = ""
+    if lever:
+        description, _ = _lever_text(lever)
+        lever_text = f"\nMake the changed decisions depend on {lever['name']} ({description}).\n"
+    return PATCH_TEMPLATE.format(task=task.prompt, summary=summary, score=f"{parent['score']:.6g}",
+                                 code=(parent["code"] or "")[:CODE_LIMIT], lever=lever_text)
+
+
+def escape_patch(session, task, current_solution, previous_attempts, evaluator, overlook=None, lever=None, k=3,
+                 seed=0, extract=None, notes=""):
+    """k mutations of the best valid attempt (parent), each scored on dev; the best is the candidate.
+    Returns the escape_v2 result shape (lever, admitted, candidate, evaluation, diagnosis, ...) plus
+    "parent" (its id and dev score) and "version": "patch"."""
+    attempts = [_attempt(a, i) for i, a in enumerate([*previous_attempts, current_solution])]
+    score_dir = session.out_dir(task) / "escape_patch" / "attempts"
+    for a in attempts:
+        if a.get("code") and (a.get("score") is None or not a.get("dev_detail")):
+            score_dir.mkdir(parents=True, exist_ok=True)
+            path = score_dir / f"{hashlib.sha256(a['code'].encode()).hexdigest()[:12]}.py"
+            path.write_text(a["code"])
+            result = evaluator(path)
+            a.update(score=result["score"] if result["valid"] else None, valid=result["valid"],
+                     dev_detail=dev_detail(result))
+    report = _analyze(task, attempts, evaluator, extract)
+    diagnosis = diagnose(task, report, overlook)
+    chosen = _lever_v2(lever, overlook) if lever is not None else None
+    valid = [a for a in attempts if a.get("score") is not None]
+    before = attempts[-1].get("score")
+    out = {"version": "patch", "lever": chosen, "lever_policy": None, "lever_source": "given" if chosen else None,
+           "lever_alternatives": [], "parent": None, "sketches": [], "kept_sketches": [], "rejections": [],
+           "admitted": [], "candidate": None, "candidate_path": None,
+           "evaluation": {"before": before, "after": None, "improved": False, "split": "dev"},
+           "diagnosis": diagnosis, "analysis": report, "action": diagnosis["action"]}
+    if not valid:
+        out["rejections"].append({"stage": "parent", "sketch": None, "reasons": ["no valid attempt to patch"]})
+        out["spent_usd"] = session.ledger.spent_this_run
+        return out
+    parent = evaluator.best([a["score"] for a in valid])
+    parent = next(a for a in valid if a["score"] == parent)
+    out["parent"] = {"id": parent["id"], "score": parent["score"]}
+    prompt = patch_prompt(task, failure_summary(attempts, diagnosis, evaluator, notes=notes), parent, chosen)
+    out["implementation_prompts"] = [prompt]
+    code_dir = session.out_dir(task) / "escape_patch"
+    code_dir.mkdir(parents=True, exist_ok=True)
+    stuck_codes = [a["code"] for a in attempts if a.get("code")]
+    for i in range(k):
+        try:
+            entry = session.llm.chat(session.cfg["models"]["implementer"], [{"role": "user", "content": prompt}],
+                                     temperature=1.0, max_tokens=session.cfg["reality_check"]["max_tokens"],
+                                     sample_idx=f"escape_patch:{seed}:{i}")
+        except BudgetExceeded:
+            raise
+        except Exception as e:
+            out["rejections"].append({"stage": "implement", "sketch": None, "reasons": [sandbox.redact(str(e))[:300]]})
+            continue
+        code = extract_code(message_text(entry), task.entrypoint)
+        if code is None:
+            out["rejections"].append({"stage": "implement", "sketch": None, "reasons": ["no code in reply"]})
+            continue
+        admission = _admit(task, code, stuck_codes, chosen["name"] if chosen else "")
+        path = code_dir / f"patch-{seed}-{i}.py"
+        path.write_text(code)
+        result = evaluator(path)  # dev split only
+        error = (result.get("detail") or {}).get("error")
+        out["admitted"].append({"sketch": f"patch-{i}", "attempt": 0, "path": str(path), "valid": result["valid"],
+                                "score": result["score"] if result["valid"] else None,
+                                "disagreement": admission.get("disagreement"),
+                                "sensitivity": admission.get("sensitivity"),
+                                "would_be_admitted": admission.get("admitted"),
+                                "error": sandbox.redact(str(error))[:500] if error else None, "code": code})
+    scored = [c for c in out["admitted"] if c["valid"] and c["score"] is not None]
+    if scored:
+        top = evaluator.best([c["score"] for c in scored])
+        best = next(c for c in scored if c["score"] == top)
+        out.update(candidate=best["code"], candidate_path=best["path"])
+        out["evaluation"] = {"before": before, "after": top,
+                             "improved": before is None or evaluator.beats(top, before), "split": "dev"}
+    out["admitted"] = [{k: v for k, v in c.items() if k != "code"} for c in out["admitted"]]
+    out["spent_usd"] = session.ledger.spent_this_run
+    return out
+
+
 # ================================================================ escape v3
 # Diverge -> critic -> deepen. The failure summary is first stripped of incidental details of the
 # stuck attempts (anchors) while hard task constraints are kept only with a verbatim quote from the
@@ -1230,7 +1336,7 @@ def escape_v3(session, task, current_solution, previous_attempts, evaluator, ove
     return out
 
 
-MODES = {"v1": escape, "v2": escape_v2, "v3": escape_v3}
+MODES = {"v1": escape, "v2": escape_v2, "v3": escape_v3, "patch": escape_patch}
 DEFAULT_MODE = "v2"
 
 
