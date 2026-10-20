@@ -38,3 +38,10 @@ control ahead, 3/4 vs 1/4. All five external reviewers named this the first thin
   descriptive (no decision rides on them).
 - Fewer than 24 eligible states after 80 trajectories: run the arms on those that exist and report the
   result as preliminary. Any change after seeing results is a new preregistration.
+
+## Amendment 1 (2026-10-20, before any paid run of this script)
+
+Before launch, the planted-answer control showed that qwen/qwen3.8-flash can spend its whole token
+allowance on hidden reasoning and return no answer. The extractor role (judges, overlook reads) is
+therefore meta-llama/llama-4-maverick, which does not reason. Trajectories of a batch and eligible states
+run in parallel (8 workers; each trajectory and each state's arms stay sequential). Nothing else changes.

@@ -19,6 +19,7 @@
 Writes results/lever/{trajectories,arms,summary}.json."""
 import json
 import math
+from concurrent.futures import ThreadPoolExecutor
 import random
 import sys
 import time
@@ -36,12 +37,13 @@ from diverge.task import Task  # noqa: E402
 TASK = "online_bin_packing"
 MAP_MODELS = {"samplers": ["qwen/qwen3.8-max-0902", "openai/gpt-6.1-sol", "google/gemini-4-argon",
                            "meta-llama/llama-4-maverick", "deepseek/deepseek-v4-pro-0813"],
-              "labeler": "openai/gpt-6.1-sol", "extractor": "qwen/qwen3.8-flash",
+              "labeler": "openai/gpt-6.1-sol", "extractor": "meta-llama/llama-4-maverick",
               "implementer": "google/gemini-4-argon"}
 N_PER_MODEL, MAP_BUDGET, OVERLOOK_BUDGET = 20, 6.0, 1.5
 AGENT_MODEL = "deepseek/deepseek-v4.1-flash"
 BATCH, ELIGIBLE_TARGET, MAX_TRAJ = 20, 24, 80
 K, ARM_BUDGET = 3, 0.40
+WORKERS = 8  # trajectories of a batch, and eligible states, run in parallel (each one stays sequential)
 OUT = ROOT / "results" / "lever"
 ARMS = ("chosen", "random_lever", "fresh_start", "patch")
 
@@ -121,11 +123,12 @@ def main():
 
     limit = 2 if pilot else MAX_TRAJ
     while len(trajs) < limit and sum(eligible(t) for t in trajs.values()) < (0 if pilot else ELIGIBLE_TARGET):
-        for r in range(len(trajs), min(len(trajs) + (2 if pilot else BATCH), limit)):
-            t = rt.trajectory(r, task, evaluator, base_dev["best_fit"])
-            t["stuck"] = rt.stuck(t["attempts"])
-            trajs[str(r)] = t
-            traj_path.write_text(json.dumps(trajs, indent=2))
+        batch = range(len(trajs), min(len(trajs) + (2 if pilot else BATCH), limit))
+        with ThreadPoolExecutor(WORKERS) as pool:
+            for r, t in zip(batch, pool.map(lambda r: rt.trajectory(r, task, evaluator, base_dev["best_fit"]), batch)):
+                t["stuck"] = rt.stuck(t["attempts"])
+                trajs[str(r)] = t
+        traj_path.write_text(json.dumps(trajs, indent=2))
         n_el = sum(eligible(t) for t in trajs.values())
         traj_path.write_text(json.dumps(trajs, indent=2))
         print(f"{len(trajs)} trajectories, {sum(t['stuck'] for t in trajs.values())} stuck, {n_el} eligible", flush=True)
@@ -140,9 +143,10 @@ def main():
 
     arms_path = OUT / "arms.json"
     arms = read_json(arms_path, {}) or {}
-    for key, t in sorted(trajs.items(), key=lambda kv: int(kv[0])):
-        if not eligible(t) or key in arms:
-            continue
+    todo = [(key, t) for key, t in sorted(trajs.items(), key=lambda kv: int(kv[0])) if eligible(t) and key not in arms]
+
+    def run_state(item):
+        key, t = item
         rng = random.Random(5000 + t["run"])
         results = [escape_arm("chosen", t, task, evaluator, overlook, families),
                    escape_arm("random_lever", t, task, evaluator, overlook, families, lever=rng.choice(used)),
@@ -153,11 +157,15 @@ def main():
             a["heldout_score"] = rt.heldout(evaluator, a.get("code"))
             a["rescued"] = a["heldout_score"] is not None and a["heldout_score"] < t["stuck_held"]
             a.pop("candidates", None)
-        arms[key] = {"run": t["run"], "stuck_best": {"id": t["stuck_best"], "heldout_score": t["stuck_held"]},
-                     "arms": results}
-        arms_path.write_text(json.dumps(arms, indent=2))
         print(f"state {key}: stuck held-out {t['stuck_held']:.3f}; " + "; ".join(
             f"{a['arm']} {a['heldout_score']} {'R' if a['rescued'] else '-'} ${a['cost_usd']}" for a in results), flush=True)
+        return key, {"run": t["run"], "stuck_best": {"id": t["stuck_best"], "heldout_score": t["stuck_held"]},
+                     "arms": results}
+
+    with ThreadPoolExecutor(WORKERS) as pool:
+        for key, rec in pool.map(run_state, todo):
+            arms[key] = rec
+            arms_path.write_text(json.dumps(arms, indent=2))
 
     def held(state, arm):
         return next(a["heldout_score"] for a in state["arms"] if a["arm"] == arm)
