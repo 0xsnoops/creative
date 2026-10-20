@@ -46,6 +46,30 @@ slow-link MAE at most 20% of the stuck best's and held-out MAE below it.
   new task, DIVERGE's escape did no better than a plain fresh start here.
 - Small and preliminary: 5 seeded states, one task, one run.
 
+**Round 2 (preregistered after round 1, $0.23).** Fix under test: the attempts' shared strategy goes to
+the fallback as already tried, and `random` draws among the screened alternatives. fresh_start and
+patch reused round 1's cached draws (same prompts), so the comparison is paired.
+
+| state | diverge | random | fresh_start | patch |
+|---|---|---|---|---|
+| 0 | 27.4 / 123.0 (LinearModel) | 24.5 / 27.3 (KNN) | 22.8 / 29.0 | 20.1 / 30.2 |
+| 1 | 26.8 / 144.1 (LinearModel) | 28.0 / 29.2 (KNN) | 33.0 / 81.0 | 16.9 / 45.2 |
+| 2 | 28.9 / 122.3 (LinearModel) | 29.6 / 122.8 (KNN) | 15.5 / 25.8 | 12.9 / 24.0 |
+| 3 | 18.8 / 134.9 (LinearModel) | 24.0 / 54.9 (KNN) | **9.0 / 8.3 found** | **7.5 / 23.7 found** |
+| 4 | 29.6 / 124.7 (DecisionTree) | 25.1 / 98.3 (Gradient Boosting) | **13.3 / 20.4 found** | 14.0 / 30.4 |
+| **found M** | **0/5** | 0/5 | 2/5 | 1/5 |
+
+- **The primary test failed again** (0/5). The fix did not work as intended: the trace shows the shared
+  strategy was mostly "all 3 attempts keep no state", because the three attempts' model-read mechanism
+  names differ word for word ("Linear Regression", "linear model"), and a reasoning screen model hit its
+  token limit twice, so "LinearModel" was still proposed and kept in 4 of 5 states. `random` now draws a
+  different alternative (KNN, gradient boosting) but found M nowhere.
+- A follow-up change (each attempt's own reading listed as already tried; more room for the screen) is in
+  the code and **not measured**. Per the preregistration, this task gets no round 3.
+- Across both rounds, on a new task with no consensus map, DIVERGE's escape did not beat a plain fresh
+  start or a patch of the best attempt, both of which cost less.
+
+
 ## Grounded alternatives (preregistered, not run yet)
 
 `docs/PREREGISTRATION-grounded.md` fixes a one-run measurement of `already_tried`, `constraints`,
