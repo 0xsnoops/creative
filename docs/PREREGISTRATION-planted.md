@@ -33,3 +33,14 @@ levers.
 - Reported for every arm: found-M count, held-out MAE, the lever chosen, cost.
 - If fresh_start also finds M in most states, the task is too easy to separate the arms; that is
   reported as such, not fixed and rerun. Any change after seeing results is a new preregistration.
+
+## Amendment 1 (2026-10-20, before any outcome data)
+
+The first launch was stopped after 4 model calls ($0.012), none of them an arm's result. The
+extractor qwen/qwen3.8-flash spent its whole 16,000-token allowance on hidden reasoning and returned
+no answer to the alternatives prompt (186 s); it would have retried and then given "no lever", a
+plumbing failure rather than a finding. Changes, made before any arm produced a candidate:
+- extractor: meta-llama/llama-4-maverick (no hidden reasoning; tested on the same prompt);
+- states run in parallel (arms within a state stay sequential);
+- per-arm cap $0.25 (was $0.40), so 5 states x 4 arms is a hard $5 bound in parallel.
+Everything else, including the outcome definitions, is unchanged.

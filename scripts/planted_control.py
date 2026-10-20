@@ -37,8 +37,8 @@ from diverge.task import Task  # noqa: E402
 OUT = ROOT / "results" / "planted"
 EVAL = ROOT / "scripts" / "planted" / "eval_link.py"
 SLOW = {7: 160.0, 19: 130.0, 33: 90.0}
-N_LINKS, K, ARM_BUDGET, TOTAL_CAP = 40, 3, 0.40, 5.0
-MODELS = {"implementer": "deepseek/deepseek-v4-pro-0813", "extractor": "qwen/qwen3.8-flash",
+N_LINKS, K, ARM_BUDGET = 40, 3, 0.25  # 5 states x 4 arms x $0.25: a hard $5 bound
+MODELS = {"implementer": "deepseek/deepseek-v4-pro-0813", "extractor": "meta-llama/llama-4-maverick",
           "labeler": "mistralai/mistral-large-4-0"}
 FOUND_SLOW_RATIO = 0.20
 
@@ -213,8 +213,10 @@ def main():
             scores = [evaluator(_write(s, i, c))["score"] for i, c in enumerate(s["attempts"])]
             print(s["state"], s["features"], [round(x, 3) for x in scores], "heldout", heldout(s["attempts"][0], held))
         return
-    arms_path, arms, spent = OUT / "arms.json", {}, 0.0
-    for s in states:
+    from concurrent.futures import ThreadPoolExecutor
+    arms_path, arms = OUT / "arms.json", {}
+
+    def run_state(s):  # states run in parallel; arms within a state run one after another
         results = [evaluator(_write(s, i, c)) for i, c in enumerate(s["attempts"])]
         scores = [r["score"] for r in results]
         worst = sorted(results[0]["detail"]["cases"], key=lambda c: -c["loss"])[:2]
@@ -223,12 +225,8 @@ def main():
         stuck_held, stuck_slow = heldout(best_code, held)
         out = []
         for name, policy in (("diverge", "chosen"), ("random", "random"), ("fresh_start", None), ("patch", None)):
-            if spent >= TOTAL_CAP:
-                out.append({"arm": name, "error": "total cap reached"})
-                continue
             a = fresh_arm(task, s["state"], evaluator, summary) if name == "fresh_start" else \
                 escape_arm(name, task, s, evaluator, policy)
-            spent += a.get("cost_usd") or 0.0
             a["heldout_score"], a["heldout_slow_mae"] = heldout(a.get("code"), held)
             a["found_m"] = (a["heldout_slow_mae"] is not None and a["heldout_score"] is not None
                             and a["heldout_slow_mae"] <= FOUND_SLOW_RATIO * stuck_slow
@@ -237,9 +235,14 @@ def main():
             print(f"state {s['state']} {name}: action={a.get('action')} lever={(a.get('lever') or {}).get('name')} "
                   f"held-out {a['heldout_score']} slow {a['heldout_slow_mae']} found={a['found_m']} "
                   f"${a.get('cost_usd')}", flush=True)
-        arms[str(s["state"])] = {"features": s["features"], "dev_scores": scores, "worst": [c["id"] for c in worst],
-                                 "stuck_best": {"heldout": stuck_held, "heldout_slow_mae": stuck_slow}, "arms": out}
-        arms_path.write_text(json.dumps(arms, indent=2))
+        return s, {"features": s["features"], "dev_scores": scores, "worst": [c["id"] for c in worst],
+                   "stuck_best": {"heldout": stuck_held, "heldout_slow_mae": stuck_slow}, "arms": out}
+
+    with ThreadPoolExecutor(len(states)) as pool:
+        for s, rec in pool.map(run_state, states):
+            arms[str(s["state"])] = rec
+            arms_path.write_text(json.dumps(arms, indent=2))
+    spent = sum(a.get("cost_usd") or 0.0 for r in arms.values() for a in r["arms"])
     names = ["diverge", "random", "fresh_start", "patch"]
     summary = {"preliminary": True, "models": MODELS, "k": K, "arm_budget_usd": ARM_BUDGET,
                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "n_states": len(arms),
