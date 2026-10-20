@@ -118,7 +118,7 @@ Keep these requirements of the task (quoted from it):
 Pursue this one change instead:
 Lever ({lever_type}): {lever}
 Mechanism: {mechanism}
-Evidence: {why}
+Evidence: {why}{notes}
 
 The current solution, shown only as what to move away from (do not tune it):
 ```python
@@ -130,7 +130,7 @@ which option is chosen. Keep the task's interface and rules.
 Reply with your complete solution in a single Python code block."""
 
 
-def escape_prompt(task, choice, diagnosis, current_code):
+def escape_prompt(task, choice, diagnosis, current_code, notes=""):
     lever = choice["lever"]
     if lever is None:
         raise ValueError("no lever to pursue")
@@ -140,12 +140,12 @@ def escape_prompt(task, choice, diagnosis, current_code):
                                   failure=diagnosis["failure"], constraints=constraints,
                                   lever_type=lever["type"].replace("_", " "), lever=lever["name"],
                                   mechanism=choice["mechanism"], why=choice["why"],
-                                  code=(current_code or "")[:CODE_LIMIT])
+                                  notes=f"\n\n{notes}" if notes else "", code=(current_code or "")[:CODE_LIMIT])
 
 
-def generate(session, task, choice, diagnosis, current_code, evaluator, k=1, seed=0):
+def generate(session, task, choice, diagnosis, current_code, evaluator, k=1, seed=0, notes=""):
     """k implementations of the escape prompt, each scored on the dev split."""
-    prompt = escape_prompt(task, choice, diagnosis, current_code)
+    prompt = escape_prompt(task, choice, diagnosis, current_code, notes)
     code_dir = session.out_dir(task) / "escape"
     code_dir.mkdir(parents=True, exist_ok=True)
     candidates = []
@@ -207,8 +207,10 @@ def _analyze(task, attempts, evaluator, extract):
 
 
 def escape(session, task, current_solution, previous_attempts, evaluator, overlook=None, families=None,
-           extract=None, k=1):
-    """Diagnose the attempts and, if they loop on one strategy, implement one escape lever."""
+           extract=None, k=1, notes=""):
+    """Diagnose the attempts and, if they loop on one strategy, implement one escape lever. notes (the
+    agent's already-tried outcomes, hard rules and context; diverge.alternatives.escape_notes) go into
+    the implementation prompt."""
     attempts = [_attempt(a, i) for i, a in enumerate([*previous_attempts, current_solution])]
     score_dir = session.out_dir(task) / "escape" / "attempts"
     for a in attempts:  # attempts given without a score are scored on dev, sandboxed
@@ -224,7 +226,7 @@ def escape(session, task, current_solution, previous_attempts, evaluator, overlo
     choice = choose(diagnosis, report, overlook, families)
     generated = None
     if diagnosis["action"] == "switch_strategy" and choice["lever"] is not None:
-        generated = generate(session, task, choice, diagnosis, current["code"], evaluator, k=k)
+        generated = generate(session, task, choice, diagnosis, current["code"], evaluator, k=k, notes=notes)
     best = (generated or {}).get("best")
     before, after = current.get("score"), best["score"] if best else None
     improved = after is not None and (before is None or evaluator.beats(after, before))
@@ -499,8 +501,9 @@ def _counterexample_v2(session, task, attempts, lever, overlook, seed):
              "summary": found["summary"], **described}, None)
 
 
-def failure_summary(attempts, diagnosis, evaluator, k=2):
-    """Dev scores, the best score, the shared failure set and the shared strategy; never code."""
+def failure_summary(attempts, diagnosis, evaluator, k=2, notes=""):
+    """Dev scores, the best score, the shared failure set and the shared strategy, then the agent's notes
+    (diverge.alternatives.escape_notes; plain language); never code."""
     from .failures import failure_set, jaccard
     scored = [a for a in attempts if a.get("score") is not None]
     lines = ["Attempt dev scores (" + ("lower" if getattr(evaluator, "lower_is_better", True) else "higher")
@@ -522,6 +525,8 @@ def failure_summary(attempts, diagnosis, evaluator, k=2):
     lines.append(f"Shared strategy of the attempts: {diagnosis['shared_cause']}.")
     if diagnosis.get("failure"):
         lines.append(f"Observed failure: {diagnosis['failure']}.")
+    if notes:
+        lines.append(notes)
     return "\n".join(lines)
 
 
@@ -584,7 +589,7 @@ def _admit(task, code, stuck_codes, lever_name):
 
 
 def escape_v2(session, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
-              k_sketches=3, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=False):
+              k_sketches=3, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=False, notes=""):
     """Escape v2: failure summary + one lever + agreement counterexample -> k mechanism sketches
     (fresh context, no code) -> keep sketches that use the lever and differ from the stuck
     strategy -> implement each, admit (resampling up to max_resample times) -> best on dev.
@@ -621,7 +626,7 @@ def escape_v2(session, task, current_solution, previous_attempts, evaluator, ove
            "kept_sketches": [], "rejections": [], "admitted": [], "candidate": None, "candidate_path": None,
            "evaluation": {"before": before, "after": None, "improved": False, "split": "dev"},
            "calls": calls, "diagnosis": diagnosis, "analysis": report, "action": diagnosis["action"], "log": events}
-    summary = failure_summary(attempts, diagnosis, evaluator)
+    summary = failure_summary(attempts, diagnosis, evaluator, notes=notes)
     out["failure_summary"] = summary
     if chosen is None:
         note({"stage": "lever", "event": "no lever available"})
@@ -946,7 +951,8 @@ def _critic_model(models):
 
 
 def escape_v3(session, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
-              n_sketches=5, n_deepen=2, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=True):
+              n_sketches=5, n_deepen=2, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=True,
+              notes=""):
     """Escape v3: anchor-stripped failure summary -> n_sketches isolated sketches, each on its own
     lever -> critic (a different model) drops traps / restatements and ranks -> deepen the top
     n_deepen -> implement (fresh context), admit (up to max_resample resamples) -> best on dev.
@@ -991,7 +997,7 @@ def escape_v3(session, task, current_solution, previous_attempts, evaluator, ove
            "evaluation": {"before": before, "after": None, "improved": False, "split": "dev"},
            "calls": calls, "diagnosis": diagnosis, "analysis": report, "action": diagnosis["action"], "log": events}
     if not pool:
-        out["failure_summary"] = failure_summary(attempts, diagnosis, evaluator)
+        out["failure_summary"] = failure_summary(attempts, diagnosis, evaluator, notes=notes)
         note({"stage": "lever", "event": "no lever available"})
         out["spent_usd"] = session.ledger.spent_this_run
         return out
@@ -1001,7 +1007,7 @@ def escape_v3(session, task, current_solution, previous_attempts, evaluator, ove
     max_tokens = session.cfg["reality_check"]["max_tokens"]
 
     # a. anchor strip
-    summary_v2 = failure_summary(attempts, diagnosis, evaluator)
+    summary_v2 = failure_summary(attempts, diagnosis, evaluator, notes=notes)
     try:
         summary, kept_c, dropped_c = anchor_strip(ext_llm, extractor, task, summary_v2, seed=seed)
         out["anchor_strip"].update(constraints=kept_c, dropped=dropped_c, original=summary_v2)
@@ -1346,7 +1352,7 @@ def _case_lines(detail, limit=12):
 
 def escape_v4(session, task, current_solution, previous_attempts, evaluator, overlook=None, families=None, lever=None,
               n_sketches=5, n_deepen=2, max_resample=2, seed=0, log=None, extract=None, feedback_on_reject=True,
-              n_parents=2):
+              n_parents=2, notes=""):
     """Escape v4: v3's anchor strip and isolated sketches -> rubric critic with hard filters ->
     deepen the top n_deepen (non-fatal traps passed on as risks) -> implement with the lever's
     mechanism load-bearing and sibling mechanisms allowed -> compile/entrypoint check with at
@@ -1397,7 +1403,7 @@ def escape_v4(session, task, current_solution, previous_attempts, evaluator, ove
            "calls": calls, "diagnosis": diagnosis, "analysis": report, "action": diagnosis["action"], "log": events}
     out["critic.rubric"] = out["critic"]["rubric"]
     if not pool:
-        out["failure_summary"] = failure_summary(attempts, diagnosis, evaluator)
+        out["failure_summary"] = failure_summary(attempts, diagnosis, evaluator, notes=notes)
         note({"stage": "lever", "event": "no lever available"})
         out["spent_usd"] = session.ledger.spent_this_run
         return out
@@ -1408,7 +1414,7 @@ def escape_v4(session, task, current_solution, previous_attempts, evaluator, ove
     max_tokens = session.cfg["reality_check"]["max_tokens"]
 
     # a. anchor strip (as v3)
-    summary_v2 = failure_summary(attempts, diagnosis, evaluator)
+    summary_v2 = failure_summary(attempts, diagnosis, evaluator, notes=notes)
     try:
         summary, kept_c, dropped_c = anchor_strip(ext_llm, extractor, task, summary_v2, seed=seed)
         out["anchor_strip"].update(constraints=kept_c, dropped=dropped_c, original=summary_v2)

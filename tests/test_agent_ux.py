@@ -22,7 +22,8 @@ from tests.test_pipeline_offline import FUNSEARCH, fake_world, reply_to  # noqa:
 REAL_POST = LLM._post  # captured before any fixture replaces it
 SECRETS = {"OPENROUTER_API_KEY": "sk-or-TESTSECRET", "EXA_API_KEY": "exa-TESTSECRET"}
 BIN = "online_bin_packing"
-TOOLS = {"diverge_map", "blind_spots", "reality_check", "diverge_check", "diverge_escape", "diverge_status"}
+TOOLS = {"diverge_map", "blind_spots", "reality_check", "diverge_check", "diverge_escape", "diverge_status",
+         "diverge_report_outcome"}
 
 
 def boom(*a, **k):
@@ -80,6 +81,9 @@ def test_every_tool_says_when_to_call_prerequisites_and_cost():
         assert "$" in d, name  # a cost statement
         if name == "diverge_status":
             assert "$0" in d and "never its value" in d
+            continue
+        if name == "diverge_report_outcome":
+            assert "$0" in d and "Returns" in d and "overfit" in d
             continue
         assert "OPENROUTER_API_KEY" in d, name
         default = tool.input_schema["properties"]["budget_usd"]["default"]

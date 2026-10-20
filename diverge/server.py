@@ -14,6 +14,7 @@ import anyio
 from mcp.server.mcpserver import Context, MCPServer
 from mcp_types import CallToolResult, TextContent
 
+from .alternatives import ALT_FIELDS
 from .llm import BudgetExceeded
 from .pipeline import (Session, baseline_scores, check_approach, effective_n, ensure_family_scores, ensure_map,
                        record_heldout_use)
@@ -34,6 +35,8 @@ of code change but little score change, or you are about to retry another variat
 diverge_escape yourself; do not wait for the user to ask. It tells you whether your attempts are one strategy in \
 different code, and proposes and tests an unconventional alternative on your evaluator. Not for a first attempt. \
 Follow its VERDICT and next_action.
+- Pass what you know: already_tried (approaches with outcomes), constraints (hard rules) and context (your \
+real figures). After testing an idea, record it with diverge_report_outcome ($0) so it is never offered again.
 - Evidence is labeled MEASURED, SOURCE_BACKED or HYPOTHESIZED. Never treat HYPOTHESIZED evidence as measured.
 - diverge_map (the consensus map: what most models converge on), blind_spots and reality_check are lower-level \
 research primitives.
@@ -228,7 +231,6 @@ beat the planned approach), trap (the most likely way it fails or misleads), how
 measurement that would confirm or refute it, against the planned approach).
 Return JSON only: {{"alternatives": [{{"name": "...", "mechanism": "...", "strength": "...", "trap": "...", \
 "how_to_test": "..."}}]}}"""
-ALT_FIELDS = ("name", "mechanism", "strength", "trap", "how_to_test")
 N_ALTERNATIVES = (3, 5)
 
 
@@ -245,9 +247,12 @@ def cached_study(session, task):
     return ensure_map(session, task)
 
 
-def free_text_check(session, task, my_approach):
+def free_text_check(session, task, my_approach, already_tried=None, constraints=None, context="", depth="quick"):
     """diverge_check without an evaluator: the consensus comparison when a map is cached (no map is built),
-    plus untested alternatives from one extractor-model call, every one HYPOTHESIZED."""
+    plus untested alternatives, every one HYPOTHESIZED: from one extractor-model call, or, when the agent
+    passes already_tried, constraints, context or depth="deep" (or has logged outcomes for this task),
+    from diverge.alternatives (screened, grounding-checked, ranked by test cost)."""
+    from . import alternatives
     from .llm import ask_json
     from .overlook import extractor
     study, consensus_cmp = cached_study(session, task), None
@@ -263,13 +268,20 @@ def free_text_check(session, task, my_approach):
                     "blind_spots": [b["family"] for b in study["blind_spots"]], "evidence_class": "MEASURED"}
     consensus_text = ("\nAI models asked this task mostly converge on: " + ", ".join(m["top3"]) +
                  ". Prefer strategies outside these.\n") if study else ""
-    reply = ask_json(session.llm, extractor(session), ALTERNATIVES_PROMPT.format(
-        task=task.prompt, approach=my_approach, herd=consensus_text, n=N_ALTERNATIVES[1]), required=("alternatives",))
-    alts = [{k: str(a.get(k) or "").strip() for k in ALT_FIELDS} | {"evidence_class": "HYPOTHESIZED"}
-            for a in reply.get("alternatives") or [] if isinstance(a, dict) and a.get("name")][:N_ALTERNATIVES[1]]
     out = {"verdict": "untested", "mode": "free_text", "my_approach": my_approach, "herd_comparison": consensus_cmp,
-           "consensus_comparison": consensus_cmp,
-           "alternatives": alts, "complete": True}
+           "consensus_comparison": consensus_cmp}
+    if alternatives.uses_inputs(already_tried, constraints, context, depth,
+                                alternatives.logged_outcomes(task)):
+        out.update(alternatives.grounded_alternatives(session, task, my_approach, consensus_text, already_tried,
+                                                      constraints, context, depth, N_ALTERNATIVES[1]))
+        alts = out["alternatives"]
+    else:
+        reply = ask_json(session.llm, extractor(session), ALTERNATIVES_PROMPT.format(
+            task=task.prompt, approach=my_approach, herd=consensus_text, n=N_ALTERNATIVES[1]), required=("alternatives",))
+        alts = [{k: str(a.get(k) or "").strip() for k in ALT_FIELDS} | {"evidence_class": "HYPOTHESIZED"}
+                for a in reply.get("alternatives") or [] if isinstance(a, dict) and a.get("name")][:N_ALTERNATIVES[1]]
+        out["alternatives"] = alts
+    out["complete"] = True
     if not study:
         out["herd_note"] = out["consensus_note"] = (
             "No cached consensus map for this task, so the consensus comparison was skipped; free-text mode "
@@ -282,7 +294,9 @@ def free_text_check(session, task, my_approach):
 @mcp.tool(structured_output=False)
 async def diverge_check(task_description: str, my_approach: str, ctx: Context, evaluator_cmd: str = "",
                      k: int = 3, lower_is_better: bool = True, contrast: bool = False,
-                     budget_usd: float = 5.0) -> CallToolResult:
+                     budget_usd: float = 5.0, already_tried: list[dict | str] | None = None,
+                     constraints: list[str] | None = None, context: str = "",
+                     depth: str = "quick") -> CallToolResult:
     """Call before committing to a strategy: is my_approach (a plain-language description) just the
     default answer most AI models give? Get alternatives with strengths and traps (free-text mode needs
     no evaluator), or, with an evaluator, which family your plan belongs to, how common it is, and
@@ -296,16 +310,36 @@ async def diverge_check(task_description: str, my_approach: str, ctx: Context, e
     Returns "VERDICT: <verdict>", a short markdown summary, then JSON (also the structuredContent):
     verdict keep | try_blind_spot | try_other_family (also inconclusive, unclassified, untested), complete,
     next_action, your family and share, blind_spot or better_family, diverse_alternative when a blind
-    spot also beat yours, and spent_usd. contrast=True is experimental (see README)."""
+    spot also beat yours, and spent_usd. contrast=True is experimental (see README).
+    Pass what you know (free-text mode; all optional):
+    - already_tried [{approach, outcome, score}] (or plain strings): never offered again; each alternative
+      names the outcome it builds_on. Outcomes logged with diverge_report_outcome are added automatically.
+    - constraints [str]: hard rules (scope, hardware, budget, "no new dependencies"). Alternatives that
+      duplicate already_tried or break a rule are dropped by a separate reviewer model and listed in
+      filtered_out with the reason; relax_hint names the one rule whose relaxation would open the most.
+    - context: your real figures (a log tail, a results table; redacted, capped at 8000 characters).
+      Alternatives quote the figures they rely on (grounding); ungrounded_numbers flags numbers that do
+      not appear in your context (a deterministic check).
+    - depth "quick" (default) or "deep": 3 isolated samples from models of different companies at
+      different temperatures, one critic that wrote none of them (novelty, constraint_fit, testability),
+      same-mechanism repeats dropped; costs cents, not dollars (models_used and spent_usd are returned).
+    With any of these, each alternative also has test_cost (minutes | hours | days), decisive and
+    kill_result, sorted decisive and cheapest first (coarse, HYPOTHESIZED estimates), and next_action
+    names the first one's kill test. The evaluator path ignores these inputs (agent_inputs_note says so)."""
     from .contract import check_result
 
     def work(session):
         task = Task.resolve(task_description)
         if not evaluator_cmd and not task.evaluator:
-            return free_text_check(session, task, my_approach)
+            return free_text_check(session, task, my_approach, already_tried, constraints, context, depth)
         study = ensure_map(session, task)
         evaluator = Evaluator(task, evaluator_cmd or None, lower_is_better)
-        return check_approach(session, task, study, my_approach, evaluator, k, contrast)
+        result = check_approach(session, task, study, my_approach, evaluator, k, contrast)
+        if already_tried or constraints or context or depth != "quick":
+            result["agent_inputs_note"] = ("already_tried, constraints, context and depth shape free-text "
+                                           "alternatives and diverge_escape; this evaluator run tested consensus "
+                                           "families and blind spots and did not use them.")
+        return result
     text, structured = check_result(json.loads(await run_tool(ctx, budget_usd, work)))
     return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=structured)
 
@@ -329,7 +363,8 @@ async def diverge_status(check_model_catalog: bool = False) -> str:
     return compact({**await anyio.to_thread.run_sync(call), "spent_usd": 0.0})
 
 
-def escape_for_agent(session, task, current_solution, previous_attempts, evaluator, k=1, counterexamples=True):
+def escape_for_agent(session, task, current_solution, previous_attempts, evaluator, k=1, counterexamples=True,
+                     notes=""):
     """diverge.escape.escape plus what the agent needs to trust it: strategy counterexamples between its
     attempts and the escape candidate (tasks with a probe mode), and how stable the consensus map is
     under rewording (the paraphrase test), when those exist."""
@@ -340,7 +375,7 @@ def escape_for_agent(session, task, current_solution, previous_attempts, evaluat
     out = session.out_dir(task)
     result = escape(session, task, current_solution, previous_attempts, evaluator,
                     overlook=read_json(out / "overlook.json"), families=read_json(out / "blind_spots.json"),
-                    extract=llm_extractor(session, task), k=k)
+                    extract=llm_extractor(session, task), k=k, notes=notes)
     para = read_json(out / "paraphrase.json")
     result["herd_stability"] = result["consensus_stability"] = ({"verdict": para["verdict"], "paraphrase_tvd": para["mean_P"],
                                  "resampling_tvd_max": para["max_R"]} if para else None)
@@ -356,7 +391,9 @@ def escape_for_agent(session, task, current_solution, previous_attempts, evaluat
 @mcp.tool(structured_output=False)
 async def diverge_escape(task_description: str, current_solution: str, ctx: Context,
                       previous_attempts: list[str] | None = None, evaluator_cmd: str = "",
-                      lower_is_better: bool = True, k: int = 1, budget_usd: float = 2.0) -> CallToolResult:
+                      lower_is_better: bool = True, k: int = 1, budget_usd: float = 2.0,
+                      already_tried: list[dict | str] | None = None, constraints: list[str] | None = None,
+                      context: str = "") -> CallToolResult:
     """Primary tool for when you keep getting the same answer: tells you whether your attempts are
     one strategy in different code and proposes and tests an unconventional alternative. Call it
     yourself, without waiting to be asked, when several scored attempts have stalled, the same failure
@@ -377,8 +414,12 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
     can_continue_autonomously, complete, missing_requirements, candidate_available,
     evidence_summary, lever, next_experiment (success and failure thresholds), evidence (each
     MEASURED, SOURCE_BACKED or HYPOTHESIZED), candidate_path, spent_usd; the same object (plus
-    verdict) is the structuredContent. Follow next_action; never treat HYPOTHESIZED as measured."""
-    from . import plateau
+    verdict) is the structuredContent. Follow next_action; never treat HYPOTHESIZED as measured.
+    Optional, plain language: already_tried [{approach, outcome, score}] (what the attempts were and why
+    each failed, plus outcomes logged with diverge_report_outcome), constraints [str] (hard rules) and
+    context (your real figures; redacted, capped at 8000 characters) are added to the prompt that writes
+    the escape candidate (only written when the verdict is escape); agent_inputs counts what was passed."""
+    from . import alternatives, plateau
     from .contract import agent_result
     from .pipeline import read_json
     loaded = {}
@@ -392,7 +433,15 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
                 ["evaluator_cmd"], can_continue=True)
         evaluator = RecordingEvaluator(Evaluator(task, evaluator_cmd or None, lower_is_better))
         codes = [*(previous_attempts or []), current_solution]
-        result = escape_for_agent(session, task, current_solution, previous_attempts or [], evaluator, k)
+        logged = alternatives.logged_as_tried(alternatives.logged_outcomes(task))
+        tried = alternatives.merge_tried(alternatives.clean_tried(already_tried), logged)
+        rules, (notes_context, truncated) = alternatives.clean_constraints(constraints), alternatives.clean_context(context)
+        result = escape_for_agent(session, task, current_solution, previous_attempts or [], evaluator, k,
+                                  notes=alternatives.escape_notes(tried, rules, notes_context))
+        if tried or rules or notes_context:
+            result["agent_inputs"] = {"already_tried": len(tried), "logged_outcomes": len(logged),
+                                      "constraints": len(rules), "context_chars": len(notes_context),
+                                      "context_truncated": truncated}
         result["attempts"] = evaluator.attempts(codes)
         result["lower_is_better"] = evaluator.lower_is_better
         plateau.attach(result, task.baselines("dev"))  # None for external evaluators (no built-in baselines)
@@ -417,6 +466,34 @@ async def diverge_escape(task_description: str, current_solution: str, ctx: Cont
     # structuredContent. structured_output=False: no outputSchema, so the dict is passed through as is.
     text, structured = agent_result(json.loads(await run_tool(ctx, budget_usd, work)), **loaded)
     return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=structured)
+
+
+@mcp.tool()
+async def diverge_report_outcome(task_description: str, alternative: str, outcome: str, ctx: Context,
+                                 note: str = "", score: float | None = None) -> str:
+    """Record what happened when you tested an alternative DIVERGE suggested (or any approach), so later
+    diverge_check and diverge_escape calls on the same task_description treat it as already tried and
+    never offer a failed idea again. Call it after each test of an idea. Costs $0: no model or network
+    call. outcome: LEGIT (it worked), WEAK
+    (it helped a little or is unclear) or WRONG (it failed or was refuted); note says why; score is
+    optional. The log is only replayed as already_tried; DIVERGE does not learn weights or re-rank from
+    it (far too little data: tuning on it would overfit). Returns recorded, n_outcomes, next_action."""
+    from . import alternatives
+
+    def call():
+        try:
+            task = Task.resolve(task_description)
+            row = alternatives.record_outcome(task, alternative, outcome, note, score)
+            n = len(alternatives.logged_outcomes(task))
+            return {"recorded": row, "n_outcomes": n, "complete": True,
+                    "next_action": "Recorded. Later diverge_check and diverge_escape calls on this exact "
+                                   "task_description include it in already_tried automatically."}
+        except ValueError as e:
+            return failure("invalid_argument", str(e), "Fix the argument and call diverge_report_outcome again.",
+                           ["outcome" if "outcome" in str(e) else "alternative"], can_continue=True)
+        except Exception as e:
+            return failure(type(e).__name__, str(e), "Report this error to the user.")
+    return compact({**await anyio.to_thread.run_sync(call), "spent_usd": 0.0})
 
 
 class RecordingEvaluator:

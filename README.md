@@ -411,8 +411,9 @@ that, calls are served from `results/` and return immediately.
 | `diverge_map` | `task_description`, `budget_usd=5` | family shares overall and per model, `concentration_top3`, `top3` |
 | `blind_spots` | `task_description`, `budget_usd=5` | sourced families rarely or never observed: count of n samples, per-model counts, 95% upper bound on share, mechanism, source URLs |
 | `reality_check` | `task_description`, `family`, `evaluator_cmd`, `k=3`, `lower_is_better`, `baseline_files`, `contrast=false`, `budget_usd=3` | best code, dev best and median, `final_score` (held-out), invalid count and errors, baseline comparison, the consensus families it was compared against |
-| `diverge_check` | `task_description`, `my_approach`, `evaluator_cmd`, `k=3`, `lower_is_better`, `contrast=false`, `budget_usd=5` | the family of `my_approach`, its share and rank, and a `verdict` |
-| `diverge_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=1`, `budget_usd=2` | a `VERDICT:` line, then JSON with `next_action`, `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
+| `diverge_check` | `task_description`, `my_approach`, `evaluator_cmd`, `k=3`, `lower_is_better`, `contrast=false`, `budget_usd=5`, `already_tried`, `constraints`, `context`, `depth="quick"` | the family of `my_approach`, its share and rank, and a `verdict`; without an evaluator, HYPOTHESIZED alternatives (see [Give DIVERGE what you know](#give-diverge-what-you-know)) |
+| `diverge_escape` | `task_description`, `current_solution`, `previous_attempts`, `evaluator_cmd`, `lower_is_better`, `k=1`, `budget_usd=2`, `already_tried`, `constraints`, `context` | a `VERDICT:` line, then JSON with `next_action`, `lever`, `next_experiment`, `evidence` and `scope_note` (see [Escaping a strategy loop](#escaping-a-strategy-loop)) |
+| `diverge_report_outcome` | `task_description`, `alternative`, `outcome` (`LEGIT`, `WEAK`, `WRONG`), `note`, `score` | free: appends to `results/<task>/outcomes.jsonl`; later calls on the same task treat it as already tried |
 
 - `task_description` is the task as you would give it to an agent; it is sent to the
   sampler models verbatim. A registered task name (`online_bin_packing`, `cache_eviction`)
@@ -439,6 +440,50 @@ that, calls are served from `results/` and return immediately.
     it is returned as `diverse_alternative`.
   - `inconclusive`: no valid implementation of your family, or the budget ran out before it.
   - `untested`: there was no evaluator, so only the map lookup ran.
+
+### Give DIVERGE what you know
+
+All optional; without them the free-text call is the same single cheap model call as before.
+
+- `already_tried`: `[{"approach": "...", "outcome": "why it failed", "score": 0.041}]` (or plain
+  strings). Alternatives never repeat them: a reviewer model that did not write the alternatives
+  drops duplicates into `filtered_out` (`reason: "duplicate_of"`), and each alternative names the
+  outcome it `builds_on`.
+- `constraints`: hard rules (`"CPU only"`, `"no new dependencies"`). Violators go to `filtered_out`
+  (`reason: "violates"`). `relax_hint` names the one rule whose relaxation would open the most
+  different idea; it is advice, never an alternative that breaks a rule.
+- `context`: your real figures (a log tail, a results table). Redacted, capped at 8000 characters
+  (`context_truncated`). Each alternative quotes the figures it relies on (`grounding`), and a
+  deterministic check lists any number it states that is not in your context (`ungrounded_numbers`;
+  single-digit integers are ignored as counts).
+- `depth="deep"`: three isolated samples from models of different companies at different
+  temperatures, then one critic model that wrote none of them scores `novelty`, `constraint_fit` and
+  `testability` and drops same-mechanism repeats. It costs a few model calls (cents); `deep.models_used`
+  and `spent_usd` are returned.
+
+With any of these, each alternative carries `test_cost` (`minutes`, `hours` or `days`), `decisive`
+and `kill_result`, and the list is sorted decisive and cheapest first. These are coarse model
+estimates (HYPOTHESIZED), not a computed expected value. `next_action` names the first alternative
+and the result that would kill it. After you test an idea, `diverge_report_outcome` records it;
+later `diverge_check` and `diverge_escape` calls on the same `task_description` include it in
+`already_tried`. The log is only replayed, never used to learn weights: there is far too little data.
+`diverge_escape` adds the same three inputs to the prompt that writes its candidate (`agent_inputs`
+reports what was used).
+
+### Use your own replay or backtest as the evaluator
+
+Any recorded-data replay works as `evaluator_cmd` if it takes the candidate path last and prints
+`{"valid": bool, "score": number}` on its last line. `examples/replay_evaluator.py` is a template:
+
+```
+evaluator_cmd: "python /abs/path/diverge/examples/replay_evaluator.py --data /abs/path/recorded.jsonl"
+```
+
+Each data line is `{"input": ..., "expected": number}`; the candidate defines `predict(input)`; the
+score is the mean absolute error. Inside the sandbox the environment is emptied, so pass the data path
+as a flag, not an environment variable. There is no network and writes go only to a scratch directory;
+on macOS, `.env` files and credential directories are unreadable and other absolute paths (your
+recorded data) are readable.
 
 ### Example: Claude Code calls `diverge_check` mid-task
 

@@ -17,6 +17,13 @@ Earlier breakdown:
 
 The outline-only model review cost $0.69 separately.
 
+## Grounded alternatives (preregistered, not run yet)
+
+`docs/PREREGISTRATION-grounded.md` fixes a one-run measurement of `already_tried`, `constraints`,
+`context` and `depth="deep"` in free-text `diverge_check`: duplicate rate, constraint-violation rate and
+grounded-number share, judged by a model that wrote nothing. It has **not been run**: the session that
+added the feature had no API key. No numbers exist yet, so none are claimed.
+
 ## Consensus maps (N=20 per model, 5 models)
 
 | task | valid samples | top 3 families | share held by the top 3 |

@@ -12,12 +12,15 @@ repo; read it first) for the user's situation below.
    and follow its `next_steps`.
 2. From the situation and the conversation, collect the task description, the evaluator
    (command or registered task name), the current solution and earlier attempts, or the planned
-   approach. Ask the user for anything essential instead of guessing.
+   approach. Also collect what was already tried and how it turned out, hard constraints, and the
+   key figures (pass them as `already_tried`, `constraints`, `context`). Ask the user for anything
+   essential instead of guessing.
 3. Scored attempts that stall: `diverge_escape`. A planned approach, or a request for a few different
    ways: `diverge_check` (without an evaluator it returns untested alternatives with strength, trap
    and how to test). Generic debugging or a bug with a known cause: say DIVERGE does not apply.
 4. Act on the verdict as the skill says (keep, repair, escape, escalate, inconclusive; for
    `diverge_check`: keep, try_blind_spot, try_other_family, untested) and report evidence by class
-   (MEASURED, SOURCE_BACKED, HYPOTHESIZED), the scope note and `spent_usd`.
+   (MEASURED, SOURCE_BACKED, HYPOTHESIZED), the scope note and `spent_usd`. After testing an
+   alternative, record the result with `diverge_report_outcome` (LEGIT, WEAK or WRONG; $0).
 
 User's situation: $ARGUMENTS

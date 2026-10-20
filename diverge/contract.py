@@ -275,7 +275,7 @@ def contract(result, overlook=None, paraphrase=None, families=None):
         out["evidence"].append(_plateau.hypothesis_item(result, v))
     if "plateau" in result:
         out["plateau"] = result["plateau"]
-    for k in ("spent_usd", "counterexamples"):
+    for k in ("spent_usd", "counterexamples", "agent_inputs"):
         if k in result:
             out[k] = result[k]
     out["candidate_path"] = result.get("candidate_path")
@@ -449,8 +449,20 @@ def check_markdown(obj):
     if alts:
         lines.append("**Alternatives (HYPOTHESIZED, untested):**")
         for a in alts:
-            lines.append(f"- **{_md_text(a.get('name'))}**: {_md_text(a.get('mechanism'))} "
-                         f"Strength: {_md_text(a.get('strength'))} Test: {_md_text(a.get('how_to_test'))}")
+            line = (f"- **{_md_text(a.get('name'))}**: {_md_text(a.get('mechanism'))} "
+                    f"Strength: {_md_text(a.get('strength'))} Test: {_md_text(a.get('how_to_test'))}")
+            if a.get("test_cost"):
+                line += (f" Cost: {_md_text(a['test_cost'])}" + (", decisive" if a.get("decisive") else "")
+                         + (f". Wrong if: {_md_text(a['kill_result'])}" if a.get("kill_result") else ""))
+            if a.get("ungrounded_numbers"):
+                line += " Numbers not in your context: " + ", ".join(_md_num(x) for x in a["ungrounded_numbers"])
+            lines.append(line)
+    if obj.get("filtered_out"):
+        lines.append("**Filtered out:** " + "; ".join(
+            f"{_md_text(f.get('name'))} ({_md_text(f.get('reason'))}: {_md_text(f.get('of'), 120)})"
+            for f in obj["filtered_out"]))
+    if obj.get("relax_hint"):
+        lines.append(f"**Relax hint:** {_md_text(obj['relax_hint'])}")
     traps = [f"{_md_text(a.get('name'))}: {_md_text(a.get('trap'))}" for a in alts if a.get("trap")]
     if obj.get("note"):
         traps.append(_md_text(obj["note"]))

@@ -1,0 +1,4 @@
+{"input": [22, 31, 40], "expected": 31}
+{"input": [45, 52, 61], "expected": 52}
+{"input": [18, 20, 59], "expected": 20}
+{"input": [30, 33, 90], "expected": 33}

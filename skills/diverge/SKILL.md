@@ -38,9 +38,23 @@ repo's `.env`. To see DIVERGE work offline at $0:
 | tool | when | cost |
 |---|---|---|
 | `diverge_status` | first, every session: are budget, keys and models ready? Stop and tell the user if not. | $0 |
-| `diverge_check` | before implementing, or when asked for several approaches: is my planned strategy the obvious/default one? Args: `task_description`, `my_approach` (one or two sentences on the mechanism), `evaluator_cmd` if any. Without an evaluator (free-text mode) it returns 3-5 untested alternatives, each with `strength`, `trap` and `how_to_test` (about $0.01). | paid |
-| `diverge_escape` | after 2+ scored attempts stall. Args: `task_description`, `current_solution` (code), `previous_attempts` (code, oldest first), `evaluator_cmd`, `lower_is_better`, `budget_usd` (default 2). | paid |
+| `diverge_check` | before implementing, or when asked for several approaches: is my planned strategy the obvious/default one? Args: `task_description`, `my_approach` (one or two sentences on the mechanism), `evaluator_cmd` if any. Without an evaluator (free-text mode) it returns 3-5 untested alternatives, each with `strength`, `trap` and `how_to_test` (about $0.01). Pass `already_tried` / `constraints` / `context` when you have them (see below); `depth="deep"` for a multi-model search (cents). | paid |
+| `diverge_escape` | after 2+ scored attempts stall. Args: `task_description`, `current_solution` (code), `previous_attempts` (code, oldest first), `evaluator_cmd`, `lower_is_better`, `budget_usd` (default 2); optional `already_tried`, `constraints`, `context`. | paid |
+| `diverge_report_outcome` | after you test an idea: `alternative`, `outcome` (`LEGIT`, `WEAK` or `WRONG`), `note`, `score`. Later calls on the same `task_description` treat it as already tried. | $0 |
 | `diverge_map`, `blind_spots`, `reality_check` | lower-level research primitives (what models converge on, what they miss, scoring one family). Use only when asked for that research. | paid |
+
+Pass what you know; it makes the alternatives yours instead of generic:
+- `already_tried`: `[{"approach": "...", "outcome": "why it failed", "score": 0.97}]`. DIVERGE never
+  offers these again (a separate reviewer model drops duplicates into `filtered_out`), and each
+  alternative names the failure it `builds_on`.
+- `constraints`: hard rules (`"no new dependencies"`, `"must run on one CPU"`). Violators go to
+  `filtered_out`; `relax_hint` says which rule, if relaxed, would open the most.
+- `context`: your real figures (log tail, results table, up to 8000 characters, redacted). Each
+  alternative quotes the figures it relies on (`grounding`); `ungrounded_numbers` flags numbers not
+  in your context, so do not trust those.
+With any of these, alternatives come sorted decisive and cheapest first (`test_cost`, `decisive`,
+`kill_result`): run the first one's kill test before anything else, then report the result with
+`diverge_report_outcome`.
 
 `evaluator_cmd` is run as `<cmd> <candidate.py>`, prints `{"valid": bool, "score": number}` as
 its last JSON line, and needs absolute paths. It runs inside DIVERGE's sandbox (no network, no writes
