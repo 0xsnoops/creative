@@ -17,6 +17,37 @@ Earlier breakdown:
 
 The outline-only model review cost $0.69 separately.
 
+## Rescue round 3: chosen lever vs random lever (preregistered, 2026-10-21, $5.9)
+
+Protocol: `docs/PREREGISTRATION-lever.md` (amendments 1-2, both before any eligible state: a non-reasoning
+extractor, and agent model mistralai/devstral-2512 after deepseek-v4.1-flash wrote no code). A fresh
+online_bin_packing map (20 samples from each of 5 non-Anthropic labs; $3.92) and overlook study ($0.22);
+62 agent trajectories ($0.77) gave 34 eligible stuck states (stuck, and no worse than first fit on
+held-out). Four arms per state, K = 3, same implementer; held-out once per arm ($0.85 for all arms).
+
+| arm | rescued (held-out better than the stuck best) | no valid candidate | median held-out of its candidate |
+|---|---|---|---|
+| chosen (escape v2, DIVERGE's lever) | **0/34** | 6 | 28.8 |
+| random_lever (escape v2, random used input) | 1/34 | 16 | 13.1 |
+| fresh_start (no code, failure summary) | **8/34** | 1 | 3.98 |
+| patch (edit the best attempt) | 5/34 | 3 | 3.98 |
+
+Best-fit plateau 3.98, first fit 4.31 (held-out % excess bins, lower is better).
+
+- **Primary (chosen vs random_lever, paired):** chosen better on 18 states, random on 12, 4 ties; two-sided
+  sign test p = 0.36. No significant difference, so by the preregistered rule the default lever_policy stays
+  "chosen", and **the lever choice has not been shown to matter**. random_lever often produced no valid
+  candidate (16/34), which counts as worse in this comparison.
+- **The chosen lever was corrupted in 22 of 34 states:** the map's 20 qwen3.8-max samples had no code (the
+  model spent its tokens reasoning) but were still labeled "emergent:empty-solution", and the overlook study
+  listed that as a minority family, so escape was asked to build on "the empty solution". In the other 12
+  states it chose n_open_bins (2.9% of consensus samples). Neither group rescued a state. Fixed since
+  (diverge/overlook.py minority_report skips no-code samples); this run used the bug.
+- **Escape v2 did much worse than a plain fresh start:** fresh_start's candidate beat chosen's on 32 of 34
+  states (p < 1e-6), and patch beat chosen on 30 of 34. fresh_start vs patch: 15 vs 11 (p = 0.56).
+- One task, one agent model, K = 3 per arm. It is consistent with round 2 (fresh_start 2/4, escape v2 1/4)
+  and with the planted-answer control.
+
 ## Planted-answer positive control (preregistered, 2026-10-20, $0.14)
 
 Protocol: `docs/PREREGISTRATION-planted.md` (amendment 1: the first launch stopped after 4 calls when the

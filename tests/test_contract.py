@@ -205,4 +205,4 @@ def test_render_is_json_serializable_on_real_overlook():
     lv = lever("unused_signal", "n_open_bins", **{k: row[k] for k in ("used_by", "decided", "share", "used_by_models")})
     text = render(result(levers=[lv]), overlook=overlook)
     _, body = parse(text)
-    assert classes(body)["n_open_bins used by 5/95 consensus samples"]["class"] == "MEASURED"
+    assert classes(body)[f"n_open_bins used by {row['used_by']}/{row['decided']} consensus samples"]["class"] == "MEASURED"

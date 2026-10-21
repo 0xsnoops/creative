@@ -675,7 +675,9 @@ def minority(items_by_model, all_models, max_models=2):
 def minority_report(valid, all_samples, models, grid):
     fam = defaultdict(lambda: defaultdict(list))
     for s in all_samples:
-        if s.get("family") and s["family"] != UNLABELED:
+        # A reply with no code (e.g. a sampler that spent its tokens reasoning) can still be labeled, as
+        # "emergent:empty-solution"; it is not a family any model produced, so it never becomes a lever.
+        if s.get("family") and s["family"] != UNLABELED and s.get("status") != "no_code":
             fam[s["family"]][s["model"]].append(s["sample_id"])
     comp = defaultdict(lambda: defaultdict(list))
     model_of = {s["sample_id"]: s["model"] for s in valid}

@@ -251,3 +251,15 @@ def test_fallback_screens_out_the_stuck_approach_and_random_draws(fake_world, mo
     draws = {server.fallback_lever(pipeline.Session(progress=lambda m: None), task, [], [], "", "random", seed)(
         diagnosis, {})["name"] for seed in range(12)}
     assert draws == {"Per-link offsets", "Queue buckets"}
+
+
+def test_no_code_samples_never_become_a_minority_family_lever():
+    from diverge.overlook import minority_report
+    models = ["lab-a/m", "lab-b/m", "lab-c/m"]
+    samples = [{"sample_id": f"q{i}", "model": "lab-a/m", "family": "emergent:empty-solution", "status": "no_code"}
+               for i in range(5)]
+    samples += [{"sample_id": "b0", "model": "lab-b/m", "family": "Harmonic", "status": "valid"},
+                {"sample_id": "c0", "model": "lab-c/m", "family": "Best Fit", "status": "valid"},
+                {"sample_id": "a9", "model": "lab-a/m", "family": "Best Fit", "status": "invalid"}]
+    fams = [f["item"] for f in minority_report([], samples, models, {"herd_cells": {}})["families"]]
+    assert "emergent:empty-solution" not in fams and fams == ["Harmonic", "Best Fit"]

@@ -176,9 +176,15 @@ strategy similarity.
   within round 2, not across rounds.
 - **What this does and does not show:** the pipeline helps, but **DIVERGE's choice of the
   overlooked lever has not been shown to beat a random lever**. Escape has not been shown to beat
-  simple baselines at scale. Until a larger test settles it, `diverge_escape` takes
-  `lever_policy`: `chosen` (default, unchanged), `random` (the control arm's draw) or `mixed`
-  (chosen, then random if the chosen candidate did not improve).
+  simple baselines at scale. `diverge_escape` takes `lever_policy`: `chosen` (default), `random`
+  (the control arm's draw) or `mixed` (chosen, then random if the chosen candidate did not improve).
+- **Round 3** (preregistered, 34 stuck states, non-Anthropic models): chosen vs random lever was not
+  significant (18 vs 12, p = 0.36), so the lever choice has not been shown to matter. Escape v2 rescued
+  0/34 (random lever 1/34) while a plain fresh start rescued 8/34 and patching the best attempt 5/34;
+  escape v2's candidate scored worse than fresh start's on 32 of 34 states. In 22 states the chosen lever came from a
+  labeling bug (since fixed). Details in `docs/RESULTS.md`.
+- **Planted-answer control** (a task with a known right mechanism, 5 states, two preregistered rounds):
+  escape found it in 1/5 and then 0/5; a fresh start found it in 2/5.
 
 **Operator benchmark (cache eviction, Anthropic API, 2 repeats, preliminary).**
 - **Variety:** steering toward overlooked families doubled the distinct working families per
