@@ -40,7 +40,7 @@ MAP_MODELS = {"samplers": ["qwen/qwen3.8-max-0902", "openai/gpt-6.1-sol", "googl
               "labeler": "openai/gpt-6.1-sol", "extractor": "meta-llama/llama-4-maverick",
               "implementer": "google/gemini-4-argon"}
 N_PER_MODEL, MAP_BUDGET, OVERLOOK_BUDGET = 20, 6.0, 1.5
-AGENT_MODEL = "deepseek/deepseek-v4.1-flash"
+AGENT_MODEL = "mistralai/devstral-2512"  # amendment 2: a code model without hidden reasoning
 BATCH, ELIGIBLE_TARGET, MAX_TRAJ = 20, 24, 80
 K, ARM_BUDGET = 3, 0.40
 WORKERS = 8  # trajectories of a batch, and eligible states, run in parallel (each one stays sequential)

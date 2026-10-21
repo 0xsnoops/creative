@@ -45,3 +45,11 @@ Before launch, the planted-answer control showed that qwen/qwen3.8-flash can spe
 allowance on hidden reasoning and return no answer. The extractor role (judges, overlook reads) is
 therefore meta-llama/llama-4-maverick, which does not reason. Trajectories of a batch and eligible states
 run in parallel (8 workers; each trajectory and each state's arms stay sequential). Nothing else changes.
+
+## Amendment 2 (2026-10-21, before any eligible state or arm)
+
+The pilot's two trajectories produced no attempts: deepseek/deepseek-v4.1-flash spent all 16,000 tokens
+of every call on hidden reasoning and never wrote code ($0.14 lost). The agent and implementer model is
+therefore mistralai/devstral-2512, a code model without hidden reasoning (tested once on the task prompt:
+code in 4 s, $0.001). The two empty trajectories are discarded. Map, overlook and everything else are
+unchanged.
