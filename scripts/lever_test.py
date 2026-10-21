@@ -122,7 +122,7 @@ def main():
         return t["stuck_held"] is not None and t["stuck_held"] <= first_fit_held
 
     limit = 2 if pilot else MAX_TRAJ
-    while len(trajs) < limit and sum(eligible(t) for t in trajs.values()) < (0 if pilot else ELIGIBLE_TARGET):
+    while len(trajs) < limit and sum(eligible(t) for t in trajs.values()) < (1 if pilot else ELIGIBLE_TARGET):
         batch = range(len(trajs), min(len(trajs) + (2 if pilot else BATCH), limit))
         with ThreadPoolExecutor(WORKERS) as pool:
             for r, t in zip(batch, pool.map(lambda r: rt.trajectory(r, task, evaluator, base_dev["best_fit"]), batch)):
